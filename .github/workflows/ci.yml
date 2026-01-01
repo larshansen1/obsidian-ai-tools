@@ -1,0 +1,34 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest coverage mypy ruff radon bandit
+
+      - name: Lint (ruff)
+        run: make lint
+
+      - name: Typecheck (mypy)
+        run: make typecheck
+
+      - name: Complexity (radon)
+        run: make radon
+
+      - name: Unit tests
+        run: make test
+
+      - name: Coverage enforcement
+        run: make coverage

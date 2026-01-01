@@ -1,0 +1,31 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.8
+    hooks:
+      - id: ruff
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.1
+    hooks:
+      - id: mypy
+        args: ["--config-file", "mypy.ini"]
+
+  - repo: https://github.com/Lucas-C/pre-commit-hooks-bandit
+    rev: v1.0.5
+    hooks:
+      - id: bandit
+
+  - repo: local
+    hooks:
+      - id: radon-cc
+        name: radon cc check
+        entry: ./scripts/run_radon.sh
+        language: system
+        types: [python]
+
+      - id: pytest
+        name: pytest
+        entry: ./scripts/test.sh
+        language: system
+        pass_filenames: false

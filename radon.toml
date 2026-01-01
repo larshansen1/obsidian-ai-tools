@@ -1,0 +1,8 @@
+[radon]
+# Cyclomatic complexity threshold
+cc_min = "A"
+cc_max = "C"
+exclude = [
+    "tests/*",
+    "migrations/*",
+]
