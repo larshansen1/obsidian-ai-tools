@@ -1,0 +1,21 @@
+{
+  "ai": "AI & Machine Learning",
+  "llm": "AI & Machine Learning/LLMs",
+  "agents": "AI & Machine Learning/Agents",
+  "machine-learning": "AI & Machine Learning",
+  "deep-learning": "AI & Machine Learning/Deep Learning",
+  "python": "Development/Python",
+  "javascript": "Development/JavaScript",
+  "typescript": "Development/TypeScript",
+  "rust": "Development/Rust",
+  "go": "Development/Go",
+  "docker": "DevOps/Containers",
+  "kubernetes": "DevOps/Containers",
+  "devops": "DevOps",
+  "productivity": "Productivity",
+  "research": "Research",
+  "youtube": "Media/Videos",
+  "podcast": "Media/Podcasts",
+  "article": "Reading/Articles",
+  "book": "Reading/Books"
+}

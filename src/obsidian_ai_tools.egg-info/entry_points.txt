@@ -1,0 +1,2 @@
+[console_scripts]
+kai = obsidian_ai_tools.cli:app

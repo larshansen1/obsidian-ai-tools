@@ -1,3 +1,3 @@
 #!/bin/bash
 set -e
-mypy .
+.venv/bin/mypy .
