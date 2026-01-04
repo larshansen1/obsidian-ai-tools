@@ -138,7 +138,7 @@ class TestYouTubeClientCircuitBreaker:
             circuit_breaker_threshold=3,
         )
 
-    def test_circuit_breaker_opens_after_threshold(self, minimal_settings: Settings):
+    def test_circuit_breaker_opens_after_threshold(self, minimal_settings: Settings) -> None:
         """Test that circuit breaker opens after failure threshold."""
         with patch("obsidian_ai_tools.youtube_providers.YouTubeTranscriptApi") as mock_api_class:
             mock_api_instance = Mock()
@@ -178,7 +178,9 @@ class TestYouTubeClientCaching:
             cache_ttl_hours=24,
         )
 
-    def test_cache_hit_skips_providers(self, cache_settings: Settings, mock_fetched_transcript):
+    def test_cache_hit_skips_providers(
+        self, cache_settings: Settings, mock_fetched_transcript
+    ) -> None:
         """Test that cache hit skips provider calls."""
         with patch("obsidian_ai_tools.youtube_providers.YouTubeTranscriptApi") as mock_api_class:
             mock_api_instance = Mock()
