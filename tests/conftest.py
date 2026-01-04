@@ -2,13 +2,14 @@
 
 import os
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 
 @pytest.fixture(autouse=True)
-def mock_settings_env() -> None:
+def mock_settings_env() -> Iterator[None]:
     """Set up test environment variables for all tests.
 
     Creates a temporary .env file with test configuration to avoid
