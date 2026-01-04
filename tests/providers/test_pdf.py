@@ -221,6 +221,8 @@ class TestPDFProvider:
     def test_ingest_remote_pdf_size_limit(self, mock_get: Mock) -> None:
         """Test PDF size limit enforcement for remote downloads."""
         provider = PDFProvider()
+        # Explicitly disable Supadata fallback for this test
+        provider.supadata_key = None
 
         # Mock response with large content-length
         mock_response = Mock()
@@ -233,13 +235,14 @@ class TestPDFProvider:
 
         url = "https://example.com/large.pdf"
 
-        # The size check happens, raises error, then fallback to Supadata is attempted
-        # We just verify that large files are rejected (via any exception)
-        with pytest.raises(Exception) as exc_info:
+        # The size check raises an error, and with no fallback configured,
+        # we get a wrapper error with the size limit error as the cause
+        with pytest.raises(RuntimeError) as exc_info:
             provider._ingest(url)
 
-        # Should see either size limit error or Supadata 404 (both indicate rejection)
-        assert "exceeds limit" in str(exc_info.value) or "404" in str(exc_info.value)
+        # The size limit error is the cause of the wrapper exception
+        assert exc_info.value.__cause__ is not None
+        assert "exceeds limit" in str(exc_info.value.__cause__)
 
     def test_ingest_local_pdf_size_warning(self) -> None:
         """Test size warning for large local PDFs."""
