@@ -1,6 +1,7 @@
 """Comprehensive tests for YouTube transcript provider integration."""
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
@@ -12,13 +13,19 @@ from obsidian_ai_tools.youtube_exceptions import TranscriptUnavailableError
 
 
 @pytest.fixture
-def mock_fetched_transcript():
+def mock_fetched_transcript() -> Any:
     """Mock FetchedTranscript object from youtube-transcript-api v2."""
     # Create mock snippet objects
     snippet1, snippet2, snippet3 = Mock(), Mock(), Mock()
-    snippet1.text = "Hello, this is a test video."
-    snippet2.text = "This is the second segment."
-    snippet3.text = "And this is the final part."
+    snippet1.text = (
+        "Hello, this is a test video. We're going to demonstrate "
+        "the YouTube provider functionality."
+    )
+    snippet2.text = (
+        "This is the second segment with more content to ensure "
+        "we have enough characters."
+    )
+    snippet3.text = "And this is the final part with additional text to pass validation."
 
     # Create mock FetchedTranscript
     transcript = Mock()
@@ -47,7 +54,9 @@ class TestYouTubeClientProviderFallback:
             youtube_transcript_provider_order="direct,supadata,decodo",
         )
 
-    def test_direct_provider_success(self, mock_settings: Settings, mock_fetched_transcript):
+    def test_direct_provider_success(
+        self, mock_settings: Settings, mock_fetched_transcript: Any
+    ) -> None:
         """Test successful transcript fetch from direct provider."""
         with patch("obsidian_ai_tools.youtube_providers.YouTubeTranscriptApi") as mock_api_class:
             # Mock the API instance and its fetch method
@@ -71,7 +80,7 @@ class TestYouTubeClientProviderFallback:
             assert result.provider_used == "direct"
             assert "Hello, this is a test video" in result.transcript
 
-    def test_fallback_to_supadata_on_direct_failure(self, mock_settings: Settings):
+    def test_fallback_to_supadata_on_direct_failure(self, mock_settings: Settings) -> None:
         """Test fallback to Supadata when direct provider fails."""
         with patch("obsidian_ai_tools.youtube_providers.YouTubeTranscriptApi") as mock_api_class:
             # Mock direct provider failure
@@ -79,15 +88,21 @@ class TestYouTubeClientProviderFallback:
             mock_api_instance.fetch.side_effect = Exception("Direct fetch failed")
             mock_api_class.return_value = mock_api_instance
 
-            # Mock Supadata success
-            with patch("obsidian_ai_tools.youtube_providers.requests.get") as mock_get:
-                mock_response = Mock()
-                mock_response.json.return_value = {
-                    "transcript": "Transcript from Supadata",
-                    "language": "en",
-                }
-                mock_response.raise_for_status = Mock()
-                mock_get.return_value = mock_response
+            # Mock Supadata success - patch where it's used, not where it's defined
+            with patch(
+                "obsidian_ai_tools.youtube.SupadataTranscriptProvider"
+            ) as mock_supadata_class:
+                mock_supadata_instance = Mock()
+                # Return tuple (transcript, language) - varied content to pass quality checks
+                mock_supadata_instance.fetch_transcript.return_value = (
+                    "Welcome to this video about Test Channel 2 content. Today we will "
+                    "explore various interesting topics related to software development. "
+                    "First, we discuss the importance of proper mocking in unit tests. "
+                    "Then we cover best practices for API integration testing strategies. "
+                    "Finally, we wrap up with some practical examples and demonstrations.",
+                    "en",
+                )
+                mock_supadata_class.return_value = mock_supadata_instance
 
                 client = YouTubeClient(mock_settings)
                 url = "https://www.youtube.com/watch?v=test456"
@@ -100,20 +115,34 @@ class TestYouTubeClientProviderFallback:
                     result = client.get_video_metadata(url)
 
                 assert result.provider_used == "supadata"
-                assert "Supadata" in result.transcript
+                assert "software development" in result.transcript
 
-    def test_all_providers_fail_raises_error(self, mock_settings: Settings):
+    def test_all_providers_fail_raises_error(self, mock_settings: Settings) -> None:
         """Test that TranscriptUnavailableError is raised when all providers fail."""
         with patch("obsidian_ai_tools.youtube_providers.YouTubeTranscriptApi") as mock_api_class:
             mock_api_instance = Mock()
             mock_api_instance.fetch.side_effect = Exception("Direct failed")
             mock_api_class.return_value = mock_api_instance
 
-            with patch("obsidian_ai_tools.youtube_providers.requests.get") as mock_get:
-                mock_get.return_value.raise_for_status.side_effect = Exception("Supadata failed")
+            # Patch where classes are used, not where they're defined
+            with patch(
+                "obsidian_ai_tools.youtube.SupadataTranscriptProvider"
+            ) as mock_supadata_class:
+                mock_supadata_instance = Mock()
+                mock_supadata_instance.fetch_transcript.side_effect = TranscriptUnavailableError(
+                    "Supadata failed"
+                )
+                mock_supadata_class.return_value = mock_supadata_instance
 
-                with patch("obsidian_ai_tools.youtube_providers.requests.post") as mock_post:
-                    mock_post.return_value.raise_for_status.side_effect = Exception("Decodo failed")
+                with patch(
+                    "obsidian_ai_tools.youtube.DecodoTranscriptProvider"
+                ) as mock_decodo_class:
+                    mock_decodo_instance = Mock()
+                    mock_decodo_instance.fetch_transcript.side_effect = (
+                        TranscriptUnavailableError("Decodo failed")
+                    )
+
+                    mock_decodo_class.return_value = mock_decodo_instance
 
                     client = YouTubeClient(mock_settings)
                     url = "https://www.youtube.com/watch?v=fail123"
@@ -179,7 +208,7 @@ class TestYouTubeClientCaching:
         )
 
     def test_cache_hit_skips_providers(
-        self, cache_settings: Settings, mock_fetched_transcript
+        self, cache_settings: Settings, mock_fetched_transcript: Any
     ) -> None:
         """Test that cache hit skips provider calls."""
         with patch("obsidian_ai_tools.youtube_providers.YouTubeTranscriptApi") as mock_api_class:

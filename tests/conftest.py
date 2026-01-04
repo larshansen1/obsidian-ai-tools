@@ -56,7 +56,7 @@ MAX_PDF_SIZE_MB=20
 
 
 @pytest.fixture
-def mock_requests_get():
+def mock_requests_get() -> Mock:
     """Mock requests.get for HTTP GET calls.
 
     Returns a Mock that can be configured per-test.
@@ -71,7 +71,7 @@ def mock_requests_get():
 
 
 @pytest.fixture
-def mock_requests_post():
+def mock_requests_post() -> Mock:
     """Mock requests.post for HTTP POST calls.
 
     Returns a Mock that can be configured per-test.
@@ -84,7 +84,7 @@ def mock_requests_post():
 
 
 @pytest.fixture
-def mock_supadata_response():
+def mock_supadata_response() -> dict[str, str]:
     """Mock successful Supadata API response.
 
     Provides a standard successful response from Supadata API.
@@ -100,7 +100,7 @@ def mock_supadata_response():
 
 
 @pytest.fixture
-def mock_openrouter_response():
+def mock_openrouter_response() -> dict[str, list[dict[str, dict[str, str]]]]:
     """Mock successful OpenRouter API response.
 
     Provides a standard LLM response from OpenRouter.
@@ -117,7 +117,7 @@ def mock_openrouter_response():
 
 
 @pytest.fixture
-def mock_youtube_transcript():
+def mock_youtube_transcript() -> list[dict[str, float | str]]:
     """Mock YouTube transcript data.
 
     Provides sample transcript data as returned by youtube_transcript_api.
@@ -149,7 +149,7 @@ def mock_pdf_content(tmp_path: Path) -> bytes:
 
 
 @pytest.fixture(autouse=False)
-def disable_network_calls(monkeypatch):
+def disable_network_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fixture to disable all network calls.
 
     Use this fixture in tests that should never make real network calls.
@@ -160,13 +160,13 @@ def disable_network_calls(monkeypatch):
             # Test code here - network calls will fail
     """
 
-    def mock_get(*args, **kwargs):
+    def mock_get(*args: object, **kwargs: object) -> None:
         raise RuntimeError(
             f"Attempted real network call to GET {args[0] if args else 'unknown'}. "
             "Use mocked responses in tests."
         )
 
-    def mock_post(*args, **kwargs):
+    def mock_post(*args: object, **kwargs: object) -> None:
         raise RuntimeError(
             f"Attempted real network call to POST {args[0] if args else 'unknown'}. "
             "Use mocked responses in tests."

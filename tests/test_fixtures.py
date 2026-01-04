@@ -1,6 +1,7 @@
 """Tests for external service mocking fixtures."""
 
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -8,46 +9,50 @@ import pytest
 class TestMockingFixtures:
     """Tests to validate external service mocking fixtures."""
 
-    def test_mock_requests_get_fixture(self, mock_requests_get):
+    def test_mock_requests_get_fixture(self, mock_requests_get: Mock) -> None:
         """Test that mock_requests_get fixture works."""
         assert mock_requests_get is not None
         assert mock_requests_get.return_value.status_code == 200
         assert "content-type" in mock_requests_get.return_value.headers
 
-    def test_mock_requests_post_fixture(self, mock_requests_post):
+    def test_mock_requests_post_fixture(self, mock_requests_post: Mock) -> None:
         """Test that mock_requests_post fixture works."""
         assert mock_requests_post is not None
         assert mock_requests_post.return_value.status_code == 200
         result = mock_requests_post.return_value.json()
         assert result["status"] == "success"
 
-    def test_mock_supadata_response_fixture(self, mock_supadata_response):
+    def test_mock_supadata_response_fixture(self, mock_supadata_response: dict[str, str]) -> None:
         """Test that mock_supadata_response fixture provides valid data."""
         assert "content" in mock_supadata_response
         assert "title" in mock_supadata_response
         assert mock_supadata_response["title"] == "Test Article Title"
 
-    def test_mock_openrouter_response_fixture(self, mock_openrouter_response):
+    def test_mock_openrouter_response_fixture(
+        self, mock_openrouter_response: dict[str, list[dict[str, dict[str, str]]]]
+    ) -> None:
         """Test that mock_openrouter_response fixture provides valid LLM response."""
         assert "choices" in mock_openrouter_response
         assert len(mock_openrouter_response["choices"]) > 0
         message = mock_openrouter_response["choices"][0]["message"]
         assert "content" in message
 
-    def test_mock_youtube_transcript_fixture(self, mock_youtube_transcript):
+    def test_mock_youtube_transcript_fixture(
+        self, mock_youtube_transcript: list[dict[str, float | str]]
+    ) -> None:
         """Test that mock_youtube_transcript fixture provides valid data."""
         assert isinstance(mock_youtube_transcript, list)
         assert len(mock_youtube_transcript) > 0
         assert "text" in mock_youtube_transcript[0]
         assert "start" in mock_youtube_transcript[0]
 
-    def test_mock_pdf_content_fixture(self, mock_pdf_content):
+    def test_mock_pdf_content_fixture(self, mock_pdf_content: bytes) -> None:
         """Test that mock_pdf_content fixture creates valid PDF bytes."""
         assert isinstance(mock_pdf_content, bytes)
         # PDF files start with %PDF
         assert mock_pdf_content.startswith(b"%PDF")
 
-    def test_disable_network_calls_fixture(self, disable_network_calls):
+    def test_disable_network_calls_fixture(self, disable_network_calls: None) -> None:
         """Test that disable_network_calls prevents real network requests."""
         import requests
 
@@ -65,8 +70,13 @@ class TestFixtureIntegrationWithProviders:
     @patch("obsidian_ai_tools.providers.pdf.requests.get")
     @patch("obsidian_ai_tools.providers.pdf.requests.post")
     def test_pdf_provider_uses_mocked_requests(
-        self, mock_post, mock_get, mock_pdf_content, mock_supadata_response, tmp_path
-    ):
+        self,
+        mock_post: Mock,
+        mock_get: Mock,
+        mock_pdf_content: bytes,
+        mock_supadata_response: dict[str, str],
+        tmp_path: Path,
+    ) -> None:
         """Test PDFProvider can use mocked requests."""
         from obsidian_ai_tools.config import Settings
         from obsidian_ai_tools.providers.pdf import PDFProvider
@@ -100,7 +110,7 @@ class TestFixtureIntegrationWithProviders:
             # This would normally make real network calls, but we've mocked them
             # The test demonstrates the mocking infrastructure works
 
-    def test_fixture_customization_per_test(self, mock_requests_get):
+    def test_fixture_customization_per_test(self, mock_requests_get: Mock) -> None:
         """Test that fixtures can be customized per-test."""
         # Customize the mock for this specific test
         mock_requests_get.return_value.status_code = 404
