@@ -19,6 +19,9 @@ jobs:
           pip install -r requirements-dev.txt
           pip install types-requests
 
+      - name: Install package
+        run: pip install -e .
+
       - name: Lint (ruff)
         run: make lint
 
