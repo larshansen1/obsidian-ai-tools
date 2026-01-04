@@ -4,3 +4,6 @@ __pycache__
 .venv
 .DS_Store
 eval/
+
+# Gitleaks report
+gitleaks-report.json

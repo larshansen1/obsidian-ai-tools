@@ -60,34 +60,9 @@ class MetadataProvider(ABC):
 class UnofficialTranscriptProvider(TranscriptProvider):
     """Transcript provider using youtube-transcript-api (unofficial)."""
 
-    def __init__(
-        self,
-        proxy_host: str | None = None,
-        proxy_port: int | None = None,
-        proxy_username: str | None = None,
-        proxy_password: str | None = None,
-    ):
-        """Initialize provider with optional proxy configuration.
-
-        Args:
-            proxy_host: Proxy server hostname
-            proxy_port: Proxy server port
-            proxy_username: Proxy authentication username
-            proxy_password: Proxy authentication password
-        """
+    def __init__(self) -> None:
+        """Initialize provider."""
         self.proxies = None
-        if proxy_host and proxy_port:
-            # Format: http://username:password@host:port
-            auth = ""
-            if proxy_username and proxy_password:
-                auth = f"{proxy_username}:{proxy_password}@"
-
-            proxy_url = f"http://{auth}{proxy_host}:{proxy_port}"
-            self.proxies = {
-                "http": proxy_url,
-                "https": proxy_url,
-            }
-            logger.info(f"Configured proxy: {proxy_host}:{proxy_port}")
 
     def fetch_transcript(self, video_id: str) -> tuple[str, str]:
         """Fetch transcript using unofficial API.
@@ -106,12 +81,6 @@ class UnofficialTranscriptProvider(TranscriptProvider):
 
             # Get the language from the transcript
             language_code = transcript.language_code
-
-            if self.proxies:
-                logger.warning(
-                    "Proxy configuration ignored - "
-                    "youtube-transcript-api v2 doesn't support proxies"
-                )
 
             return full_transcript.strip(), language_code
 

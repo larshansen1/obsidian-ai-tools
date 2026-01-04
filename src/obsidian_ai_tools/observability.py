@@ -189,9 +189,9 @@ class ObservabilityDB:
             # Cost by source type
             by_source_type = conn.execute(
                 f"""
-                SELECT 
-                    COALESCE(source_type, 'Unknown') as source_type, 
-                    SUM(total_cost_usd) as cost, 
+                SELECT
+                    COALESCE(source_type, 'Unknown') as source_type,
+                    SUM(total_cost_usd) as cost,
                     COUNT(*) as count
                 FROM costs
                 WHERE timestamp > current_timestamp - INTERVAL '{days}' DAYS

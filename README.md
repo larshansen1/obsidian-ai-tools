@@ -389,6 +389,35 @@ For details on the current architecture and **enterprise migration path**, see [
 3. **Explicit Error Types**: Each module defines its own exception hierarchy
 4. **Prompt Templates**: Versioned markdown files (not hardcoded strings)
 
+## Security
+
+This project includes automated security scanning to prevent credential leaks:
+
+### Security Tools
+
+- **gitleaks**: Detects secrets in code (pre-commit hook)
+- **bandit**: Python security linter (pre-commit hook)
+
+### Running Security Scans
+
+```bash
+# Scan for secrets in repository
+./scripts/scan_secrets.sh
+
+# Run all pre-commit hooks (includes security checks)
+pre-commit run --all-files
+
+# Run gitleaks directly
+gitleaks detect --source . --no-git
+```
+
+### Best Practices
+
+- Never commit `.env` files or API keys
+- Use environment variables for sensitive configuration
+- Pre-commit hooks automatically scan for secrets before commits
+- All credentials must be loaded from environment or secure secret managers
+
 ## Roadmap
 
 ### Cycle 1: Tracer Bullet ✅

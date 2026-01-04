@@ -84,13 +84,8 @@ class YouTubeClient:
             timeout_hours=self.settings.circuit_breaker_timeout_hours,
         )
 
-        # Initialize providers with proxy configuration
-        self.unofficial_provider = UnofficialTranscriptProvider(
-            proxy_host=self.settings.proxy_host,
-            proxy_port=self.settings.proxy_port,
-            proxy_username=self.settings.proxy_username,
-            proxy_password=self.settings.proxy_password,
-        )
+        # Initialize transcript providers
+        self.unofficial_provider = UnofficialTranscriptProvider()
 
         if self.settings.decodo_api_key:
             self.decodo_provider: DecodoTranscriptProvider | None = DecodoTranscriptProvider(
@@ -233,7 +228,6 @@ class YouTubeClient:
 
         return self.decodo_provider.fetch_transcript(video_id)
 
-
     def _fetch_metadata(self, video_id: str) -> dict[str, str]:
         """Fetch video metadata.
 
@@ -259,9 +253,7 @@ class YouTubeClient:
             "channel_name": "Unknown Channel",
         }
 
-    def get_video_metadata(
-        self, url: str, provider_order: str | None = None
-    ) -> VideoMetadata:
+    def get_video_metadata(self, url: str, provider_order: str | None = None) -> VideoMetadata:
         """Fetch complete video metadata and transcript.
 
         This is the main entry point with caching and multi-provider fallback.

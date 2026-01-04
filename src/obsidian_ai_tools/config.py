@@ -84,13 +84,6 @@ class Settings(BaseSettings):
             raise ValueError("Provider order cannot be empty")
         return v
 
-
-    # Proxy Configuration (for youtube-transcript-api)
-    proxy_host: str | None = Field(default=None, description="Proxy host (e.g., gate.decodo.com)")
-    proxy_port: int | None = Field(default=None, description="Proxy port (e.g., 7000)")
-    proxy_username: str | None = Field(default=None, description="Proxy username")
-    proxy_password: str | None = Field(default=None, description="Proxy password")
-
     # Cache Configuration
     cache_dir: Path = Field(default=Path(".cache"), description="Directory for cache files")
     cache_ttl_hours: int = Field(
