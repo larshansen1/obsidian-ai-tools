@@ -207,13 +207,38 @@ class SupadataTranscriptProvider(TranscriptProvider):
 
             result = client.transcript(url=url, lang=self.lang, text=True)
 
+            # Handle BatchJob objects (indicates async processing or unavailable content)
+            if hasattr(result, '__class__') and result.__class__.__name__ == 'BatchJob':
+                raise TranscriptUnavailableError(
+                    f"Transcript not immediately available from Supadata for {video_id} "
+                    "(returned BatchJob - may require async processing or video has no transcript)"
+                )
+
+            # Check for content attribute before accessing
+            if not hasattr(result, 'content'):
+                raise TranscriptUnavailableError(
+                    f"Unexpected response from Supadata for {video_id}: "
+                    f"result type {type(result).__name__} has no 'content' attribute"
+                )
+
             if not result.content:
                 raise TranscriptUnavailableError(f"Empty transcript from Supadata for {video_id}")
 
-            return result.content, result.lang or self.lang
+            # Get language, with fallback
+            language = getattr(result, 'lang', None) or self.lang
+
+            return result.content, language
 
         except ImportError as e:
             raise TranscriptUnavailableError(f"Supadata library not installed: {e}") from e
+        except AttributeError as e:
+            # Catch attribute errors when accessing undefined attributes
+            raise TranscriptUnavailableError(
+                f"Failed to parse Supadata response for {video_id}: {e}"
+            ) from e
+        except TranscriptUnavailableError:
+            # Re-raise our own errors
+            raise
         except Exception as e:
             raise TranscriptUnavailableError(
                 f"Failed to fetch transcript from Supadata for {video_id}: {e}"
