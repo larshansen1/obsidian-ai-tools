@@ -267,7 +267,7 @@ class YouTubeClient:
 
         Raises:
             InvalidYouTubeURLError: If URL is invalid
-            TranscriptUnavailableError: If transcript cannot be fetched
+            TranscriptUnavailableError: If transcript cannot be fetched or is low quality
         """
         # Extract video ID
         video_id = extract_video_id(url)
@@ -287,6 +287,27 @@ class YouTubeClient:
         transcript, language, provider = self._fetch_transcript_with_fallback(
             video_id, provider_order
         )
+
+        # Validate transcript quality before creating note
+        from .transcript_validation import validate_transcript_quality, check_transcript_relevance
+
+        quality_issue = validate_transcript_quality(transcript, metadata_dict["title"])
+        if quality_issue:
+            logger.warning(f"Transcript quality check failed for {video_id}: {quality_issue}")
+            raise TranscriptUnavailableError(
+                f"Transcript quality too low for {video_id}: {quality_issue}"
+            )
+
+        # Check transcript relevance to title
+        if not check_transcript_relevance(transcript, metadata_dict["title"]):
+            logger.warning(
+                f"Transcript appears irrelevant to video title for {video_id}. "
+                f"Title: {metadata_dict['title']}"
+            )
+            raise TranscriptUnavailableError(
+                f"Transcript content does not match video title for {video_id}. "
+                "This may indicate corrupted or mismatched transcript data."
+            )
 
         # Build result
         result = VideoMetadata(
