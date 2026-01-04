@@ -1,7 +1,8 @@
 """Tests for external service mocking fixtures."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 
 class TestMockingFixtures:
@@ -67,8 +68,8 @@ class TestFixtureIntegrationWithProviders:
         self, mock_post, mock_get, mock_pdf_content, mock_supadata_response, tmp_path
     ):
         """Test PDFProvider can use mocked requests."""
-        from obsidian_ai_tools.providers.pdf import PDFProvider
         from obsidian_ai_tools.config import Settings
+        from obsidian_ai_tools.providers.pdf import PDFProvider
 
         vault_path = tmp_path / "vault"
         vault_path.mkdir()

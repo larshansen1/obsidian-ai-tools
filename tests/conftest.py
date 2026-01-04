@@ -58,7 +58,7 @@ MAX_PDF_SIZE_MB=20
 @pytest.fixture
 def mock_requests_get():
     """Mock requests.get for HTTP GET calls.
-    
+
     Returns a Mock that can be configured per-test.
     Use with @patch decorator or as a fixture.
     """
@@ -73,7 +73,7 @@ def mock_requests_get():
 @pytest.fixture
 def mock_requests_post():
     """Mock requests.post for HTTP POST calls.
-    
+
     Returns a Mock that can be configured per-test.
     """
     mock = Mock()
@@ -86,7 +86,7 @@ def mock_requests_post():
 @pytest.fixture
 def mock_supadata_response():
     """Mock successful Supadata API response.
-    
+
     Provides a standard successful response from Supadata API.
     Can be customized per-test.
     """
@@ -102,7 +102,7 @@ def mock_supadata_response():
 @pytest.fixture
 def mock_openrouter_response():
     """Mock successful OpenRouter API response.
-    
+
     Provides a standard LLM response from OpenRouter.
     """
     return {
@@ -119,7 +119,7 @@ def mock_openrouter_response():
 @pytest.fixture
 def mock_youtube_transcript():
     """Mock YouTube transcript data.
-    
+
     Provides sample transcript data as returned by youtube_transcript_api.
     """
     return [
@@ -132,7 +132,7 @@ def mock_youtube_transcript():
 @pytest.fixture
 def mock_pdf_content(tmp_path: Path) -> bytes:
     """Create mock PDF binary content.
-    
+
     Returns valid PDF bytes for testing PDF operations.
     """
     from pypdf import PdfWriter
@@ -151,10 +151,10 @@ def mock_pdf_content(tmp_path: Path) -> bytes:
 @pytest.fixture(autouse=False)
 def disable_network_calls(monkeypatch):
     """Fixture to disable all network calls.
-    
+
     Use this fixture in tests that should never make real network calls.
     If any code tries to use requests.get/post, it will raise an error.
-    
+
     Usage:
         def test_something(disable_network_calls):
             # Test code here - network calls will fail
@@ -174,4 +174,3 @@ def disable_network_calls(monkeypatch):
 
     monkeypatch.setattr("requests.get", mock_get)
     monkeypatch.setattr("requests.post", mock_post)
-

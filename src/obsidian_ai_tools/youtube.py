@@ -289,7 +289,7 @@ class YouTubeClient:
         )
 
         # Validate transcript quality before creating note
-        from .transcript_validation import validate_transcript_quality, check_transcript_relevance
+        from .transcript_validation import check_transcript_relevance, validate_transcript_quality
 
         quality_issue = validate_transcript_quality(transcript, metadata_dict["title"])
         if quality_issue:

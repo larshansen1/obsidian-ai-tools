@@ -4,9 +4,6 @@ import pytest
 from pydantic import ValidationError
 
 from obsidian_ai_tools.api_contracts import (
-    OpenRouterResponse,
-    SupadataWebResponse,
-    YouTubeDataAPIResponse,
     validate_openrouter_response,
     validate_supadata_web_response,
     validate_youtube_data_response,
@@ -25,13 +22,13 @@ class TestOpenRouterContract:
                 {
                     "message": {
                         "role": "assistant",
-                        "content": '{"title": "Test", "tags": ["test"]}'
+                        "content": '{"title": "Test", "tags": ["test"]}',
                     },
-                    "finish_reason": "stop"
+                    "finish_reason": "stop",
                 }
-            ]
+            ],
         }
-        
+
         validated = validate_openrouter_response(response)
         assert validated.id == "gen-123"
         assert len(validated.choices) == 1
@@ -39,12 +36,8 @@ class TestOpenRouterContract:
 
     def test_openrouter_response_missing_choices(self):
         """Test that missing choices raises validation error."""
-        response = {
-            "id": "gen-123",
-            "model": "anthropic/claude-3.5-sonnet",
-            "choices": []
-        }
-        
+        response = {"id": "gen-123", "model": "anthropic/claude-3.5-sonnet", "choices": []}
+
         with pytest.raises(ValidationError, match="at least one choice"):
             validate_openrouter_response(response)
 
@@ -53,9 +46,9 @@ class TestOpenRouterContract:
         response = {
             "id": "gen-123",
             # Missing model
-            "choices": [{"message": {"role": "assistant", "content": "test"}}]
+            "choices": [{"message": {"role": "assistant", "content": "test"}}],
         }
-        
+
         with pytest.raises(ValidationError):
             validate_openrouter_response(response)
 
@@ -69,19 +62,17 @@ class TestSupadataContract:
             "content": "Article content here",
             "markdown": "# Article\n\nContent",
             "title": "Test Article",
-            "author": "Test Author"
+            "author": "Test Author",
         }
-        
+
         validated = validate_supadata_web_response(response)
         assert validated.content == "Article content here"
         assert validated.title == "Test Article"
 
     def test_supadata_response_optional_fields(self):
         """Test Supadata response with optional fields missing."""
-        response = {
-            "content": "Minimal content"
-        }
-        
+        response = {"content": "Minimal content"}
+
         validated = validate_supadata_web_response(response)
         assert validated.content == "Minimal content"
         assert validated.title is None
@@ -90,7 +81,7 @@ class TestSupadataContract:
     def test_supadata_response_empty(self):
         """Test Supadata response with all fields None."""
         response = {}
-        
+
         validated = validate_supadata_web_response(response)
         assert validated.content is None
         assert validated.markdown is None
@@ -108,12 +99,12 @@ class TestYouTubeDataAPIContract:
                     "snippet": {
                         "title": "Test Video",
                         "channelTitle": "Test Channel",
-                        "description": "Test description"
-                    }
+                        "description": "Test description",
+                    },
                 }
             ]
         }
-        
+
         validated = validate_youtube_data_response(response)
         assert len(validated.items) == 1
         assert validated.items[0].snippet.title == "Test Video"
@@ -121,7 +112,7 @@ class TestYouTubeDataAPIContract:
     def test_youtube_data_empty_items(self):
         """Test YouTube API response with no items (video not found)."""
         response = {"items": []}
-        
+
         validated = validate_youtube_data_response(response)
         assert len(validated.items) == 0
 
@@ -134,11 +125,11 @@ class TestYouTubeDataAPIContract:
                     "snippet": {
                         "title": "Test Video"
                         # Missing channelTitle
-                    }
+                    },
                 }
             ]
         }
-        
+
         with pytest.raises(ValidationError):
             validate_youtube_data_response(response)
 
@@ -152,9 +143,9 @@ class TestContractBreakingChanges:
         response = {
             "request_id": "123",  # Changed from 'id'
             "model": "test",
-            "choices": [{"message": {"role": "assistant", "content": "test"}}]
+            "choices": [{"message": {"role": "assistant", "content": "test"}}],
         }
-        
+
         with pytest.raises(ValidationError):
             validate_openrouter_response(response)
 
@@ -163,7 +154,7 @@ class TestContractBreakingChanges:
         response = {
             "content": 123  # Should be string, not int
         }
-        
+
         with pytest.raises(ValidationError):
             validate_supadata_web_response(response)
 
@@ -173,6 +164,6 @@ class TestContractBreakingChanges:
             "kind": "youtube#videoListResponse"
             # Missing 'items' key
         }
-        
+
         with pytest.raises(ValidationError):
             validate_youtube_data_response(response)

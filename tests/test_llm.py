@@ -101,36 +101,36 @@ class TestLLMResponseEdgeCases:
 
     def test_nested_json_in_markdown(self) -> None:
         """Test extracting JSON from complex markdown with multiple code blocks."""
-        response = '''
+        response = """
         Here's some explanation.
-        
+
         ```python
         # This is code, not JSON
         print("hello")
         ```
-        
+
         And here's the actual result:
-        
+
         ```json
         {"title": "Real Result", "tags": ["test"]}
         ```
-        
+
         Some more text.
-        '''
+        """
         result = parse_llm_response(response)
         assert result["title"] == "Real Result"
 
     def test_multiple_json_blocks_uses_first(self) -> None:
         """Test that first JSON block is used when multiple present."""
-        response = '''
+        response = """
         ```json
         {"title": "First"}
         ```
-        
+
         ```json
         {"title": "Second"}
         ```
-        '''
+        """
         result = parse_llm_response(response)
         assert result["title"] == "First"
 
@@ -174,12 +174,12 @@ class TestLLMResponseEdgeCases:
 
     def test_json_with_comments(self) -> None:
         """Test JSON with JavaScript-style comments (invalid in strict JSON)."""
-        response = '''
+        response = """
         {
             "title": "Test",  // This is a title
             "tags": ["tag1"]  /* Multi-line comment */
         }
-        '''
+        """
         # Should raise error - comments not allowed in JSON
         with pytest.raises(NoteGenerationError):
             parse_llm_response(response)
@@ -229,7 +229,7 @@ class TestBuildPromptEdgeCases:
             channel_name="Channel",
         )
         template = "Title: {title}\nNonexistent: {nonexistent_field}"
-        
+
         # Should raise KeyError for missing field
         with pytest.raises(KeyError):
             build_prompt(metadata, template)
@@ -245,7 +245,7 @@ class TestBuildPromptEdgeCases:
             channel_name="Channel",
         )
         template = "Transcript: {transcript}"
-        
+
         result = build_prompt(metadata, template)
         assert len(result) > 200000  # Should include full transcript
 
@@ -255,13 +255,12 @@ class TestBuildPromptEdgeCases:
             video_id="test",
             title="Test: <Special> & {Chars} 'Quotes'",
             url="https://test.com?a=1&b=2",
-            transcript="Transcript with \"quotes\" and {braces}",
+            transcript='Transcript with "quotes" and {braces}',
             channel_name="Channel",
         )
         template = "Title: {title}\nTranscript: {transcript}"
-        
+
         result = build_prompt(metadata, template)
         assert "<Special>" in result
         assert "{Chars}" in result
         assert '"quotes"' in result
-

@@ -222,4 +222,3 @@ def list_tags_by_folder(vault_index: VaultIndex, vault_path: Path) -> dict[str, 
         )
 
     return sorted_folders
-

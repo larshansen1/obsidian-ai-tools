@@ -1,7 +1,6 @@
 """Utilities for validating transcript quality."""
 
 import re
-from typing import Optional
 
 
 class TranscriptQualityIssue(Exception):
@@ -15,7 +14,7 @@ def validate_transcript_quality(
     video_title: str,
     min_length: int = 100,
     min_avg_word_length: float = 2.5,
-) -> Optional[str]:
+) -> str | None:
     """Validate transcript quality before processing.
 
     Args:
@@ -45,14 +44,16 @@ def validate_transcript_quality(
 
     # Check for excessive repetition (same phrase repeated many times)
     # This catches corrupted transcripts that loop
-    phrases = re.findall(r'\b\w+\s+\w+\s+\w+\b', transcript.lower())
+    phrases = re.findall(r"\b\w+\s+\w+\s+\w+\b", transcript.lower())
     if phrases:
         from collections import Counter
 
         phrase_counts = Counter(phrases)
         most_common = phrase_counts.most_common(1)[0]
         if most_common[1] > len(phrases) * 0.1:  # More than 10% repetition
-            return f"Excessive repetition detected: '{most_common[0]}' appears {most_common[1]} times"
+            return (
+                f"Excessive repetition detected: '{most_common[0]}' appears {most_common[1]} times"
+            )
 
     return None
 
@@ -90,7 +91,7 @@ def check_transcript_relevance(transcript: str, video_title: str, threshold: flo
 
     title_words = set(
         word.lower()
-        for word in re.findall(r'\b\w+\b', video_title)
+        for word in re.findall(r"\b\w+\b", video_title)
         if len(word) > 2 and word.lower() not in stop_words
     )
 

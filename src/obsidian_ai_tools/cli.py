@@ -507,7 +507,7 @@ def process_inbox(
         typer.echo(f"❌ {e}", err=True)
         typer.echo(
             "💡 Create folder_rules.json in your vault root. Example:\n"
-            '   {\n'
+            "   {\n"
             '     "ai": "AI & Machine Learning",\n'
             '     "python": "Development/Python"\n'
             "   }",
@@ -582,10 +582,9 @@ def _display_batch_summary(notes: list["NoteToMove"], dry_run: bool = False) -> 
         typer.echo(f"  📄 {note.file_path.name}")
         typer.echo(f"     Tags: {', '.join(note.tags)}")
         # Display all matched tags
-        matched_tags_str = ', '.join(note.matched_tags) if note.matched_tags else 'none'
+        matched_tags_str = ", ".join(note.matched_tags) if note.matched_tags else "none"
         typer.echo(
-            f"     → {note.best_folder} "
-            f"(matched: {matched_tags_str}, score: {note.score:.1f})"
+            f"     → {note.best_folder} (matched: {matched_tags_str}, score: {note.score:.1f})"
         )
         typer.echo()
 

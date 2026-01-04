@@ -129,7 +129,6 @@ def scan_vault(vault_path: Path, folder: str | None = "inbox") -> list[NoteMetad
     notes: list[NoteMetadata] = []
 
     for md_file in scan_path.glob(glob_pattern):
-
         try:
             # Parse frontmatter
             parsed = parse_frontmatter(md_file)

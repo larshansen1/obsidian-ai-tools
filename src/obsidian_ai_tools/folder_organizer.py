@@ -196,9 +196,7 @@ def calculate_folder_scores(
     return folder_scores
 
 
-def find_best_folder(
-    tags: list[str], rules: dict[str, str]
-) -> tuple[str | None, list[str], float]:
+def find_best_folder(tags: list[str], rules: dict[str, str]) -> tuple[str | None, list[str], float]:
     """Find highest-scoring folder for given tags.
 
     Args:

@@ -93,7 +93,6 @@ class TestWriteNote:
         assert result_path.name.startswith("youtube-")
         assert result_path.name.endswith(".md")
 
-
     def test_path_traversal_prevention(self, temp_vault: Path) -> None:
         """Test that path traversal attempts are blocked."""
         from obsidian_ai_tools.obsidian import PathTraversalError
@@ -203,4 +202,3 @@ class TestWriteNote:
             # PathTraversalError = blocked correctly
             # OSError = symlink creation failed (acceptable on some systems)
             pass
-

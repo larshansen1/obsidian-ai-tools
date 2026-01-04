@@ -4,34 +4,35 @@ These schemas validate that external API responses match our expectations,
 helping catch breaking changes in third-party services.
 """
 
-from typing import Any, Optional
-from pydantic import BaseModel, Field, field_validator
+from typing import Any
 
+from pydantic import BaseModel, field_validator
 
 # OpenRouter API Contracts
 
+
 class OpenRouterMessage(BaseModel):
     """OpenRouter chat message in response."""
-    
+
     role: str
     content: str
 
 
 class OpenRouterChoice(BaseModel):
     """OpenRouter response choice."""
-    
+
     message: OpenRouterMessage
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
 
 
 class OpenRouterResponse(BaseModel):
     """OpenRouter API response schema."""
-    
+
     id: str
     model: str
     choices: list[OpenRouterChoice]
-    
-    @field_validator('choices')
+
+    @field_validator("choices")
     @classmethod
     def validate_choices(cls, v: list[OpenRouterChoice]) -> list[OpenRouterChoice]:
         """Ensure at least one choice is returned."""
@@ -42,17 +43,18 @@ class OpenRouterResponse(BaseModel):
 
 # Supadata API Contracts
 
+
 class SupadataWebResponse(BaseModel):
     """Supadata web scraping API response."""
-    
-    content: Optional[str] = None
-    markdown: Optional[str] = None
-    title: Optional[str] = None
-    author: Optional[str] = None
-    
-    @field_validator('content', 'markdown')
+
+    content: str | None = None
+    markdown: str | None = None
+    title: str | None = None
+    author: str | None = None
+
+    @field_validator("content", "markdown")
     @classmethod
-    def validate_content(cls, v: Optional[str]) -> Optional[str]:
+    def validate_content(cls, v: str | None) -> str | None:
         """Validate content fields."""
         if v is not None and not isinstance(v, str):
             raise ValueError("Content must be a string")
@@ -61,38 +63,39 @@ class SupadataWebResponse(BaseModel):
 
 class SupadataTranscriptResponse(BaseModel):
     """Supadata transcript API response."""
-    
-    transcript: Optional[str] = None
-    language: Optional[str] = None
-    
+
+    transcript: str | None = None
+    language: str | None = None
+
     # Note: May also return BatchJob object for async processing
     # We handle that case separately in the provider code
 
 
 # YouTube Data API Contracts
 
+
 class YouTubeSnippet(BaseModel):
     """YouTube video snippet from Data API."""
-    
+
     title: str
     channelTitle: str
-    description: Optional[str] = None
-    publishedAt: Optional[str] = None
+    description: str | None = None
+    publishedAt: str | None = None
 
 
 class YouTubeVideoItem(BaseModel):
     """YouTube video item from Data API."""
-    
+
     id: str
     snippet: YouTubeSnippet
 
 
 class YouTubeDataAPIResponse(BaseModel):
     """YouTube Data API videos.list response."""
-    
+
     items: list[YouTubeVideoItem]
-    
-    @field_validator('items')
+
+    @field_validator("items")
     @classmethod
     def validate_items(cls, v: list[YouTubeVideoItem]) -> list[YouTubeVideoItem]:
         """Ensure at least one item when video exists."""
@@ -102,13 +105,13 @@ class YouTubeDataAPIResponse(BaseModel):
 
 def validate_openrouter_response(response_data: dict[str, Any]) -> OpenRouterResponse:
     """Validate OpenRouter API response against contract.
-    
+
     Args:
         response_data: Raw API response dictionary
-        
+
     Returns:
         Validated OpenRouterResponse
-        
+
     Raises:
         ValidationError: If response doesn't match contract
     """
@@ -117,13 +120,13 @@ def validate_openrouter_response(response_data: dict[str, Any]) -> OpenRouterRes
 
 def validate_supadata_web_response(response_data: dict[str, Any]) -> SupadataWebResponse:
     """Validate Supadata web scraping response.
-    
+
     Args:
         response_data: Raw API response dictionary
-        
+
     Returns:
         Validated SupadataWebResponse
-        
+
     Raises:
         ValidationError: If response doesn't match contract
     """
@@ -132,13 +135,13 @@ def validate_supadata_web_response(response_data: dict[str, Any]) -> SupadataWeb
 
 def validate_youtube_data_response(response_data: dict[str, Any]) -> YouTubeDataAPIResponse:
     """Validate YouTube Data API response.
-    
+
     Args:
         response_data: Raw API response dictionary
-        
+
     Returns:
         Validated YouTubeDataAPIResponse
-        
+
     Raises:
         ValidationError: If response doesn't match contract
     """
