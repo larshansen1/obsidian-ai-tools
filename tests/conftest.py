@@ -1,6 +1,7 @@
 """Pytest configuration and fixtures."""
 
 import os
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -11,32 +12,40 @@ import pytest
 def mock_settings_env() -> Iterator[None]:
     """Set up test environment variables for all tests.
 
-    Sets environment variables directly to avoid requiring actual
-    environment variables or .env files in test environment.
+    Creates a temporary .env file with test configuration to avoid
+    requiring actual environment variables in test environment.
     """
-    original_env = os.environ.copy()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        env_file = Path(tmpdir) / ".env"
 
-    # Set minimal test configuration
-    os.environ["OPENROUTER_API_KEY"] = "test_key_for_testing"
-    os.environ["OBSIDIAN_VAULT_PATH"] = "/tmp/test_vault"
-    os.environ["OBSIDIAN_INBOX_FOLDER"] = "inbox"
-    os.environ["LLM_MODEL"] = "anthropic/claude-3.5-sonnet"
-    os.environ["MAX_TRANSCRIPT_LENGTH"] = "50000"
-    os.environ["YOUTUBE_TRANSCRIPT_PROVIDER_ORDER"] = "direct,supadata,decodo"
-    os.environ["CACHE_DIR"] = "/tmp/test_cache"
-    os.environ["CACHE_TTL_HOURS"] = "168"
-    os.environ["CIRCUIT_BREAKER_THRESHOLD"] = "3"
-    os.environ["CIRCUIT_BREAKER_TIMEOUT_HOURS"] = "2"
-    os.environ["MAX_PDF_PAGES"] = "50"
-    os.environ["MAX_PDF_SIZE_MB"] = "20"
+        # Write minimal test configuration
+        env_content = """
+OPENROUTER_API_KEY=test_key_for_testing
+OBSIDIAN_VAULT_PATH=/tmp/test_vault
+OBSIDIAN_INBOX_FOLDER=inbox
+LLM_MODEL=anthropic/claude-3.5-sonnet
+MAX_TRANSCRIPT_LENGTH=50000
+YOUTUBE_TRANSCRIPT_PROVIDER_ORDER=direct,supadata,decodo
+CACHE_DIR=/tmp/test_cache
+CACHE_TTL_HOURS=168
+CIRCUIT_BREAKER_THRESHOLD=3
+CIRCUIT_BREAKER_TIMEOUT_HOURS=2
+MAX_PDF_PAGES=50
+MAX_PDF_SIZE_MB=20
+"""
 
-    # Set a temporary directory that can be used by tests
-    test_vault = Path("/tmp/test_vault")
-    test_vault.mkdir(exist_ok=True)
-    (test_vault / "inbox").mkdir(exist_ok=True)
+        env_file.write_text(env_content.strip())
 
-    yield
+        # Set a temporary directory that can be used by tests
+        test_vault = Path("/tmp/test_vault")
+        test_vault.mkdir(exist_ok=True)
+        (test_vault / "inbox").mkdir(exist_ok=True)
 
-    # Cleanup
-    os.environ.clear()
-    os.environ.update(original_env)
+        # Change to temp directory where .env exists
+        original_cwd = os.getcwd()
+        os.chdir(tmpdir)
+
+        yield
+
+        # Cleanup
+        os.chdir(original_cwd)
