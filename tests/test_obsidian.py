@@ -93,8 +93,114 @@ class TestWriteNote:
         assert result_path.name.startswith("youtube-")
         assert result_path.name.endswith(".md")
 
-    def test_path_traversal_prevention(self, temp_vault: Path, sample_note: Note) -> None:
-        """Test that path traversal is prevented."""
-        # This test would need a malicious Note object with path separators
-        # For now, we rely on sanitize_filename tests
-        pass
+
+    def test_path_traversal_prevention(self, temp_vault: Path) -> None:
+        """Test that path traversal attempts are blocked."""
+        from obsidian_ai_tools.obsidian import PathTraversalError
+
+        # Test various path traversal attempts
+        malicious_titles = [
+            "../../../etc/passwd",  # Unix path traversal
+            "..\\..\\..\\windows\\system32",  # Windows path traversal
+            "/etc/passwd",  # Absolute Unix path
+            "C:\\Windows\\System32",  # Absolute Windows path
+            "test/../../../etc/passwd",  # Mixed with legitimate name
+            "....//....//etc/passwd",  # Double dot slash
+            "test/../../secret",  # Nested traversal
+        ]
+
+        for malicious_title in malicious_titles:
+            note = Note(
+                title=malicious_title,
+                summary="Test summary",
+                tags=["test"],
+                source_url="https://example.com",
+                model="test-model",
+            )
+
+            # Should either sanitize the title or raise PathTraversalError
+            try:
+                result_path = write_note(note, temp_vault, "inbox")
+
+                # If write succeeds, verify file is INSIDE vault/inbox
+                inbox_path = (temp_vault / "inbox").resolve()
+                assert str(result_path.resolve()).startswith(str(inbox_path)), (
+                    f"Path traversal: {malicious_title} created file outside inbox: "
+                    f"{result_path.resolve()}"
+                )
+
+                # Verify no directory traversal occurred
+                assert result_path.parent == inbox_path, (
+                    f"File created in wrong directory: {result_path.parent} != {inbox_path}"
+                )
+
+            except PathTraversalError:
+                # This is acceptable - explicit rejection
+                pass
+
+    def test_sanitize_filename_removes_path_separators(self) -> None:
+        """Test that sanitize_filename removes all path separators."""
+        # Unix separator
+        result = sanitize_filename("test/path/here")
+        assert "/" not in result
+        assert result == "testpathhere"
+
+        # Windows separator
+        result = sanitize_filename("test\\path\\here")
+        assert "\\" not in result
+        assert result == "testpathhere"
+
+    def test_sanitize_filename_removes_absolute_path_indicators(self) -> None:
+        """Test that absolute paths are sanitized."""
+        # Unix absolute path
+        result = sanitize_filename("/etc/passwd")
+        assert not result.startswith("/")
+        assert "/" not in result
+
+        # Windows absolute path
+        result = sanitize_filename("C:\\Windows\\System32")
+        assert ":" not in result
+        assert "\\" not in result
+
+    def test_write_note_rejects_symlink_attacks(self, temp_vault: Path) -> None:
+        """Test that symlink-based path traversal is prevented."""
+        from obsidian_ai_tools.obsidian import PathTraversalError
+
+        # Create a symlink in inbox pointing outside vault
+        inbox_path = temp_vault / "inbox"
+        inbox_path.mkdir(parents=True, exist_ok=True)
+
+        # Create target outside vault
+        outside_path = temp_vault.parent / "outside_vault"
+        outside_path.mkdir(exist_ok=True)
+
+        # Create symlink (may not work on all systems)
+        try:
+            symlink_path = inbox_path / "symlink_escape"
+            symlink_path.symlink_to(outside_path, target_is_directory=True)
+
+            # Try to write a note with a title that would use the symlink
+            note = Note(
+                title="symlink_escape/malicious",
+                summary="Test",
+                tags=["test"],
+                source_url="https://example.com",
+                model="test-model",
+            )
+
+            # Should either reject or sanitize
+            result_path = write_note(note, temp_vault, "inbox")
+
+            # If it succeeds, verify it stayed in inbox
+            inbox_resolved = inbox_path.resolve()
+            result_resolved = result_path.resolve()
+
+            assert str(result_resolved).startswith(str(inbox_resolved)), (
+                "Symlink attack allowed file outside inbox"
+            )
+
+        except (PathTraversalError, OSError):
+            # PathTraversalError = blocked correctly
+            # OSError = symlink creation failed (acceptable on some systems)
+            pass
+
