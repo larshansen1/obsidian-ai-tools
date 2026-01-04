@@ -139,6 +139,8 @@ class TestPDFProvider:
     def test_ingest_remote_pdf_success(self, mock_get: Mock, mock_post: Mock) -> None:
         """Test successful remote PDF download with Supadata fallback."""
         provider = PDFProvider()
+        # Ensure Supadata fallback is enabled for this test
+        provider.supadata_key = "test-supadata-key"
 
         # Create a test PDF with blank page
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
@@ -191,6 +193,8 @@ class TestPDFProvider:
     def test_ingest_remote_pdf_supadata_fallback(self, mock_get: Mock, mock_post: Mock) -> None:
         """Test Supadata fallback when direct download fails."""
         provider = PDFProvider()
+        # Ensure Supadata fallback is enabled for this test
+        provider.supadata_key = "test-supadata-key"
 
         # Mock failed direct download
         mock_get.side_effect = Exception("Download failed")
