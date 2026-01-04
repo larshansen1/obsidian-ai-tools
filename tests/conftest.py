@@ -8,7 +8,7 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def mock_settings_env():
+def mock_settings_env() -> None:
     """Set up test environment variables for all tests.
 
     Creates a temporary .env file with test configuration to avoid
