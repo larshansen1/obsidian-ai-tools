@@ -748,6 +748,97 @@ def quality(
 
 
 @app.command()
+def digest(
+    days: Annotated[
+        int,
+        typer.Option("--days", "-d", help="Number of days to include in digest"),
+    ] = 7,
+    output: Annotated[
+        str | None,
+        typer.Option("--output", "-o", help="Save to vault inbox with this filename"),
+    ] = None,
+    format_type: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format: terminal, markdown, json"),
+    ] = "terminal",
+    vault: Annotated[
+        Path | None,
+        typer.Option("--vault", "-v", help="Override vault path"),
+    ] = None,
+) -> None:
+    """Generate a knowledge digest for the specified period.
+
+    Summarizes vault activity including new notes, top tags,
+    most referenced notes, and inbox status.
+
+    Examples:
+        kai digest                           # Weekly summary to terminal
+        kai digest --days 1                  # Daily summary
+        kai digest --output weekly-review    # Save to vault inbox
+        kai digest --format json             # JSON output
+    """
+    from .digest import (
+        format_digest_json,
+        format_digest_markdown,
+        format_digest_terminal,
+        generate_digest,
+    )
+
+    # Load settings
+    try:
+        settings = get_settings()
+    except Exception as e:
+        typer.echo(f"❌ Configuration error: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    vault_path = vault or settings.obsidian_vault_path
+
+    typer.echo(f"📊 Generating digest for last {days} day(s)...")
+
+    # Generate digest
+    try:
+        report = generate_digest(
+            vault_path=vault_path,
+            since_days=days,
+            inbox_folder=settings.obsidian_inbox_folder,
+        )
+    except Exception as e:
+        typer.echo(f"❌ Failed to generate digest: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    # Format output
+    if format_type == "json":
+        formatted = format_digest_json(report)
+    elif format_type == "markdown":
+        formatted = format_digest_markdown(report)
+    else:
+        formatted = format_digest_terminal(report)
+
+    # Output handling
+    if output:
+        # Save to vault inbox
+        inbox_path = vault_path / settings.obsidian_inbox_folder
+
+        # Use provided filename, add .md extension if not present
+        if output.endswith(".md"):
+            filename = output
+        else:
+            filename = f"{output}.md"
+
+        output_path = inbox_path / filename
+
+        # Use markdown format for file output
+        file_content = format_digest_markdown(report)
+        output_path.write_text(file_content)
+
+        typer.echo(f"✅ Digest saved to: {output_path}")
+    else:
+        # Print to terminal
+        typer.echo("")
+        typer.echo(formatted)
+
+
+@app.command()
 def version() -> None:
     """Show version information."""
     typer.echo("obsidian-ai-tools v0.1.0")
