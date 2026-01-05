@@ -8,5 +8,5 @@ eval/
 # Gitleaks report
 gitleaks-report.json
 
-docs/roadmap-2026.md
+#docs/roadmap-2026.md
 docs/decisions.md
