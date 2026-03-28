@@ -42,6 +42,8 @@ class TestPDFProviderNetworkErrors:
 
     def test_remote_pdf_timeout_fallback_also_fails(self, provider: PDFProvider) -> None:
         """Handle timeout when both direct download and fallback fail."""
+        provider.supadata_key = "fake-key"  # Enable fallback so the Supadata path is exercised
+
         with patch("obsidian_ai_tools.providers.pdf.requests.get") as mock_get:
             with patch("obsidian_ai_tools.providers.pdf.requests.post") as mock_post:
                 mock_get.side_effect = requests.exceptions.ConnectTimeout("Connection timed out")
