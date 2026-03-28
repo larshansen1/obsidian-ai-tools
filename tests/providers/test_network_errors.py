@@ -84,6 +84,8 @@ class TestPDFProviderNetworkErrors:
 
     def test_remote_pdf_404_both_fail(self, provider: PDFProvider) -> None:
         """Handle 404 when both sources fail."""
+        provider.supadata_key = "fake-key"  # Enable fallback so Supadata path is exercised
+
         with patch("obsidian_ai_tools.providers.pdf.requests.get") as mock_get:
             with patch("obsidian_ai_tools.providers.pdf.requests.post") as mock_post:
                 mock_response = MagicMock()
