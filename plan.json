@@ -1,0 +1,1187 @@
+{
+  "consolidations": [],
+  "similar_tags": [],
+  "high_cooccurrence": [
+    {
+      "tag_a": "neurodivergent",
+      "tag_b": "mental-health",
+      "co_occurrence_count": 9,
+      "tag_a_total": 13,
+      "tag_b_total": 12,
+      "jaccard_similarity": 0.562,
+      "merge_into": null
+    },
+    {
+      "tag_a": "autism",
+      "tag_b": "mental-health",
+      "co_occurrence_count": 9,
+      "tag_a_total": 15,
+      "tag_b_total": 12,
+      "jaccard_similarity": 0.5,
+      "merge_into": null
+    },
+    {
+      "tag_a": "operating-systems",
+      "tag_b": "windows",
+      "co_occurrence_count": 5,
+      "tag_a_total": 5,
+      "tag_b_total": 5,
+      "jaccard_similarity": 1.0,
+      "merge_into": null
+    },
+    {
+      "tag_a": "linux",
+      "tag_b": "gaming",
+      "co_occurrence_count": 4,
+      "tag_a_total": 4,
+      "tag_b_total": 4,
+      "jaccard_similarity": 1.0,
+      "merge_into": null
+    },
+    {
+      "tag_a": "relationships",
+      "tag_b": "social-skills",
+      "co_occurrence_count": 3,
+      "tag_a_total": 5,
+      "tag_b_total": 3,
+      "jaccard_similarity": 0.6,
+      "merge_into": null
+    },
+    {
+      "tag_a": "clinical-psychology",
+      "tag_b": "differential-diagnosis",
+      "co_occurrence_count": 3,
+      "tag_a_total": 3,
+      "tag_b_total": 3,
+      "jaccard_similarity": 1.0,
+      "merge_into": null
+    },
+    {
+      "tag_a": "clinical-psychology",
+      "tag_b": "neurodevelopmental",
+      "co_occurrence_count": 3,
+      "tag_a_total": 3,
+      "tag_b_total": 3,
+      "jaccard_similarity": 1.0,
+      "merge_into": null
+    },
+    {
+      "tag_a": "differential-diagnosis",
+      "tag_b": "neurodevelopmental",
+      "co_occurrence_count": 3,
+      "tag_a_total": 3,
+      "tag_b_total": 3,
+      "jaccard_similarity": 1.0,
+      "merge_into": null
+    },
+    {
+      "tag_a": "video-summary",
+      "tag_b": "masking",
+      "co_occurrence_count": 3,
+      "tag_a_total": 3,
+      "tag_b_total": 6,
+      "jaccard_similarity": 0.5,
+      "merge_into": null
+    },
+    {
+      "tag_a": "self-advocacy",
+      "tag_b": "executive-function",
+      "co_occurrence_count": 3,
+      "tag_a_total": 4,
+      "tag_b_total": 3,
+      "jaccard_similarity": 0.75,
+      "merge_into": null
+    },
+    {
+      "tag_a": "microsoft",
+      "tag_b": "user-experience",
+      "co_occurrence_count": 3,
+      "tag_a_total": 3,
+      "tag_b_total": 5,
+      "jaccard_similarity": 0.6,
+      "merge_into": null
+    },
+    {
+      "tag_a": "linux",
+      "tag_b": "operating-systems",
+      "co_occurrence_count": 3,
+      "tag_a_total": 4,
+      "tag_b_total": 5,
+      "jaccard_similarity": 0.5,
+      "merge_into": null
+    },
+    {
+      "tag_a": "linux",
+      "tag_b": "windows",
+      "co_occurrence_count": 3,
+      "tag_a_total": 4,
+      "tag_b_total": 5,
+      "jaccard_similarity": 0.5,
+      "merge_into": null
+    },
+    {
+      "tag_a": "gaming",
+      "tag_b": "operating-systems",
+      "co_occurrence_count": 3,
+      "tag_a_total": 4,
+      "tag_b_total": 5,
+      "jaccard_similarity": 0.5,
+      "merge_into": null
+    },
+    {
+      "tag_a": "gaming",
+      "tag_b": "windows",
+      "co_occurrence_count": 3,
+      "tag_a_total": 4,
+      "tag_b_total": 5,
+      "jaccard_similarity": 0.5,
+      "merge_into": null
+    },
+    {
+      "tag_a": "devops",
+      "tag_b": "security-audit",
+      "co_occurrence_count": 3,
+      "tag_a_total": 4,
+      "tag_b_total": 4,
+      "jaccard_similarity": 0.6,
+      "merge_into": null
+    },
+    {
+      "tag_a": "security-audit",
+      "tag_b": "vulnerability-assessment",
+      "co_occurrence_count": 3,
+      "tag_a_total": 4,
+      "tag_b_total": 3,
+      "jaccard_similarity": 0.75,
+      "merge_into": null
+    }
+  ],
+  "orphan_tags": [
+    {
+      "tag": "CST",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/Coherence Systems Theory.md",
+      "remove": true
+    },
+    {
+      "tag": "PID-controller",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/ai-assisted development and control theory.md",
+      "remove": true
+    },
+    {
+      "tag": "accountability",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-a-computer-can-never-be-held-accountable---ibm-1979-training-principle.md",
+      "remove": true
+    },
+    {
+      "tag": "acquisitions",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business-intelligence/web-databases-in-2025-a-year-in-review.md",
+      "remove": true
+    },
+    {
+      "tag": "ai-criticism",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-this-ai-pioneer-thinks-ai-is-dumber-than-a-cat---yann-lecun's-skeptical-view.md",
+      "remove": true
+    },
+    {
+      "tag": "ai-governance",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-a-computer-can-never-be-held-accountable---ibm-1979-training-principle.md",
+      "remove": true
+    },
+    {
+      "tag": "ai-safety",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-this-ai-pioneer-thinks-ai-is-dumber-than-a-cat---yann-lecun's-skeptical-view.md",
+      "remove": true
+    },
+    {
+      "tag": "alexithymia",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-understanding-alexithymia-and-internal-processing-in-neurodivergent-individuals.md",
+      "remove": true
+    },
+    {
+      "tag": "amd",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/os/youtube-steamos-desktop-experience-complete-windows-replacement-testing.md",
+      "remove": true
+    },
+    {
+      "tag": "analytics",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business-intelligence/web-duckdb-open-source-column-oriented-database-for-analytics.md",
+      "remove": true
+    },
+    {
+      "tag": "apache-kafka",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-kafka-chronicles-issue-#1-rise-of-the-kafka-heroes---comic-guide-to-apache-kafka-and-confluent.md",
+      "remove": true
+    },
+    {
+      "tag": "api",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle4/web-youtube-provider-configuration-implementation-walkthrough.md",
+      "remove": true
+    },
+    {
+      "tag": "archive",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/archive/archive.md",
+      "remove": false
+    },
+    {
+      "tag": "artificial-general-intelligence",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-this-ai-pioneer-thinks-ai-is-dumber-than-a-cat---yann-lecun's-skeptical-view.md",
+      "remove": false
+    },
+    {
+      "tag": "asd",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-autism-and-childhood-trauma-overlapping-symptoms-and-diagnostic-challenges.md",
+      "remove": true
+    },
+    {
+      "tag": "authentication",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-security-audit-authentication-&-authorization---critical-vulnerabilities.md",
+      "remove": true
+    },
+    {
+      "tag": "batch-processing",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-kafka-chronicles-issue-#1-rise-of-the-kafka-heroes---comic-guide-to-apache-kafka-and-confluent.md",
+      "remove": true
+    },
+    {
+      "tag": "bi",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business-intelligence/Business Intelligence.md",
+      "remove": true
+    },
+    {
+      "tag": "bike-technology",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-why-titanium-bikes-have-never-won-the-tour-de-france---material-analysis.md",
+      "remove": true
+    },
+    {
+      "tag": "blockchain",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-the-social-contract-is-breaking-david-shapiro-on-ai,-economic-collapse,-and-capitalism-2.0.md",
+      "remove": true
+    },
+    {
+      "tag": "boundaries",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-the-quiet-autistic-grief-of-being-low-maintenance---understanding-suppressed-needs.md",
+      "remove": true
+    },
+    {
+      "tag": "business-transformation",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-10-ai-predictions-for-2026-the-last-chance-to-catch-up.md",
+      "remove": true
+    },
+    {
+      "tag": "capitalism",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-the-social-contract-is-breaking-david-shapiro-on-ai,-economic-collapse,-and-capitalism-2.0.md",
+      "remove": true
+    },
+    {
+      "tag": "claude",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-claude-design-skill---enterprise-grade-ui-design-framework.md",
+      "remove": true
+    },
+    {
+      "tag": "cloud-migration",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business/web-the-eurostack-tech-stack-in-practice-moving-a-business-off-us-big-tech.md",
+      "remove": true
+    },
+    {
+      "tag": "cncf",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/containers/youtube-podman-desktop-step-by-step-installation-and-docker-alternative-demo.md",
+      "remove": true
+    },
+    {
+      "tag": "coding-agents",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-where-good-ideas-come-from-(for-coding-agents)-applying-innovation-patterns-to-ai-assisted-developme.md",
+      "remove": true
+    },
+    {
+      "tag": "coding-challenge",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-30-minute-coding-challenge-building-a-travel-approval-system-with-ai-driven-development.md",
+      "remove": true
+    },
+    {
+      "tag": "coherence",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/Coherence Systems Theory.md",
+      "remove": true
+    },
+    {
+      "tag": "command-injection",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-private-connect-security-audit-summary---critical-vulnerabilities-found.md",
+      "remove": true
+    },
+    {
+      "tag": "complex-ptsd",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-autism-vs-complex-ptsd-understanding-the-overlap-and-differences.md",
+      "remove": true
+    },
+    {
+      "tag": "complexity",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/cynefin framework.md",
+      "remove": true
+    },
+    {
+      "tag": "concept-map",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/concept relationships map.md",
+      "remove": true
+    },
+    {
+      "tag": "confluent",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-kafka-chronicles-issue-#1-rise-of-the-kafka-heroes---comic-guide-to-apache-kafka-and-confluent.md",
+      "remove": true
+    },
+    {
+      "tag": "consumer-protection",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-cycling-industry-challenges-2026-eastern-vs-western-brands,-battery-chaos,-and-ai-media.md",
+      "remove": true
+    },
+    {
+      "tag": "containers",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/containers/youtube-podman-desktop-step-by-step-installation-and-docker-alternative-demo.md",
+      "remove": true
+    },
+    {
+      "tag": "content-management",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-open-notebook-basic-workflow---ai-powered-research-and-content-management.md",
+      "remove": true
+    },
+    {
+      "tag": "control",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/cybernetics.md",
+      "remove": true
+    },
+    {
+      "tag": "corporate-backlash",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business/youtube-microsoft-ceo-faces-backlash-for-asking-people-to-stop-calling-ai-'slop'.md",
+      "remove": true
+    },
+    {
+      "tag": "cors",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-security-audit-private-connect-network-&-tunneling-infrastructure.md",
+      "remove": true
+    },
+    {
+      "tag": "coupling",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/architecture/youtube-why-microservices-vs-monolith-debates-miss-the-point---focus-on-coupling.md",
+      "remove": true
+    },
+    {
+      "tag": "credential-management",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-security-audit-private-connect-trust-model-&-architecture-analysis.md",
+      "remove": true
+    },
+    {
+      "tag": "cryptography",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-security-audit-authentication-&-authorization---critical-vulnerabilities.md",
+      "remove": true
+    },
+    {
+      "tag": "customer-retention",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business/web-the-trust-thermocline-why-user-abandonment-happens-suddenly.md",
+      "remove": true
+    },
+    {
+      "tag": "cybernetics",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/cybernetics.md",
+      "remove": true
+    },
+    {
+      "tag": "dark-patterns",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/os/web-windows-setup-evolution-from-user-friendly-to-ad-ridden-nightmare.md",
+      "remove": true
+    },
+    {
+      "tag": "data-processing",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business-intelligence/web-duckdb-open-source-column-oriented-database-for-analytics.md",
+      "remove": true
+    },
+    {
+      "tag": "data-streaming",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-kafka-chronicles-issue-#1-rise-of-the-kafka-heroes---comic-guide-to-apache-kafka-and-confluent.md",
+      "remove": true
+    },
+    {
+      "tag": "database",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business-intelligence/web-duckdb-open-source-column-oriented-database-for-analytics.md",
+      "remove": true
+    },
+    {
+      "tag": "databases",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business-intelligence/web-databases-in-2025-a-year-in-review.md",
+      "remove": true
+    },
+    {
+      "tag": "decision-making",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/cynefin framework.md",
+      "remove": true
+    },
+    {
+      "tag": "democracy",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-the-social-contract-is-breaking-david-shapiro-on-ai,-economic-collapse,-and-capitalism-2.0.md",
+      "remove": true
+    },
+    {
+      "tag": "design-systems",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-claude-design-skill---enterprise-grade-ui-design-framework.md",
+      "remove": true
+    },
+    {
+      "tag": "desktop-linux",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/os/youtube-steamos-desktop-experience-complete-windows-replacement-testing.md",
+      "remove": true
+    },
+    {
+      "tag": "development-cycle",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle4/web-cycle-4-completion-summary---retrieval-quality-enhancements.md",
+      "remove": true
+    },
+    {
+      "tag": "digital-sovereignty",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business/web-the-eurostack-tech-stack-in-practice-moving-a-business-off-us-big-tech.md",
+      "remove": true
+    },
+    {
+      "tag": "dissociation",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/therapy/youtube-somatic-therapy-risks-for-dissociation-and-complex-trauma-recovery.md",
+      "remove": true
+    },
+    {
+      "tag": "docker",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/containers/youtube-podman-desktop-step-by-step-installation-and-docker-alternative-demo.md",
+      "remove": true
+    },
+    {
+      "tag": "documentation",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/obsidian/Obsidian Vault Tool – Functions Overview.md",
+      "remove": true
+    },
+    {
+      "tag": "domain-driven-design",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/programming/youtube-why-ai-makes-software-design-more-important,-not-less.md",
+      "remove": true
+    },
+    {
+      "tag": "drift",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/Coherence Systems Theory.md",
+      "remove": true
+    },
+    {
+      "tag": "dual-boot",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/os/web-dual-booting-windows-11-and-linux-a-2025-experience-analysis.md",
+      "remove": true
+    },
+    {
+      "tag": "dynamics",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/feedback loops.md",
+      "remove": true
+    },
+    {
+      "tag": "economic-policy",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-the-social-contract-is-breaking-david-shapiro-on-ai,-economic-collapse,-and-capitalism-2.0.md",
+      "remove": true
+    },
+    {
+      "tag": "electronics",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-cycling-industry-challenges-2026-eastern-vs-western-brands,-battery-chaos,-and-ai-media.md",
+      "remove": true
+    },
+    {
+      "tag": "embedded-systems",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business-intelligence/web-duckdb-open-source-column-oriented-database-for-analytics.md",
+      "remove": true
+    },
+    {
+      "tag": "emotional-memory",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-unlocking-the-emotional-brain-eliminating-symptoms-at-their-roots-using-memory-reconsolidation.md",
+      "remove": true
+    },
+    {
+      "tag": "emotional-processing",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-understanding-alexithymia-and-internal-processing-in-neurodivergent-individuals.md",
+      "remove": true
+    },
+    {
+      "tag": "encryption",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-security-audit-private-connect-trust-model-&-architecture-analysis.md",
+      "remove": true
+    },
+    {
+      "tag": "endurance",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-zone-2-training-relevance-in-2026-expert-analysis-and-research-review.md",
+      "remove": true
+    },
+    {
+      "tag": "engineering",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/control theory.md",
+      "remove": true
+    },
+    {
+      "tag": "engineering-practices",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-where-good-ideas-come-from-(for-coding-agents)-applying-innovation-patterns-to-ai-assisted-developme.md",
+      "remove": true
+    },
+    {
+      "tag": "eurostack",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business/web-the-eurostack-tech-stack-in-practice-moving-a-business-off-us-big-tech.md",
+      "remove": true
+    },
+    {
+      "tag": "evaluation",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/learning reflections/Personal AI Projects - Learning Roadmap v2.md",
+      "remove": true
+    },
+    {
+      "tag": "event-driven-architecture",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-kafka-chronicles-issue-#1-rise-of-the-kafka-heroes---comic-guide-to-apache-kafka-and-confluent.md",
+      "remove": true
+    },
+    {
+      "tag": "exercise-physiology",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-zone-2-training-relevance-in-2026-expert-analysis-and-research-review.md",
+      "remove": true
+    },
+    {
+      "tag": "fallback",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle4/web-youtube-transcript-provider-strategy-implementation-plan.md",
+      "remove": true
+    },
+    {
+      "tag": "fastapi",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-30-minute-coding-challenge-building-a-travel-approval-system-with-ai-driven-development.md",
+      "remove": true
+    },
+    {
+      "tag": "feedback-loops",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/ai-assisted development and control theory.md",
+      "remove": true
+    },
+    {
+      "tag": "file-formats",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business-intelligence/web-databases-in-2025-a-year-in-review.md",
+      "remove": true
+    },
+    {
+      "tag": "file-ingestion",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/obsidian/web-test-markdown-note---kai-tool-file-ingestion-verification.md",
+      "remove": true
+    },
+    {
+      "tag": "fitness",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-zone-2-training-relevance-in-2026-expert-analysis-and-research-review.md",
+      "remove": true
+    },
+    {
+      "tag": "framework",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/cynefin framework.md",
+      "remove": true
+    },
+    {
+      "tag": "git",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-claude-code-git-safety-hooks---preventing-ai-agent-destructive-commands.md",
+      "remove": true
+    },
+    {
+      "tag": "human-connection",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-how-sensory-processing-makes-everyday-interactions-intensely-intimate-for-autistic-people.md",
+      "remove": true
+    },
+    {
+      "tag": "ibm",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-a-computer-can-never-be-held-accountable---ibm-1979-training-principle.md",
+      "remove": true
+    },
+    {
+      "tag": "implicit-learning",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-unlocking-the-emotional-brain-eliminating-symptoms-at-their-roots-using-memory-reconsolidation.md",
+      "remove": true
+    },
+    {
+      "tag": "index",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/concept relationships map.md",
+      "remove": true
+    },
+    {
+      "tag": "industrial-revolution",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-the-rise-of-industrial-software-how-ai-is-transforming-software-production.md",
+      "remove": true
+    },
+    {
+      "tag": "industry-analysis",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-cycling-industry-challenges-2026-eastern-vs-western-brands,-battery-chaos,-and-ai-media.md",
+      "remove": true
+    },
+    {
+      "tag": "interoception",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/therapy/youtube-somatic-therapy-risks-for-dissociation-and-complex-trauma-recovery.md",
+      "remove": true
+    },
+    {
+      "tag": "introversion",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-neurodivergence-&-hermit-mode-distinguishing-healthy-solitude-from-self-isolation.md",
+      "remove": true
+    },
+    {
+      "tag": "kai-tool",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/obsidian/web-test-markdown-note---kai-tool-file-ingestion-verification.md",
+      "remove": true
+    },
+    {
+      "tag": "kubernetes",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/containers/youtube-podman-desktop-step-by-step-installation-and-docker-alternative-demo.md",
+      "remove": true
+    },
+    {
+      "tag": "linux-kernel",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-linus-torvalds-on-ai's-impact-on-programming-and-code-review.md",
+      "remove": true
+    },
+    {
+      "tag": "logging",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle4/web-youtube-provider-configuration-implementation-walkthrough.md",
+      "remove": true
+    },
+    {
+      "tag": "maintenance",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-cycling-industry-challenges-2026-eastern-vs-western-brands,-battery-chaos,-and-ai-media.md",
+      "remove": true
+    },
+    {
+      "tag": "management-decisions",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-a-computer-can-never-be-held-accountable---ibm-1979-training-principle.md",
+      "remove": true
+    },
+    {
+      "tag": "manufacturing",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-cycling-industry-challenges-2026-eastern-vs-western-brands,-battery-chaos,-and-ai-media.md",
+      "remove": true
+    },
+    {
+      "tag": "materials-science",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-why-titanium-bikes-have-never-won-the-tour-de-france---material-analysis.md",
+      "remove": true
+    },
+    {
+      "tag": "mcp",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business-intelligence/web-databases-in-2025-a-year-in-review.md",
+      "remove": true
+    },
+    {
+      "tag": "memory-reconsolidation",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-unlocking-the-emotional-brain-eliminating-symptoms-at-their-roots-using-memory-reconsolidation.md",
+      "remove": true
+    },
+    {
+      "tag": "mental-model",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/cynefin framework.md",
+      "remove": true
+    },
+    {
+      "tag": "mental-models",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/systems thinking.md",
+      "remove": true
+    },
+    {
+      "tag": "methodology",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/Agile.md",
+      "remove": true
+    },
+    {
+      "tag": "methodology-tracer-bullet",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle1/week1_Kickoff - MVP Development.md",
+      "remove": true
+    },
+    {
+      "tag": "microservices",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/architecture/youtube-why-microservices-vs-monolith-debates-miss-the-point---focus-on-coupling.md",
+      "remove": true
+    },
+    {
+      "tag": "mit",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/programming/web-mit-proposes-concepts-and-synchronizations-model-for-legible,-modular-software.md",
+      "remove": true
+    },
+    {
+      "tag": "moc",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/_maps/Systems & Flow MOC.md",
+      "remove": true
+    },
+    {
+      "tag": "model",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/Queue Theory.md",
+      "remove": true
+    },
+    {
+      "tag": "modular-architecture",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/programming/web-mit-proposes-concepts-and-synchronizations-model-for-legible,-modular-software.md",
+      "remove": true
+    },
+    {
+      "tag": "monetization",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/os/web-windows-setup-evolution-from-user-friendly-to-ad-ridden-nightmare.md",
+      "remove": true
+    },
+    {
+      "tag": "monolith",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/architecture/youtube-why-microservices-vs-monolith-debates-miss-the-point---focus-on-coupling.md",
+      "remove": true
+    },
+    {
+      "tag": "nervous-system",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/therapy/youtube-somatic-therapy-risks-for-dissociation-and-complex-trauma-recovery.md",
+      "remove": true
+    },
+    {
+      "tag": "network-security",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-security-audit-private-connect-trust-model-&-architecture-analysis.md",
+      "remove": true
+    },
+    {
+      "tag": "neural-networks",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-this-ai-pioneer-thinks-ai-is-dumber-than-a-cat---yann-lecun's-skeptical-view.md",
+      "remove": true
+    },
+    {
+      "tag": "neuroscience",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-unlocking-the-emotional-brain-eliminating-symptoms-at-their-roots-using-memory-reconsolidation.md",
+      "remove": true
+    },
+    {
+      "tag": "olap",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business-intelligence/web-duckdb-open-source-column-oriented-database-for-analytics.md",
+      "remove": true
+    },
+    {
+      "tag": "operations-research",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/Queue Theory.md",
+      "remove": true
+    },
+    {
+      "tag": "orchestration",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/learning reflections/Personal AI Projects - Learning Roadmap v2.md",
+      "remove": true
+    },
+    {
+      "tag": "organization",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/obsidian/Obsidian Tag System.md",
+      "remove": true
+    },
+    {
+      "tag": "pattern-recognition",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-neurodivergent-pattern-recognition-and-social-sixth-sense.md",
+      "remove": true
+    },
+    {
+      "tag": "pc-gaming",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/os/web-linux-desktop-adoption-2026-as-the-year-to-switch-from-windows.md",
+      "remove": true
+    },
+    {
+      "tag": "pdf-ingestion",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle4/web-cycle-4-completion-summary---retrieval-quality-enhancements.md",
+      "remove": true
+    },
+    {
+      "tag": "performance",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-zone-2-training-relevance-in-2026-expert-analysis-and-research-review.md",
+      "remove": true
+    },
+    {
+      "tag": "phase-mvp",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle1/week1_Kickoff - MVP Development.md",
+      "remove": true
+    },
+    {
+      "tag": "podcast-generation",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-open-notebook-basic-workflow---ai-powered-research-and-content-management.md",
+      "remove": true
+    },
+    {
+      "tag": "podman",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/containers/youtube-podman-desktop-step-by-step-installation-and-docker-alternative-demo.md",
+      "remove": true
+    },
+    {
+      "tag": "post-labor-economics",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-the-social-contract-is-breaking-david-shapiro-on-ai,-economic-collapse,-and-capitalism-2.0.md",
+      "remove": true
+    },
+    {
+      "tag": "postgresql",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business-intelligence/web-databases-in-2025-a-year-in-review.md",
+      "remove": true
+    },
+    {
+      "tag": "principles",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/learning reflections/Core Principles from 3 Months of AI-Driven Learning.md",
+      "remove": true
+    },
+    {
+      "tag": "private-connect",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-private-connect-security-audit-summary---critical-vulnerabilities-found.md",
+      "remove": true
+    },
+    {
+      "tag": "product-management",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business/web-the-trust-thermocline-why-user-abandonment-happens-suddenly.md",
+      "remove": true
+    },
+    {
+      "tag": "productivity",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/obsidian/Obsidian Tag System.md",
+      "remove": true
+    },
+    {
+      "tag": "professional-cycling",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/web-worldtour-cycling-budgets-reach-€663-million-in-2026-amid-growing-financial-inequality.md",
+      "remove": true
+    },
+    {
+      "tag": "psychedelics",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/therapy/youtube-somatic-therapy-risks-for-dissociation-and-complex-trauma-recovery.md",
+      "remove": true
+    },
+    {
+      "tag": "psychology",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-why-autism-goes-undetected-in-intelligent-adults---masking-and-diagnostic-blind-spots.md",
+      "remove": true
+    },
+    {
+      "tag": "psychotherapy",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-unlocking-the-emotional-brain-eliminating-symptoms-at-their-roots-using-memory-reconsolidation.md",
+      "remove": true
+    },
+    {
+      "tag": "public-relations",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business/youtube-microsoft-ceo-faces-backlash-for-asking-people-to-stop-calling-ai-'slop'.md",
+      "remove": true
+    },
+    {
+      "tag": "python-library",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-llm---cli-tool-and-python-library-for-large-language-models.md",
+      "remove": true
+    },
+    {
+      "tag": "rag",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/learning reflections/Personal AI Projects - Learning Roadmap v2.md",
+      "remove": true
+    },
+    {
+      "tag": "rapid-prototyping",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-30-minute-coding-challenge-building-a-travel-approval-system-with-ai-driven-development.md",
+      "remove": true
+    },
+    {
+      "tag": "real-time-data",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-kafka-chronicles-issue-#1-rise-of-the-kafka-heroes---comic-guide-to-apache-kafka-and-confluent.md",
+      "remove": true
+    },
+    {
+      "tag": "reflection",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/learning reflections/Core Principles from 3 Months of AI-Driven Learning.md",
+      "remove": true
+    },
+    {
+      "tag": "research-directions",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/synthesis and research angles.md",
+      "remove": true
+    },
+    {
+      "tag": "research-tools",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-open-notebook-basic-workflow---ai-powered-research-and-content-management.md",
+      "remove": true
+    },
+    {
+      "tag": "retrieval",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle4/web-cycle-4-completion-summary---retrieval-quality-enhancements.md",
+      "remove": true
+    },
+    {
+      "tag": "rider-salaries",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/web-worldtour-cycling-budgets-reach-€663-million-in-2026-amid-growing-financial-inequality.md",
+      "remove": true
+    },
+    {
+      "tag": "roadmap",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/learning reflections/Personal AI Projects - Learning Roadmap v2.md",
+      "remove": true
+    },
+    {
+      "tag": "robotics",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-where-ai-is-going-omnimodels,-world-models,-and-the-future-of-ai-development.md",
+      "remove": true
+    },
+    {
+      "tag": "roi",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-v2mom-framework-for-ai-project-success.md",
+      "remove": true
+    },
+    {
+      "tag": "safety-hooks",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-claude-code-git-safety-hooks---preventing-ai-agent-destructive-commands.md",
+      "remove": true
+    },
+    {
+      "tag": "scaling-laws",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-where-ai-is-going-omnimodels,-world-models,-and-the-future-of-ai-development.md",
+      "remove": true
+    },
+    {
+      "tag": "search",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle4/web-cycle-4-completion-summary---retrieval-quality-enhancements.md",
+      "remove": true
+    },
+    {
+      "tag": "self-awareness",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/discover-your-neurodivergent-masks.md",
+      "remove": true
+    },
+    {
+      "tag": "self-compassion",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/unspoken-struggles-high-masking-autistic.md",
+      "remove": true
+    },
+    {
+      "tag": "self-hosting",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business/web-the-eurostack-tech-stack-in-practice-moving-a-business-off-us-big-tech.md",
+      "remove": true
+    },
+    {
+      "tag": "setup-process",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/os/web-windows-setup-evolution-from-user-friendly-to-ad-ridden-nightmare.md",
+      "remove": true
+    },
+    {
+      "tag": "social-anxiety",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-how-sensory-processing-makes-everyday-interactions-intensely-intimate-for-autistic-people.md",
+      "remove": true
+    },
+    {
+      "tag": "social-behavior",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/the-4-types-of-autistic-masking.md",
+      "remove": true
+    },
+    {
+      "tag": "social-contract",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-the-social-contract-is-breaking-david-shapiro-on-ai,-economic-collapse,-and-capitalism-2.0.md",
+      "remove": true
+    },
+    {
+      "tag": "social-media",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business/web-the-trust-thermocline-why-user-abandonment-happens-suddenly.md",
+      "remove": true
+    },
+    {
+      "tag": "social-work",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-autism-and-childhood-trauma-overlapping-symptoms-and-diagnostic-challenges.md",
+      "remove": true
+    },
+    {
+      "tag": "software-engineering",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/programming/web-mit-proposes-concepts-and-synchronizations-model-for-legible,-modular-software.md",
+      "remove": true
+    },
+    {
+      "tag": "somatic-therapy",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/therapy/youtube-somatic-therapy-risks-for-dissociation-and-complex-trauma-recovery.md",
+      "remove": true
+    },
+    {
+      "tag": "spec-driven-development",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-30-minute-coding-challenge-building-a-travel-approval-system-with-ai-driven-development.md",
+      "remove": true
+    },
+    {
+      "tag": "sports-economics",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/web-worldtour-cycling-budgets-reach-€663-million-in-2026-amid-growing-financial-inequality.md",
+      "remove": true
+    },
+    {
+      "tag": "steam",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/os/youtube-linux-gaming-performance-surge---why-windows-users-are-switching.md",
+      "remove": true
+    },
+    {
+      "tag": "steamos",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/os/youtube-steamos-desktop-experience-complete-windows-replacement-testing.md",
+      "remove": true
+    },
+    {
+      "tag": "synthesis",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/synthesis and research angles.md",
+      "remove": true
+    },
+    {
+      "tag": "system-failure",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/Coherence Systems Theory.md",
+      "remove": true
+    },
+    {
+      "tag": "tags",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/obsidian/Obsidian Tag System.md",
+      "remove": true
+    },
+    {
+      "tag": "team-budgets",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/web-worldtour-cycling-budgets-reach-€663-million-in-2026-amid-growing-financial-inequality.md",
+      "remove": true
+    },
+    {
+      "tag": "tech-criticism",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/os/web-windows-11's-2025-crisis-ai-obsession,-quality-decline,-and-user-backlash.md",
+      "remove": true
+    },
+    {
+      "tag": "tech-openrouter",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle1/week1_Kickoff - MVP Development.md",
+      "remove": true
+    },
+    {
+      "tag": "tech-python",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle1/week1_Kickoff - MVP Development.md",
+      "remove": true
+    },
+    {
+      "tag": "tech-stack",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business/web-the-eurostack-tech-stack-in-practice-moving-a-business-off-us-big-tech.md",
+      "remove": true
+    },
+    {
+      "tag": "technical-debt",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-the-rise-of-industrial-software-how-ai-is-transforming-software-production.md",
+      "remove": true
+    },
+    {
+      "tag": "technical-education",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-kafka-chronicles-issue-#1-rise-of-the-kafka-heroes---comic-guide-to-apache-kafka-and-confluent.md",
+      "remove": true
+    },
+    {
+      "tag": "templates",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/templates/templates.md",
+      "remove": true
+    },
+    {
+      "tag": "temporal-ordering",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/Coherence Systems Theory.md",
+      "remove": true
+    },
+    {
+      "tag": "testing",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/obsidian/web-test-markdown-note---kai-tool-file-ingestion-verification.md",
+      "remove": true
+    },
+    {
+      "tag": "theory-of-constraints",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/systems-thinking/theory of constraints.md",
+      "remove": true
+    },
+    {
+      "tag": "therapeutic-change",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle2/web-unlocking-the-emotional-brain-eliminating-symptoms-at-their-roots-using-memory-reconsolidation.md",
+      "remove": true
+    },
+    {
+      "tag": "titanium",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-why-titanium-bikes-have-never-won-the-tour-de-france---material-analysis.md",
+      "remove": true
+    },
+    {
+      "tag": "tls",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-security-audit-private-connect-network-&-tunneling-infrastructure.md",
+      "remove": true
+    },
+    {
+      "tag": "tools",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/obsidian/Obsidian Vault Tool – Functions Overview.md",
+      "remove": true
+    },
+    {
+      "tag": "tour-de-france",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-why-titanium-bikes-have-never-won-the-tour-de-france---material-analysis.md",
+      "remove": true
+    },
+    {
+      "tag": "training",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-zone-2-training-relevance-in-2026-expert-analysis-and-research-review.md",
+      "remove": true
+    },
+    {
+      "tag": "transcript",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/projects/obsidian-ai-tool/cycle4/web-youtube-transcript-provider-strategy-implementation-plan.md",
+      "remove": true
+    },
+    {
+      "tag": "trauma-recovery",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-neurodivergence-&-hermit-mode-distinguishing-healthy-solitude-from-self-isolation.md",
+      "remove": true
+    },
+    {
+      "tag": "trust",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/business/web-the-trust-thermocline-why-user-abandonment-happens-suddenly.md",
+      "remove": true
+    },
+    {
+      "tag": "trust-model",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-security-audit-private-connect-trust-model-&-architecture-analysis.md",
+      "remove": true
+    },
+    {
+      "tag": "tunnel",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-private-connect-security-audit-summary---critical-vulnerabilities-found.md",
+      "remove": true
+    },
+    {
+      "tag": "ui-development",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-claude-design-skill---enterprise-grade-ui-design-framework.md",
+      "remove": true
+    },
+    {
+      "tag": "valve",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/os/youtube-steamos-desktop-experience-complete-windows-replacement-testing.md",
+      "remove": true
+    },
+    {
+      "tag": "vector-search",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-open-notebook-basic-workflow---ai-powered-research-and-content-management.md",
+      "remove": true
+    },
+    {
+      "tag": "vulnerability",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-security-audit-authentication-&-authorization---critical-vulnerabilities.md",
+      "remove": true
+    },
+    {
+      "tag": "web-development",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/youtube-30-minute-coding-challenge-building-a-travel-approval-system-with-ai-driven-development.md",
+      "remove": true
+    },
+    {
+      "tag": "websocket",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/security/examples/web-security-audit-private-connect-network-&-tunneling-infrastructure.md",
+      "remove": true
+    },
+    {
+      "tag": "windows-alternative",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/os/youtube-steamos-desktop-experience-complete-windows-replacement-testing.md",
+      "remove": true
+    },
+    {
+      "tag": "working-memory",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/human-systems/neurodiversity/youtube-working-memory-challenges-in-adhd-understanding-and-management-strategies.md",
+      "remove": true
+    },
+    {
+      "tag": "worldtour",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/web-worldtour-cycling-budgets-reach-€663-million-in-2026-amid-growing-financial-inequality.md",
+      "remove": true
+    },
+    {
+      "tag": "yann-lecun",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/tech/ai/web-this-ai-pioneer-thinks-ai-is-dumber-than-a-cat---yann-lecun's-skeptical-view.md",
+      "remove": true
+    },
+    {
+      "tag": "zone-2",
+      "note_path": "/Users/larshansen/Documents/Privat/Obsidian/Private Vault/notes/concepts/cycling/youtube-zone-2-training-relevance-in-2026-expert-analysis-and-research-review.md",
+      "remove": true
+    }
+  ],
+  "analyzed_at": "2026-01-06T20:21:12.887814"
+}

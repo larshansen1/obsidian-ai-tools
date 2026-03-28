@@ -22,8 +22,7 @@ def mock_fetched_transcript() -> Any:
         "the YouTube provider functionality."
     )
     snippet2.text = (
-        "This is the second segment with more content to ensure "
-        "we have enough characters."
+        "This is the second segment with more content to ensure we have enough characters."
     )
     snippet3.text = "And this is the final part with additional text to pass validation."
 
@@ -138,8 +137,8 @@ class TestYouTubeClientProviderFallback:
                     "obsidian_ai_tools.youtube.DecodoTranscriptProvider"
                 ) as mock_decodo_class:
                     mock_decodo_instance = Mock()
-                    mock_decodo_instance.fetch_transcript.side_effect = (
-                        TranscriptUnavailableError("Decodo failed")
+                    mock_decodo_instance.fetch_transcript.side_effect = TranscriptUnavailableError(
+                        "Decodo failed"
                     )
 
                     mock_decodo_class.return_value = mock_decodo_instance

@@ -1,6 +1,7 @@
 """Integration tests for the CLI."""
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
 
@@ -285,3 +286,488 @@ tags: [testing]
     assert vault_index_path.exists(), "Vault index should be created"
     assert whoosh_index_path.exists(), "Whoosh index directory should be created"
     assert whoosh_index_path.is_dir(), "Whoosh index should be a directory"
+
+
+def test_process_inbox_requires_confirm(tmp_path: Path) -> None:
+    """Test process-inbox requires --confirm flag."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+
+    inbox_path = vault_path / "inbox"
+    inbox_path.mkdir()
+
+    note_path = inbox_path / "test.md"
+    note_path.write_text(
+        """---
+title: Test Note
+tags: [ai, python]
+---
+# Test Content
+""",
+        encoding="utf-8",
+    )
+
+    rules_path = vault_path / "folder_rules.json"
+    rules_path.write_text('{"ai": "AI", "python": "Python"}', encoding="utf-8")
+
+    result = runner.invoke(app, ["process-inbox", "--vault", str(vault_path)])
+
+    assert result.exit_code == 0
+    assert "Add --confirm to execute moves" in result.stdout
+
+
+def test_process_inbox_confirm_without_prompt(tmp_path: Path) -> None:
+    """Test process-inbox with --confirm --yes skips confirmation."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+
+    inbox_path = vault_path / "inbox"
+    inbox_path.mkdir()
+
+    note_path = inbox_path / "test.md"
+    note_path.write_text(
+        """---
+title: Test Note
+tags: [ai]
+---
+# Test Content
+""",
+        encoding="utf-8",
+    )
+
+    rules_path = vault_path / "folder_rules.json"
+    rules_path.write_text('{"ai": "AI"}', encoding="utf-8")
+
+    result = runner.invoke(app, ["process-inbox", "--confirm", "--yes", "--vault", str(vault_path)])
+
+    assert result.exit_code == 0
+    assert "Moved test.md" in result.stdout or "Moved 1/1" in result.stdout
+
+
+def test_reading_list_clear_requires_confirm(tmp_path: Path) -> None:
+    """Test reading-list clear requires --confirm flag."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+
+    kai_dir = vault_path / ".kai"
+    kai_dir.mkdir()
+
+    # Create a valid reading list entry with all required fields
+    reading_list_path = kai_dir / "reading_list.jsonl"
+    reading_list_path.write_text(
+        '{"url": "https://example.com", "preview": {"url": "https://example.com", '
+        '"source_type": "web", "title": "Test", "content_length": 100, '
+        '"estimated_cost_usd": 0.01, "key_topics": []}, "status": "ingested"}\n',
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["reading-list", "clear", "--vault", str(vault_path)])
+
+    assert result.exit_code == 0
+    assert "Add --confirm to clear items" in result.stdout
+
+
+def test_tags_requires_confirm(tmp_path: Path) -> None:
+    """Test tags command requires --confirm to apply fixes."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+
+    inbox_path = vault_path / "inbox"
+    inbox_path.mkdir()
+
+    note1 = inbox_path / "note1.md"
+    note1.write_text(
+        """---
+title: Test Note
+tags: [neurodivergent, neurodivergence]
+---
+# Content
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["tags", "--vault", str(vault_path)])
+
+    assert result.exit_code == 0
+    assert "Add --confirm to apply fixes" in result.stdout
+
+
+def test_connect_auto_link_requires_confirm(tmp_path: Path) -> None:
+    """Test connect --auto-link requires --confirm flag."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+
+    inbox_path = vault_path / "inbox"
+    inbox_path.mkdir()
+
+    note1 = inbox_path / "note1.md"
+    note1.write_text(
+        """---
+title: AI Concepts
+tags: [ai]
+---
+# Artificial Intelligence
+
+Machine learning and neural networks are key technologies.
+Deep learning uses multi-layer architectures for complex tasks.
+Artificial intelligence enables machines to learn from data.
+Machine learning algorithms improve through training on large datasets.
+Neural networks are inspired by biological brain structures.
+Deep learning achieves state-of-the-art results in many domains.
+AI applications include natural language processing and computer vision.
+The combination of machine learning and deep learning drives innovation.
+This first note focuses on AI fundamental concepts.
+""",
+        encoding="utf-8",
+    )
+
+    note2 = inbox_path / "note2.md"
+    note2.write_text(
+        """---
+title: ML Topics
+tags: [ml]
+---
+# Machine Learning
+
+Machine learning and neural networks are key technologies.
+Deep learning uses multi-layer architectures for complex tasks.
+Artificial intelligence enables machines to learn from data.
+Machine learning algorithms improve through training on large datasets.
+Neural networks are inspired by biological brain structures.
+Deep learning achieves state-of-the-art results in many domains.
+AI applications include natural language processing and computer vision.
+The combination of machine learning and deep learning drives innovation.
+This second note covers machine learning applications.
+""",
+        encoding="utf-8",
+    )
+
+    note3 = inbox_path / "note3.md"
+    note3.write_text(
+        """---
+title: Data Science
+tags: [ds]
+---
+# Data Science Overview
+
+Statistics and data analysis form the foundation of data science.
+Python and R are popular programming languages for data science.
+Data visualization helps communicate insights from data.
+This note is about data science in general and is different content.
+""",
+        encoding="utf-8",
+    )
+
+    note3 = inbox_path / "note3.md"
+    note3.write_text(
+        """---
+title: Data Science
+tags: [ds]
+---
+# Data Science Overview
+
+Statistics and data analysis form the foundation of data science.
+Python and R are popular programming languages for data science.
+Data visualization helps communicate insights from data.
+This note is about data science in general and is different content.
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "connect",
+            "--folder",
+            "inbox",
+            "--auto-link",
+            "--threshold",
+            "0.05",
+            "--vault",
+            str(vault_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Add --confirm to insert links" in result.stdout
+
+
+def test_refresh_requires_confirm(tmp_path: Path) -> None:
+    """Test refresh command requires --confirm flag before execution."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+
+    dummy_settings = _make_dummy_settings(vault_path)
+
+    # Create a dummy refresh candidate so the command reaches the confirm gate
+    candidate = MagicMock()
+    candidate.file_path = vault_path / "inbox" / "test.md"
+    candidate.title = "Test Note"
+    candidate.current_prompt_version = "youtube_v1"
+    candidate.target_prompt_version = "youtube_v2"
+
+    with (
+        patch(
+            "obsidian_ai_tools.cli.get_settings",
+            return_value=dummy_settings,
+        ),
+        patch(
+            "obsidian_ai_tools.refresh.find_refresh_candidates",
+            return_value=[candidate],
+        ),
+        patch(
+            "obsidian_ai_tools.refresh.estimate_refresh_cost",
+            return_value=1.23,
+        ),
+    ):
+        result = runner.invoke(
+            app,
+            ["refresh", "-p", "youtube_v2", "--vault", str(vault_path)],
+        )
+
+    assert result.exit_code == 0
+    assert "Add --confirm to execute refresh" in result.output
+
+
+def _make_dummy_settings(vault_path: Path) -> MagicMock:
+    """Create dummy settings object for CLI tests."""
+    settings = MagicMock()
+    settings.obsidian_vault_path = vault_path
+    settings.obsidian_inbox_folder = "inbox"
+    settings.llm_model = "test-model"
+    settings.openrouter_api_key = "test-key"
+    return settings
+
+
+def test_search_requires_criteria(tmp_path: Path) -> None:
+    """Test search command requires at least one criterion."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    with patch(
+        "obsidian_ai_tools.cli.get_settings",
+        return_value=_make_dummy_settings(vault_path),
+    ):
+        result = runner.invoke(app, ["search", "--vault", str(vault_path)])
+
+    assert result.exit_code == 1
+    assert "No search criteria provided" in result.output
+
+
+def test_search_invalid_after_date(tmp_path: Path) -> None:
+    """Test search command validates --after date format."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    with patch(
+        "obsidian_ai_tools.cli.get_settings",
+        return_value=_make_dummy_settings(vault_path),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "search",
+                "--after",
+                "not-a-date",
+                "--vault",
+                str(vault_path),
+            ],
+        )
+
+    assert result.exit_code == 1
+    assert "Invalid date format for --after" in result.output
+
+
+def test_search_no_results(tmp_path: Path) -> None:
+    """Test search command handles no results cleanly."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    dummy_settings = _make_dummy_settings(vault_path)
+
+    with (
+        patch(
+            "obsidian_ai_tools.cli.get_settings",
+            return_value=dummy_settings,
+        ),
+        patch("obsidian_ai_tools.indexer.build_index", return_value=MagicMock()),
+        patch(
+            "obsidian_ai_tools.search.build_whoosh_index",
+            return_value=None,
+        ),
+        patch("obsidian_ai_tools.search.search_notes", return_value=[]),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "search",
+                "--keyword",
+                "ai",
+                "--vault",
+                str(vault_path),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "No results found" in result.output
+
+
+def test_search_with_results(tmp_path: Path) -> None:
+    """Test search command prints formatted results with previews."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    class DummyNote:
+        def __init__(self, file_path: Path) -> None:
+            self.file_path = file_path
+            self.title = "Test Note"
+            self.tags = ["ai", "cli"]
+            self.created = None
+            self.author = "Tester"
+
+    class DummyResult:
+        def __init__(self, note: DummyNote, highlights: str) -> None:
+            self.note = note
+            self.highlights = highlights
+            self.explanation = None
+            self.outgoing_links: list[str] = []
+
+    dummy_settings = _make_dummy_settings(vault_path)
+    note = DummyNote(vault_path / "inbox" / "test.md")
+    results = [DummyResult(note, "<b>Preview</b> content")]  # HTML to be stripped
+
+    with (
+        patch(
+            "obsidian_ai_tools.cli.get_settings",
+            return_value=dummy_settings,
+        ),
+        patch("obsidian_ai_tools.indexer.build_index", return_value=MagicMock()),
+        patch(
+            "obsidian_ai_tools.search.build_whoosh_index",
+            return_value=None,
+        ),
+        patch("obsidian_ai_tools.search.search_notes", return_value=results),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "search",
+                "--keyword",
+                "ai",
+                "--vault",
+                str(vault_path),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Found 1 result(s)" in result.output
+    assert "Test Note" in result.output
+    # Preview line should have HTML stripped
+    assert "Preview: Preview content" in result.output
+
+
+def test_stats_recent_no_records(tmp_path: Path) -> None:
+    """Test stats --recent handles empty observability data."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    dummy_settings = _make_dummy_settings(vault_path)
+
+    with (
+        patch(
+            "obsidian_ai_tools.cli.get_settings",
+            return_value=dummy_settings,
+        ),
+        patch("obsidian_ai_tools.observability.ObservabilityDB") as mock_db_cls,
+    ):
+        mock_db = mock_db_cls.return_value
+        mock_db.get_recent_costs.return_value = []
+
+        result = runner.invoke(app, ["stats", "--recent"])
+
+    assert result.exit_code == 0
+    assert "No cost records found" in result.output
+
+
+def test_stats_summary_with_data(tmp_path: Path) -> None:
+    """Test stats summary output with sample observability data."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    dummy_settings = _make_dummy_settings(vault_path)
+
+    summary = {
+        "total_cost": 1.2345,
+        "by_source_type": [
+            ("youtube", 0.8, 10),
+            ("web", 0.4, 5),
+        ],
+        "by_model": [("gpt-4", 1.0)],
+        "by_operation": [("ingest", 1.2345)],
+        "recent_cost_7days": 0.5,
+    }
+
+    with (
+        patch(
+            "obsidian_ai_tools.cli.get_settings",
+            return_value=dummy_settings,
+        ),
+        patch("obsidian_ai_tools.observability.ObservabilityDB") as mock_db_cls,
+    ):
+        mock_db = mock_db_cls.return_value
+        mock_db.get_cost_summary.return_value = summary
+
+        result = runner.invoke(app, ["stats"])
+
+    assert result.exit_code == 0
+    assert "Cost Summary" in result.output
+    assert "$1.23" in result.output or "$1.2345" in result.output
+    assert "youtube" in result.output
+    assert "gpt-4" in result.output
+
+
+def test_quality_summary_with_data(tmp_path: Path) -> None:
+    """Test quality command outputs metrics from observability DB."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    dummy_settings = _make_dummy_settings(vault_path)
+
+    quality_summary = {
+        "total_ingestions": 20,
+        "success_rate": 95.0,
+        "successes": 19,
+        "by_source": [
+            {
+                "source_type": "youtube",
+                "successes": 10,
+                "total": 10,
+                "avg_duration": 1.2,
+            },
+            {
+                "source_type": "web",
+                "successes": 9,
+                "total": 10,
+                "avg_duration": 0.8,
+            },
+        ],
+        "common_errors": [["TimeoutError", 1]],
+    }
+
+    with (
+        patch(
+            "obsidian_ai_tools.cli.get_settings",
+            return_value=dummy_settings,
+        ),
+        patch("obsidian_ai_tools.observability.ObservabilityDB") as mock_db_cls,
+    ):
+        mock_db = mock_db_cls.return_value
+        mock_db.get_quality_summary.return_value = quality_summary
+
+        result = runner.invoke(app, ["quality"])
+
+    assert result.exit_code == 0
+    assert "Quality Metrics" in result.output
+    assert "Total Ingestions: 20" in result.output
+    assert "youtube" in result.output
+    assert "TimeoutError" in result.output

@@ -26,10 +26,24 @@ src/obsidian_ai_tools/
 ├── youtube.py            # Pure functions: fetch transcripts
 ├── llm.py                # Pure functions: generate notes via OpenRouter
 ├── obsidian.py           # Pure functions: write to vault
-└── cli.py                # Typer CLI (thin orchestration)
+├── indexer.py            # Vault scanning (NoteMetadata, VaultIndex, build_index)
+├── search.py             # BM25F search + backlink boost (Whoosh)
+├── wikilinks.py          # Shared wikilink utilities (extract, resolve, backlinks)
+├── overview.py           # Vault terrain map (per-folder TF-IDF keywords + tags)
+├── concept_linking.py    # TF-IDF similarity for kai connect
+├── folder_organizer.py   # Rule-based inbox organisation
+├── digest.py             # Vault activity digest generation
+├── preview.py            # URL preview without full ingestion
+├── refresh.py            # Re-process notes with updated prompts
+├── tag_hygiene.py        # Tag deduplication and consolidation
+└── cli.py                # Typer CLI (thin orchestration layer)
 
 prompts/
-└── youtube_v1.md         # LLM prompt template
+├── youtube_v1.md         # YouTube transcript prompt
+├── youtube_v2.md
+├── article_v1.md
+├── pdf_v1.md
+└── markdown_v1.md
 ```
 
 ### Data Flow
@@ -326,7 +340,7 @@ def ingest(url: str):
 
 | Aspect | Current (Pragmatic) | Hexagonal (Enterprise) |
 |--------|---------------------|------------------------|
-| **Files** | 8 modules | 15-20 files across layers |
+| **Files** | ~16 modules | 15-20 files across layers |
 | **Complexity** | Low | Medium |
 | **Testability** | Good (pure functions) | Excellent (ports enable easy mocking) |
 | **MCP conversion** | Manual wrapping | Swap CLI adapter for MCP adapter |
@@ -377,11 +391,13 @@ class YouTubeFetcher:
 
 ## Summary
 
-### Current State (Week 1)
-✅ Working CLI tool
+### Current State
+✅ Working CLI tool (16 commands)
 ✅ Pure functions (MCP-ready)
 ✅ Quality gates passing
-✅ Fast iteration
+✅ BM25F search with backlink boosting
+✅ Vault terrain map (kai overview)
+✅ Wikilink traversal (kai follow)
 
 ### Future State (When Needed)
 🎯 Hexagonal architecture

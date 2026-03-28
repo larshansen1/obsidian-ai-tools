@@ -5,7 +5,6 @@ and suggest wikilink insertions.
 """
 
 import logging
-import re
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -14,6 +13,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from .indexer import VaultIndex
+from .wikilinks import extract_wikilinks
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +31,7 @@ class ConnectionSuggestion(BaseModel):
     target_title: str = Field(..., description="Target note title")
     similarity_score: float = Field(..., description="Similarity score (0-1)")
     connection_type: str = Field(..., description="Type: tfidf, keyword, backlink")
-    keywords_shared: list[str] = Field(
-        default_factory=list, description="Shared keywords"
-    )
+    keywords_shared: list[str] = Field(default_factory=list, description="Shared keywords")
 
 
 class OrphanNote(BaseModel):
@@ -48,22 +46,6 @@ class OrphanNote(BaseModel):
 # =============================================================================
 # Wikilink Extraction
 # =============================================================================
-
-# Regex to match [[wikilinks]] including optional |alias
-WIKILINK_PATTERN = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
-
-
-def extract_wikilinks(content: str) -> set[str]:
-    """Extract wikilink targets from note content.
-
-    Args:
-        content: Markdown content
-
-    Returns:
-        Set of linked note names (without [[]] brackets)
-    """
-    matches = WIKILINK_PATTERN.findall(content)
-    return set(matches)
 
 
 def normalize_title_for_link(title: str) -> str:
@@ -90,7 +72,7 @@ def sanitize_for_wikilink(title: str) -> str:
         Sanitized title safe for [[wikilinks]]
     """
     # Characters not allowed in wikilinks: / \ : | # ^ [ ]
-    invalid_chars = r'/\:|#^[]'
+    invalid_chars = r"/\:|#^[]"
     result = title
     for char in invalid_chars:
         result = result.replace(char, " ")
@@ -183,14 +165,11 @@ class ConceptLinker:
         similarities = cosine_similarity(source_vector, self._tfidf_matrix).flatten()
 
         # Get source note for extracting existing links
-        source_note = next(
-            (n for n in self.vault_index.notes if n.file_path == note_path), None
-        )
+        source_note = next((n for n in self.vault_index.notes if n.file_path == note_path), None)
         existing_links = set()
         if source_note:
             existing_links = {
-                normalize_title_for_link(link)
-                for link in extract_wikilinks(source_note.content)
+                normalize_title_for_link(link) for link in extract_wikilinks(source_note.content)
             }
 
         # Build suggestions
@@ -266,8 +245,7 @@ class ConceptLinker:
         existing_links_map: dict[int, set[str]] = {}
         for idx, note in enumerate(self.vault_index.notes):
             existing_links_map[idx] = {
-                normalize_title_for_link(link)
-                for link in extract_wikilinks(note.content)
+                normalize_title_for_link(link) for link in extract_wikilinks(note.content)
             }
 
         suggestions = []

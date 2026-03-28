@@ -96,20 +96,118 @@ def estimate_cost(content_length: int, source_type: str = "web") -> float:
 # =============================================================================
 
 # Common stop words to filter out
-STOP_WORDS = frozenset([
-    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
-    "of", "with", "by", "from", "as", "is", "was", "are", "were", "been",
-    "be", "have", "has", "had", "do", "does", "did", "will", "would",
-    "could", "should", "may", "might", "must", "shall", "can", "need",
-    "this", "that", "these", "those", "i", "you", "he", "she", "it", "we",
-    "they", "what", "which", "who", "whom", "when", "where", "why", "how",
-    "all", "each", "every", "both", "few", "more", "most", "other", "some",
-    "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too",
-    "very", "just", "about", "into", "over", "after", "before", "between",
-    "through", "during", "above", "below", "up", "down", "out", "off", "if",
-    "then", "else", "because", "while", "although", "though", "even",
-    "also", "still", "here", "there", "now", "then", "many", "much",
-])
+STOP_WORDS = frozenset(
+    [
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "as",
+        "is",
+        "was",
+        "are",
+        "were",
+        "been",
+        "be",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "must",
+        "shall",
+        "can",
+        "need",
+        "this",
+        "that",
+        "these",
+        "those",
+        "i",
+        "you",
+        "he",
+        "she",
+        "it",
+        "we",
+        "they",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "when",
+        "where",
+        "why",
+        "how",
+        "all",
+        "each",
+        "every",
+        "both",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "no",
+        "nor",
+        "not",
+        "only",
+        "own",
+        "same",
+        "so",
+        "than",
+        "too",
+        "very",
+        "just",
+        "about",
+        "into",
+        "over",
+        "after",
+        "before",
+        "between",
+        "through",
+        "during",
+        "above",
+        "below",
+        "up",
+        "down",
+        "out",
+        "off",
+        "if",
+        "then",
+        "else",
+        "because",
+        "while",
+        "although",
+        "though",
+        "even",
+        "also",
+        "still",
+        "here",
+        "there",
+        "now",
+        "then",
+        "many",
+        "much",
+    ]
+)
 
 
 def extract_topics(text: str, top_n: int = 5) -> list[str]:
@@ -129,7 +227,7 @@ def extract_topics(text: str, top_n: int = 5) -> list[str]:
         return []
 
     # Normalize text: lowercase, remove punctuation, split
-    words = re.findall(r'\b[a-z]{3,}\b', text.lower())
+    words = re.findall(r"\b[a-z]{3,}\b", text.lower())
 
     # Filter stop words and short words
     filtered = [w for w in words if w not in STOP_WORDS and len(w) > 3]
@@ -339,9 +437,9 @@ def _preview_web(url: str) -> PreviewInfo:
         import requests
         from bs4 import BeautifulSoup
 
-        response = requests.get(url, timeout=10, headers={
-            "User-Agent": "Mozilla/5.0 (compatible; ObsidianAI/1.0)"
-        })
+        response = requests.get(
+            url, timeout=10, headers={"User-Agent": "Mozilla/5.0 (compatible; ObsidianAI/1.0)"}
+        )
         response.raise_for_status()
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -350,8 +448,10 @@ def _preview_web(url: str) -> PreviewInfo:
         title = "Unknown Article"
         if soup.title:
             title = soup.title.string or title
-        elif soup.find("h1"):
-            title = soup.find("h1").get_text(strip=True)
+        else:
+            h1_tag = soup.find("h1")
+            if h1_tag is not None:
+                title = h1_tag.get_text(strip=True)
 
         # Estimate content length from text
         text = soup.get_text(separator=" ", strip=True)

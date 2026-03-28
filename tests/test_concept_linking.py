@@ -191,9 +191,7 @@ class TestFindOrphans:
         self, sample_notes: list[NoteMetadata], tmp_path: Path
     ) -> None:
         """Test finding orphans when all notes are unlinked."""
-        vault_index = VaultIndex(
-            notes=sample_notes, index_path=tmp_path / "index.json"
-        )
+        vault_index = VaultIndex(notes=sample_notes, index_path=tmp_path / "index.json")
         linker = ConceptLinker(vault_index)
         orphans = linker.find_orphans()
 
@@ -237,9 +235,7 @@ class TestFindOrphans:
 class TestInsertWikilinks:
     """Tests for wikilink insertion."""
 
-    def test_insert_wikilinks_dry_run(
-        self, vault_index: VaultIndex, tmp_path: Path
-    ) -> None:
+    def test_insert_wikilinks_dry_run(self, vault_index: VaultIndex, tmp_path: Path) -> None:
         """Test dry run doesn't modify file."""
         # Setup vault root properly from vault_index
         vault_root = vault_index.index_path.parent.parent
@@ -266,9 +262,7 @@ class TestInsertWikilinks:
         # Content should be unchanged
         assert "Related Notes" not in note_path.read_text()
 
-    def test_insert_wikilinks_modifies_file(
-        self, vault_index: VaultIndex, tmp_path: Path
-    ) -> None:
+    def test_insert_wikilinks_modifies_file(self, vault_index: VaultIndex, tmp_path: Path) -> None:
         """Test actual insertion modifies file."""
         vault_root = vault_index.index_path.parent.parent
         note_path = tmp_path / "test.md"
@@ -325,9 +319,7 @@ class TestConvenienceFunctions:
 class TestConnectCommand:
     """Integration tests for kai connect CLI command."""
 
-    def test_connect_no_args(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_connect_no_args(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test connect fails without --note or --orphans."""
         from typer.testing import CliRunner
 
@@ -343,9 +335,7 @@ class TestConnectCommand:
         assert result.exit_code == 1
         assert "specify --note" in result.output or "specify --folder" in result.output
 
-    def test_connect_note_not_found(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_connect_note_not_found(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test connect with non-existent note."""
         from typer.testing import CliRunner
 

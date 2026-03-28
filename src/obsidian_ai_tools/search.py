@@ -1,5 +1,7 @@
 """Search functionality for Obsidian vault using Whoosh."""
 
+import math
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -7,8 +9,10 @@ from pydantic import BaseModel, Field
 from whoosh import index
 from whoosh.fields import DATETIME, ID, KEYWORD, TEXT, Schema
 from whoosh.qparser import MultifieldParser, QueryParser
+from whoosh.query import And, Every
 
 from .indexer import NoteMetadata, VaultIndex
+from .wikilinks import extract_top_wikilinks
 
 
 class SearchResult(BaseModel):
@@ -17,16 +21,20 @@ class SearchResult(BaseModel):
     note: NoteMetadata = Field(..., description="Note metadata")
     score: float = Field(..., description="Relevance score")
     highlights: str | None = Field(None, description="Highlighted snippet")
+    explanation: str | None = Field(None, description="Result explanation")
+    outgoing_links: list[str] = Field(default_factory=list, description="Top outgoing wikilinks")
 
 
 class SearchQuery(BaseModel):
     """Search query parameters."""
 
-    keyword: str | None = Field(None, description="Keyword to search for")
-    tag: str | None = Field(None, description="Tag to filter by")
-    after: datetime | None = Field(None, description="Created after this date")
-    before: datetime | None = Field(None, description="Created before this date")
-    limit: int = Field(10, description="Maximum number of results")
+    keyword: str | None = Field(default=None, description="Keyword to search for")
+    tag: str | None = Field(default=None, description="Tag to filter by")
+    after: datetime | None = Field(default=None, description="Created after this date")
+    before: datetime | None = Field(default=None, description="Created before this date")
+    limit: int = Field(default=10, description="Maximum number of results")
+    explain: bool = Field(default=False, description="Include result explanations")
+    no_boost: bool = Field(default=False, description="Disable backlink score boosting")
 
 
 def get_whoosh_schema() -> Schema:
@@ -52,10 +60,8 @@ def build_whoosh_index(vault_index: VaultIndex, index_dir: Path) -> None:
     index_dir.mkdir(parents=True, exist_ok=True)
 
     # Always recreate index to avoid duplicates
-    # Create new index (overwrites existing)
     ix = index.create_in(str(index_dir), get_whoosh_schema())
 
-    # Index all notes
     writer = ix.writer()
 
     for note in vault_index.notes:
@@ -76,85 +82,124 @@ def search_notes(
     query: SearchQuery,
     vault_index: VaultIndex,
     index_dir: Path,
+    backlinks: dict[str, int] | None = None,
 ) -> list[SearchResult]:
-    """Search notes using Whoosh.
+    """Search notes using Whoosh BM25F with optional backlink boosting."""
+    notes_by_path = {note.file_path: note for note in vault_index.notes}
+    results = _search_whoosh(query, vault_index, index_dir, query.limit, notes_by_path)
+    if not query.no_boost and backlinks:
+        results = _apply_backlink_boost(results, backlinks)
+    return results
 
-    Args:
-        query: Search query parameters
-        vault_index: VaultIndex for note metadata
-        index_dir: Directory with Whoosh index
 
-    Returns:
-        List of search results sorted by relevance
+def _apply_backlink_boost(
+    results: list[SearchResult],
+    backlinks: dict[str, int],
+) -> list[SearchResult]:
+    """Re-score results by multiplying BM25F score with a backlink popularity factor.
+
+    boost = 1 + log(backlink_count + 1)
+    Combined score = bm25_score * boost
     """
-    # Ensure Whoosh index exists
+    boosted: list[SearchResult] = []
+    for result in results:
+        count = backlinks.get(result.note.title.lower(), 0)
+        boost = 1.0 + math.log(count + 1)
+        boosted.append(result.model_copy(update={"score": result.score * boost}))
+    return sorted(boosted, key=lambda r: r.score, reverse=True)
+
+
+def _search_whoosh(
+    query: SearchQuery,
+    vault_index: VaultIndex,
+    index_dir: Path,
+    limit: int,
+    notes_by_path: dict[Path, NoteMetadata],
+) -> list[SearchResult]:
     if not index.exists_in(str(index_dir)):
         build_whoosh_index(vault_index, index_dir)
 
     ix = index.open_dir(str(index_dir))
 
-    # Build query
     with ix.searcher() as searcher:
         query_parts = []
 
-        # Keyword search
         if query.keyword:
             parser = MultifieldParser(["title", "content"], schema=ix.schema)
             keyword_query = parser.parse(query.keyword)
             query_parts.append(keyword_query)
 
-        # Tag search
         if query.tag:
             tag_parser = QueryParser("tags", schema=ix.schema)
             tag_query = tag_parser.parse(query.tag)
             query_parts.append(tag_query)
 
-        # Combine queries
         if not query_parts:
-            # No query specified, return all
-            from whoosh.query import Every
-
             combined_query = Every()
         elif len(query_parts) == 1:
             combined_query = query_parts[0]
         else:
-            from whoosh.query import And
-
             combined_query = And(query_parts)
 
-        # Execute search
-        results = searcher.search(combined_query, limit=query.limit)
-
-        # Build result list
-        search_results = []
+        results = searcher.search(combined_query, limit=limit)
+        search_results: list[SearchResult] = []
 
         for hit in results:
-            # Find corresponding note in vault index
             file_path = Path(hit["file_path"])
-            note = next(
-                (n for n in vault_index.notes if n.file_path == file_path),
-                None,
+            note = notes_by_path.get(file_path)
+
+            if not note or not _note_matches_filters(note, query):
+                continue
+
+            highlights = hit.highlights("content")
+            explanation = _build_explanation(note, query, reason="keyword match")
+            search_results.append(
+                SearchResult(
+                    note=note,
+                    score=float(hit.score or 0.0),
+                    highlights=highlights if highlights else None,
+                    explanation=explanation,
+                    outgoing_links=extract_top_wikilinks(note.content),
+                )
             )
 
-            if note:
-                # Apply date filters
-                if query.after and note.created and note.created < query.after:
-                    continue
-                if query.before and note.created and note.created > query.before:
-                    continue
-
-                # Get highlights
-                highlights = hit.highlights("content")
-
-                search_results.append(
-                    SearchResult(
-                        note=note,
-                        score=hit.score,
-                        highlights=highlights if highlights else None,
-                    )
-                )
-
         return search_results
+
+
+def _note_matches_filters(note: NoteMetadata, query: SearchQuery) -> bool:
+    if query.tag and query.tag not in note.tags:
+        return False
+    if query.after and note.created and note.created < query.after:
+        return False
+    if query.before and note.created and note.created > query.before:
+        return False
+    return True
+
+
+def _build_explanation(note: NoteMetadata, query: SearchQuery, reason: str) -> str | None:
+    if not query.explain:
+        return None
+
+    tags = ", ".join(note.tags[:5]) if note.tags else "none"
+    parts = [f"Reason: {reason}", f"tags: {tags}"]
+
+    if query.keyword:
+        keywords = _extract_keywords(query.keyword)
+        if keywords:
+            parts.append(f"keywords: {', '.join(keywords)}")
+
+    return "; ".join(parts)
+
+
+def _extract_keywords(keyword: str) -> list[str]:
+    terms = re.findall(r"[\w-]+", keyword.lower())
+    unique_terms: list[str] = []
+    for term in terms:
+        if term not in unique_terms:
+            unique_terms.append(term)
+        if len(unique_terms) >= 5:
+            break
+    return unique_terms
 
 
 def list_all_tags(vault_index: VaultIndex) -> dict[str, int]:
@@ -172,7 +217,6 @@ def list_all_tags(vault_index: VaultIndex) -> dict[str, int]:
         for tag in note.tags:
             tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
-    # Sort by count descending
     return dict(sorted(tag_counts.items(), key=lambda x: x[1], reverse=True))
 
 
@@ -191,30 +235,24 @@ def list_tags_by_folder(vault_index: VaultIndex, vault_path: Path) -> dict[str, 
     folder_tags: dict[str, dict[str, int]] = {}
 
     for note in vault_index.notes:
-        # Skip notes without tags
         if not note.tags:
             continue
 
-        # Get folder path relative to vault root
         try:
             rel_path = note.file_path.relative_to(vault_path)
             folder = str(rel_path.parent)
 
-            # Normalize root folder to empty string for consistency
             if folder == ".":
                 folder = "(root)"
         except ValueError:
-            # If file is not relative to vault (shouldn't happen), skip it
             continue
 
-        # Count tags for this folder
         if folder not in folder_tags:
             folder_tags[folder] = {}
 
         for tag in note.tags:
             folder_tags[folder][tag] = folder_tags[folder].get(tag, 0) + 1
 
-    # Sort folders alphabetically and tags by count within each folder
     sorted_folders = {}
     for folder in sorted(folder_tags.keys()):
         sorted_folders[folder] = dict(

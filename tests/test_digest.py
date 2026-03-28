@@ -132,8 +132,7 @@ class TestExtractSummary:
             title="Test",
             tags=[],
             content=(
-                "## Summary\n\nThis is sentence one. "
-                "This is sentence two. This is sentence three."
+                "## Summary\n\nThis is sentence one. This is sentence two. This is sentence three."
             ),
             modified_time=datetime.now().timestamp(),
         )
@@ -213,16 +212,16 @@ class TestCountBacklinks:
     """Tests for count_backlinks function."""
 
     def test_count_backlinks_simple(self, sample_vault_index: VaultIndex) -> None:
-        """Test counting a single backlink."""
+        """Test counting a single backlink (keys are lowercased)."""
         result = count_backlinks(sample_vault_index)
-        assert "Note Three" in result
-        assert result["Note Three"] == 1
+        assert "note three" in result
+        assert result["note three"] == 1
 
     def test_count_backlinks_multiple(self, sample_vault_index: VaultIndex) -> None:
-        """Test counting multiple references to same note."""
+        """Test counting multiple references to same note (keys are lowercased)."""
         result = count_backlinks(sample_vault_index)
-        assert "Note Two" in result
-        assert result["Note Two"] == 2  # Referenced twice in note1
+        assert "note two" in result
+        assert result["note two"] == 2  # Referenced twice in note1
 
     def test_count_backlinks_no_links(self, tmp_path: Path) -> None:
         """Test vault with no wikilinks."""
@@ -256,8 +255,8 @@ class TestCountBacklinks:
             index_path=tmp_path / ".kai" / "index.json",
         )
         result = count_backlinks(index)
-        assert "Target Note" in result
-        assert result["Target Note"] == 1
+        assert "target note" in result
+        assert result["target note"] == 1
 
 
 # ============================================================================
@@ -400,15 +399,13 @@ This is a test note summary.
         )
 
         note2 = inbox / "target.md"
-        note2.write_text(
-            f"---\ntitle: Target\ncreated: {datetime.now().isoformat()}\n---\nContent"
-        )
+        note2.write_text(f"---\ntitle: Target\ncreated: {datetime.now().isoformat()}\n---\nContent")
 
         result = generate_digest(tmp_path, since_days=7, inbox_folder="inbox")
 
-        # Target should be most referenced
+        # Target should be most referenced (keys are lowercased)
         if result.most_referenced:
-            assert result.most_referenced[0][0] == "Target"
+            assert result.most_referenced[0][0] == "target"
             assert result.most_referenced[0][1] == 2
 
     def test_generate_digest_new_notes_details(self, tmp_path: Path) -> None:
@@ -472,9 +469,7 @@ class TestFormatDigestMarkdown:
         assert "## 📝 Notes Summary" in result
         assert "## 📦 By Source Type" in result
 
-    def test_format_digest_markdown_note_table(
-        self, sample_digest_report: DigestReport
-    ) -> None:
+    def test_format_digest_markdown_note_table(self, sample_digest_report: DigestReport) -> None:
         """Test markdown includes note listing tables."""
         result = format_digest_markdown(sample_digest_report)
 
@@ -483,9 +478,7 @@ class TestFormatDigestMarkdown:
         assert "[[gpt4]]" in result
         assert "[[python]]" in result
 
-    def test_format_digest_markdown_frontmatter(
-        self, sample_digest_report: DigestReport
-    ) -> None:
+    def test_format_digest_markdown_frontmatter(self, sample_digest_report: DigestReport) -> None:
         """Test markdown has proper frontmatter."""
         result = format_digest_markdown(sample_digest_report)
 
@@ -509,9 +502,7 @@ class TestFormatDigestJson:
         assert data["new_notes"] == 3
         assert data["inbox_count"] == 5
 
-    def test_format_digest_json_includes_details(
-        self, sample_digest_report: DigestReport
-    ) -> None:
+    def test_format_digest_json_includes_details(self, sample_digest_report: DigestReport) -> None:
         """Test JSON includes note details."""
         result = format_digest_json(sample_digest_report)
         data = json.loads(result)
@@ -590,9 +581,7 @@ class TestDigestCommand:
         monkeypatch.setenv("LLM_MODEL", "test-model")
 
         runner = CliRunner()
-        result = runner.invoke(
-            app, ["digest", "--format", "json", "--vault", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["digest", "--format", "json", "--vault", str(tmp_path)])
 
         assert result.exit_code == 0
         # Output should contain JSON (after the progress message)
@@ -615,9 +604,7 @@ class TestDigestCommand:
         monkeypatch.setenv("LLM_MODEL", "test-model")
 
         runner = CliRunner()
-        result = runner.invoke(
-            app, ["digest", "--output", "test-digest", "--vault", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["digest", "--output", "test-digest", "--vault", str(tmp_path)])
 
         assert result.exit_code == 0
         assert "saved to" in result.output.lower()

@@ -9,6 +9,7 @@ from .config import get_settings
 
 if TYPE_CHECKING:
     from .folder_organizer import NoteToMove
+    from .tag_hygiene import TagHygienePlan
 from .llm import generate_note
 from .logging import setup_logging
 from .models import ArticleMetadata, VideoMetadata
@@ -234,6 +235,14 @@ def search(
         str | None, typer.Option("--before", help="Show notes created before date (YYYY-MM-DD)")
     ] = None,
     limit: Annotated[int, typer.Option("--limit", "-n", help="Maximum number of results")] = 10,
+    explain: Annotated[
+        bool,
+        typer.Option("--explain", help="Show why each result matched"),
+    ] = False,
+    no_boost: Annotated[
+        bool,
+        typer.Option("--no-boost", help="Disable backlink score boosting"),
+    ] = False,
     vault: Annotated[
         Path | None,
         typer.Option("--vault", "-v", help="Override vault path"),
@@ -242,6 +251,12 @@ def search(
     """Search your Obsidian vault for notes.
 
     Search by keyword, filter by tags, or limit by date range.
+    Results are ranked by BM25 score boosted by backlink popularity.
+
+    Notes:
+        - --tag/--after/--before apply as filters
+        - --explain prints reason, tags, and keywords
+        - --no-boost disables backlink score boosting
 
     Examples:
         kai search --keyword "machine learning"
@@ -253,6 +268,7 @@ def search(
 
     from .indexer import build_index
     from .search import SearchQuery, build_whoosh_index, search_notes
+    from .wikilinks import count_backlinks
 
     # Load settings
     try:
@@ -294,9 +310,10 @@ def search(
     # Build vault index
     vault_index = build_index(vault_path, settings.obsidian_inbox_folder)
 
-    # Build Whoosh index
+    # Build Whoosh index and backlink counts
     index_dir = vault_path / ".kai" / "whoosh_index"
     build_whoosh_index(vault_index, index_dir)
+    backlinks = count_backlinks(vault_index)
 
     # Search
     query = SearchQuery(
@@ -305,9 +322,11 @@ def search(
         after=after_date,
         before=before_date,
         limit=limit,
+        explain=explain,
+        no_boost=no_boost,
     )
 
-    results = search_notes(query, vault_index, index_dir)
+    results = search_notes(query, vault_index, index_dir, backlinks=backlinks)
 
     # Display results
     if not results:
@@ -333,11 +352,15 @@ def search(
         typer.echo(f"   Path: {note.file_path}")
         typer.echo(f"   Open: {obsidian_url}")
         if result.highlights:
-            # Strip HTML tags from highlights for cleaner terminal output
             import re
 
             clean_preview = re.sub(r"<[^>]+>", "", result.highlights)
             typer.echo(f"   Preview: {clean_preview[:100]}...")
+        if result.explanation:
+            typer.echo(f"   {result.explanation}")
+        if result.outgoing_links:
+            links_str = "  ".join(f"[[{link}]]" for link in result.outgoing_links)
+            typer.echo(f"   Links: {links_str}")
         typer.echo()
 
 
@@ -465,6 +488,14 @@ def process_inbox(
         bool,
         typer.Option("--dry-run", help="Preview changes without executing"),
     ] = False,
+    confirm: Annotated[
+        bool,
+        typer.Option("--confirm", help="Execute moves (prompts for confirmation unless --yes)"),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Skip confirmation prompt (requires --confirm)"),
+    ] = False,
     vault: Annotated[
         Path | None,
         typer.Option("--vault", "-v", help="Override vault path"),
@@ -476,8 +507,9 @@ def process_inbox(
     When a note has multiple matching tags, uses scoring to pick best folder.
 
     Examples:
-        kai process-inbox --dry-run
-        kai process-inbox
+        kai process-inbox --dry-run              # Preview changes
+        kai process-inbox --confirm              # Execute with confirmation
+        kai process-inbox --confirm --yes        # Execute without confirmation
     """
     from .folder_organizer import (
         InvalidRulesError,
@@ -535,15 +567,23 @@ def process_inbox(
     # Display summary
     _display_batch_summary(notes, dry_run)
 
-    # Get confirmation (skip for dry-run)
-    if not dry_run:
-        confirm = typer.confirm(f"\n❓ Move {len(notes)} note(s)?")
-        if not confirm:
+    # Dry run mode - stop here
+    if dry_run:
+        return
+
+    # Phase 3: Must confirm to execute
+    if not confirm:
+        typer.echo("\n⚠️  Add --confirm to execute moves")
+        return
+
+    # Prompt for confirmation (skip if --yes)
+    if not yes:
+        user_confirm = typer.confirm(f"\n❓ Move {len(notes)} note(s)?")
+        if not user_confirm:
             typer.echo("❌ Cancelled")
             return
 
-    # Execute moves
-    if not dry_run:
+        # Execute moves
         typer.echo("\n💾 Moving notes...")
 
     results = []
@@ -839,6 +879,119 @@ def digest(
 
 
 @app.command()
+def overview(
+    format_type: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Output format: terminal, markdown, json, compact"),
+    ] = "terminal",
+    top_n: Annotated[
+        int,
+        typer.Option("--top-n", help="Number of keywords per folder"),
+    ] = 8,
+    vault: Annotated[
+        Path | None,
+        typer.Option("--vault", "-v", help="Override vault path"),
+    ] = None,
+) -> None:
+    """Show a structured overview of your vault by folder.
+
+    Reports per-folder note counts, distinctive keywords (TF-IDF), and top tags.
+    Use --format compact to generate a dense summary for agent system prompts.
+
+    Examples:
+        kai overview
+        kai overview --format compact
+        kai overview --format json
+        kai overview --top-n 5
+    """
+    from .overview import (
+        format_overview_compact,
+        format_overview_json,
+        format_overview_markdown,
+        format_overview_terminal,
+        generate_overview,
+    )
+
+    valid_formats = {"terminal", "markdown", "json", "compact"}
+    if format_type not in valid_formats:
+        typer.echo(
+            f"❌ Invalid format '{format_type}'. Choose from: {', '.join(sorted(valid_formats))}",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    try:
+        settings = get_settings()
+    except Exception as e:
+        typer.echo(f"❌ Configuration error: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    vault_path = vault or settings.obsidian_vault_path
+
+    try:
+        report = generate_overview(vault_path=vault_path, top_n=top_n)
+    except Exception as e:
+        typer.echo(f"❌ Failed to generate overview: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    formatters = {
+        "json": format_overview_json,
+        "markdown": format_overview_markdown,
+        "compact": format_overview_compact,
+    }
+    formatted = formatters.get(format_type, format_overview_terminal)(report)
+    typer.echo(formatted)
+
+
+@app.command()
+def follow(
+    note_title: Annotated[str, typer.Argument(help="Note title or wikilink target to resolve")],
+    vault: Annotated[
+        Path | None,
+        typer.Option("--vault", "-v", help="Override vault path"),
+    ] = None,
+) -> None:
+    """Resolve a wikilink target and print the full note content.
+
+    Matches by title first (case-insensitive), then by filename stem.
+    Prints frontmatter + body to stdout, suitable for piping to an agent.
+
+    Examples:
+        kai follow "Attention Mechanisms"
+        kai follow "attention-mechanisms"
+    """
+    from .indexer import build_index
+    from .wikilinks import resolve_wikilink
+
+    try:
+        settings = get_settings()
+    except Exception as e:
+        typer.echo(f"❌ Configuration error: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    vault_path = vault or settings.obsidian_vault_path
+
+    try:
+        vault_index = build_index(vault_path, folder=None)
+    except Exception as e:
+        typer.echo(f"❌ Failed to build vault index: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    note = resolve_wikilink(note_title, vault_index)
+    if note is None:
+        typer.echo(f"❌ No note found matching '{note_title}'", err=True)
+        raise typer.Exit(1)
+
+    try:
+        content = note.file_path.read_text(encoding="utf-8")
+    except OSError as e:
+        typer.echo(f"❌ Could not read note file: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    typer.echo(content, nl=False)
+
+
+@app.command()
 def preview(
     url: Annotated[
         str | None,
@@ -972,9 +1125,7 @@ def preview(
                     from typer.testing import CliRunner
 
                     runner = CliRunner()
-                    result = runner.invoke(
-                        app, ["ingest", target_url, "--vault", str(vault_path)]
-                    )
+                    result = runner.invoke(app, ["ingest", target_url, "--vault", str(vault_path)])
                     typer.echo(result.output)
                 elif choice.lower() == "s":
                     # Save to reading list
@@ -1077,9 +1228,7 @@ def reading_list_list(
     typer.echo(f"📋 Reading List ({len(entries)} item(s)):\n")
 
     for i, entry in enumerate(entries, 1):
-        status_emoji = {"pending": "⏳", "ingested": "✅", "skipped": "⏭️"}.get(
-            entry.status, "❓"
-        )
+        status_emoji = {"pending": "⏳", "ingested": "✅", "skipped": "⏭️"}.get(entry.status, "❓")
         typer.echo(f"{i}. {status_emoji} {entry.preview.title[:60]}")
         typer.echo(f"   URL: {entry.url[:70]}...")
         typer.echo(f"   Cost: ${entry.preview.estimated_cost_usd:.4f} | Status: {entry.status}")
@@ -1161,6 +1310,14 @@ def reading_list_clear(
         str,
         typer.Option("--status", "-s", help="Status to clear: ingested, skipped, all"),
     ] = "ingested",
+    confirm: Annotated[
+        bool,
+        typer.Option("--confirm", help="Execute clear (prompts for confirmation unless --yes)"),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Skip confirmation prompt (requires --confirm)"),
+    ] = False,
 ) -> None:
     """Clear completed items from reading list.
 
@@ -1168,9 +1325,10 @@ def reading_list_clear(
     ingested items only.
 
     Examples:
-        kai reading-list clear                    # Clear ingested
-        kai reading-list clear --status skipped   # Clear skipped
-        kai reading-list clear --status all       # Clear everything
+        kai reading-list clear --confirm                    # Clear ingested with prompt
+        kai reading-list clear --confirm --yes              # Clear ingested without prompt
+        kai reading-list clear --status skipped --confirm   # Clear skipped
+        kai reading-list clear --status all --confirm       # Clear everything
     """
     from .preview import load_reading_list
 
@@ -1200,10 +1358,16 @@ def reading_list_clear(
         typer.echo(f"📋 No items with status '{status}' to clear")
         return
 
-    # Confirm
-    if not typer.confirm(f"Remove {len(to_remove)} item(s) with status '{status}'?"):
-        typer.echo("❌ Cancelled")
+    # Phase 3: Must confirm to execute
+    if not confirm:
+        typer.echo("\n⚠️  Add --confirm to clear items")
         return
+
+    # Prompt for confirmation (skip if --yes)
+    if not yes:
+        if not typer.confirm(f"Remove {len(to_remove)} item(s) with status '{status}'?"):
+            typer.echo("❌ Cancelled")
+            return
 
     # Write back
     list_path = vault_path / ".kai" / "reading_list.jsonl"
@@ -1248,6 +1412,10 @@ def connect(
     confirm: Annotated[
         bool,
         typer.Option("--confirm", help="Confirm before modifying files"),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Skip confirmation prompts (requires --confirm)"),
     ] = False,
     dry_run: Annotated[
         bool,
@@ -1301,9 +1469,7 @@ def connect(
         # Create a temporary vault index for this folder
         from .indexer import VaultIndex
 
-        folder_index = VaultIndex(
-            notes=notes, index_path=vault_path / ".kai" / "temp_index.json"
-        )
+        folder_index = VaultIndex(notes=notes, index_path=vault_path / ".kai" / "temp_index.json")
 
         linker = ConceptLinker(folder_index)
         typer.echo("   Building TF-IDF index...")
@@ -1346,7 +1512,13 @@ def connect(
                     typer.echo(f"   {source_rel.stem}: {', '.join(links)}")
                 return
 
-            if confirm:
+            # Phase 3: Must confirm to execute
+            if not confirm:
+                typer.echo("\n⚠️  Add --confirm to insert links")
+                return
+
+            # Prompt for confirmation (skip if --yes)
+            if not yes:
                 proceed = typer.confirm(
                     f"Insert {len(suggestions)} link(s) into {len(by_source)} note(s)?"
                 )
@@ -1357,9 +1529,7 @@ def connect(
             # Insert links into each source note
             total_inserted = 0
             for source_path, source_suggestions in by_source.items():
-                links = linker.insert_wikilinks(
-                    source_path, source_suggestions, dry_run=False
-                )
+                links = linker.insert_wikilinks(source_path, source_suggestions, dry_run=False)
                 total_inserted += len(links)
 
             typer.echo(f"\n✅ Inserted {total_inserted} link(s) into {len(by_source)} note(s)")
@@ -1433,7 +1603,13 @@ def connect(
                 typer.echo(f"   {link}")
             return
 
-        if confirm:
+        # Phase 3: Must confirm to execute
+        if not confirm:
+            typer.echo("\n⚠️  Add --confirm to insert links")
+            return
+
+        # Prompt for confirmation (skip if --yes)
+        if not yes:
             proceed = typer.confirm(f"Insert {len(suggestions)} wikilink(s)?")
             if not proceed:
                 typer.echo("❌ Cancelled")
@@ -1443,10 +1619,451 @@ def connect(
         typer.echo(f"✅ Inserted {len(links)} wikilink(s)")
 
 
+# =============================================================================
+# Smart Re-Processing Command
+# =============================================================================
+
+
+@app.command()
+def refresh(
+    prompt_version: Annotated[
+        str,
+        typer.Option("--prompt-version", "-p", help="Target prompt version (e.g., youtube_v2)"),
+    ],
+    tag: Annotated[
+        str | None,
+        typer.Option("--tag", "-t", help="Filter by tag"),
+    ] = None,
+    current_version: Annotated[
+        str | None,
+        typer.Option("--current", "-c", help="Only refresh notes with this prompt version"),
+    ] = None,
+    since: Annotated[
+        int | None,
+        typer.Option("--since", "-s", help="Only notes older than N days"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="List candidates without refreshing"),
+    ] = False,
+    show_diff: Annotated[
+        str | None,
+        typer.Option("--show-diff", help="Show preview for a specific note path"),
+    ] = None,
+    confirm: Annotated[
+        bool,
+        typer.Option("--confirm", help="Execute refresh (creates backups)"),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Skip confirmation prompts (requires --confirm)"),
+    ] = False,
+    no_backup: Annotated[
+        bool,
+        typer.Option("--no-backup", help="Skip backup creation (dangerous)"),
+    ] = False,
+    vault: Annotated[
+        Path | None,
+        typer.Option("--vault", "-v", help="Override vault path"),
+    ] = None,
+) -> None:
+    """Re-process notes with a new prompt version.
+
+    Update old notes generated with outdated prompts to use improved prompt templates.
+    Creates backups before modifying files.
+
+    Examples:
+        kai refresh -p youtube_v2 --dry-run                    # List candidates
+        kai refresh -p youtube_v2 --tag ai --dry-run           # Filter by tag
+        kai refresh -p youtube_v2 --show-diff "AI/Attention.md"  # Preview changes
+        kai refresh -p youtube_v2 --tag ai --confirm           # Execute refresh
+    """
+    from .refresh import (
+        estimate_refresh_cost,
+        find_refresh_candidates,
+        parse_frontmatter,
+        refresh_batch,
+    )
+
+    # Load settings
+    try:
+        settings = get_settings()
+    except Exception as e:
+        typer.echo(f"❌ Configuration error: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    vault_path = vault or settings.obsidian_vault_path
+
+    # Show-diff mode: preview a single note
+    if show_diff:
+        note_path = vault_path / show_diff
+        if not note_path.exists():
+            typer.echo(f"❌ Note not found: {note_path}", err=True)
+            raise typer.Exit(1)
+
+        typer.echo(f"🔍 Preview for: {show_diff}")
+        typer.echo("━" * 50)
+
+        # Parse current frontmatter
+        metadata = parse_frontmatter(note_path)
+        current_ver = metadata.get("prompt_version", "unknown")
+        source_url = metadata.get("source_url")
+        source_type = metadata.get("source_type")
+
+        typer.echo(f"   Current version: {current_ver}")
+        typer.echo(f"   Target version:  {prompt_version}")
+        typer.echo(f"   Source URL:      {source_url}")
+        typer.echo(f"   Source type:     {source_type}")
+        typer.echo()
+
+        if not source_url:
+            typer.echo("❌ Note has no source_url - cannot refresh", err=True)
+            raise typer.Exit(1)
+
+        typer.echo("💡 To refresh this note, run:")
+        typer.echo(f'   kai refresh -p {prompt_version} --show-diff "{show_diff}" --confirm')
+        return
+
+    # Find candidates
+    typer.echo(f"🔍 Searching for notes to refresh to {prompt_version}...")
+
+    candidates = find_refresh_candidates(
+        vault_path=vault_path,
+        target_version=prompt_version,
+        tag=tag,
+        current_version=current_version,
+        since_days=since,
+    )
+
+    if not candidates:
+        typer.echo("✅ No notes found matching criteria")
+        return
+
+    # Cost estimation
+    estimated_cost = estimate_refresh_cost(candidates, settings.llm_model)
+
+    typer.echo(f"\n📋 Found {len(candidates)} note(s) eligible for refresh:\n")
+
+    # Display candidates
+    for i, candidate in enumerate(candidates[:20], 1):
+        rel_path = candidate.file_path.relative_to(vault_path)
+        typer.echo(
+            f"  {i}. {candidate.title[:50]}"
+            f" ({candidate.current_prompt_version} → {candidate.target_prompt_version})"
+        )
+        typer.echo(f"     Path: {rel_path}")
+
+    if len(candidates) > 20:
+        typer.echo(f"\n   ... and {len(candidates) - 20} more")
+
+    typer.echo(f"\n💰 Estimated cost: ${estimated_cost:.4f}")
+
+    # Dry-run mode: stop here
+    if dry_run:
+        typer.echo("\n🔍 DRY RUN - No changes made")
+        typer.echo("💡 Add --confirm to execute refresh")
+        return
+
+    # Must explicitly confirm
+    if not confirm:
+        typer.echo("\n⚠️  Add --confirm to execute refresh")
+        return
+
+    # Warning for no-backup (skip if --yes)
+    if no_backup and not yes:
+        proceed = typer.confirm(
+            "⚠️  --no-backup: Files will be overwritten without backup. Continue?"
+        )
+        if not proceed:
+            typer.echo("❌ Cancelled")
+            return
+
+    # Execute refresh
+    typer.echo(f"\n🔄 Refreshing {len(candidates)} note(s)...")
+
+    summary = refresh_batch(
+        candidates=candidates,
+        vault_path=vault_path,
+        model=settings.llm_model,
+        api_key=settings.openrouter_api_key,
+        create_backup_file=not no_backup,
+    )
+
+    # Display results
+    typer.echo("\n✅ Refresh complete!")
+    typer.echo(f"   Refreshed: {summary.refreshed}/{summary.total_candidates}")
+    typer.echo(f"   Skipped:   {summary.skipped}")
+    typer.echo(f"   Cost:      ${summary.total_cost_usd:.4f}")
+
+    if summary.errors:
+        typer.echo(f"\n⚠️  Errors ({len(summary.errors)}):")
+        for error in summary.errors[:5]:
+            typer.echo(f"   - {error}")
+        if len(summary.errors) > 5:
+            typer.echo(f"   ... and {len(summary.errors) - 5} more")
+
+
+# =============================================================================
+# Tag Hygiene Command
+# =============================================================================
+
+
+@app.command("tags")
+def tags_command(
+    confirm: Annotated[
+        bool,
+        typer.Option("--confirm", help="Execute fixes (prompts for confirmation unless --yes)"),
+    ] = False,
+    plan: Annotated[
+        bool,
+        typer.Option("--plan", help="Output JSON plan for review"),
+    ] = False,
+    apply_file: Annotated[
+        Path | None,
+        typer.Option("--apply", help="Apply fixes from plan file"),
+    ] = None,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Auto-accept all suggestions (requires --confirm)"),
+    ] = False,
+    check: Annotated[
+        str | None,
+        typer.Option("--check", "-c", help="Run specific check: similar, cooccurrence, orphans"),
+    ] = None,
+    threshold: Annotated[
+        float,
+        typer.Option("--threshold", "-t", help="Similarity threshold for tag matching (0-1)"),
+    ] = 0.8,
+    min_overlap: Annotated[
+        int,
+        typer.Option("--min-overlap", help="Minimum co-occurrence count to report"),
+    ] = 3,
+    vault: Annotated[
+        Path | None,
+        typer.Option("--vault", "-v", help="Override vault path"),
+    ] = None,
+) -> None:
+    """Analyze and fix tag hygiene issues.
+
+    Detects near-duplicate tags, high co-occurrence patterns,
+    and orphan tags. Can automatically apply consolidation fixes.
+
+    Examples:
+        kai tags                        # Show issues (read-only)
+        kai tags --confirm              # Interactive fixes
+        kai tags --confirm --yes        # Auto-fix all
+        kai tags --plan > plan.json     # Generate plan
+        kai tags --apply plan.json      # Apply plan
+        kai tags --check similar        # Run only similar tag check
+    """
+    from .indexer import build_index
+    from .tag_hygiene import (
+        TagHygienePlan,
+        apply_plan,
+        generate_plan,
+    )
+
+    # Load settings
+    try:
+        settings = get_settings()
+    except Exception as e:
+        typer.echo(f"❌ Configuration error: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    vault_path = vault or settings.obsidian_vault_path
+
+    # Mode: Apply from plan file
+    if apply_file:
+        typer.echo(f"📋 Loading plan from {apply_file}...")
+        try:
+            plan_obj = TagHygienePlan.from_file(apply_file)
+        except Exception as e:
+            typer.echo(f"❌ Failed to load plan: {e}", err=True)
+            raise typer.Exit(1) from e
+
+        # Count all applicable actions
+        consolidations_to_apply = [c for c in plan_obj.consolidations if c.apply]
+        orphans_to_remove = [o for o in plan_obj.orphan_tags if o.remove]
+        cooc_merges = [c for c in plan_obj.high_cooccurrence if c.merge_into]
+
+        total_actions = len(consolidations_to_apply) + len(orphans_to_remove) + len(cooc_merges)
+
+        typer.echo(f"   Found {len(consolidations_to_apply)} consolidation(s)")
+        typer.echo(f"   Found {len(orphans_to_remove)} orphan tag(s) to remove")
+        if cooc_merges:
+            typer.echo(f"   Found {len(cooc_merges)} co-occurrence merge(s)")
+
+        if total_actions == 0:
+            typer.echo("✅ No actions marked for apply")
+            return
+
+        if not yes:
+            confirm = typer.confirm(f"Apply {total_actions} action(s)?")
+            if not confirm:
+                typer.echo("❌ Cancelled")
+                return
+
+        typer.echo("🔧 Applying changes...")
+        modified, skipped = apply_plan(plan_obj, create_backups=True)
+        typer.echo(f"✅ Done: {modified} notes modified, {skipped} skipped")
+        return
+
+    # Build vault index (scan entire vault)
+    if not plan:
+        typer.echo("🔍 Analyzing vault tags...")
+    vault_index = build_index(vault_path, folder=None)
+
+    # Generate plan
+    plan_obj = generate_plan(
+        vault_index,
+        similarity_threshold=threshold,
+        min_cooccurrence=min_overlap,
+    )
+
+    # Filter by check type if specified
+    if check:
+        if check == "similar":
+            plan_obj.high_cooccurrence = []
+            plan_obj.orphan_tags = []
+        elif check == "cooccurrence":
+            plan_obj.similar_tags = []
+            plan_obj.consolidations = []
+            plan_obj.orphan_tags = []
+        elif check == "orphans":
+            plan_obj.similar_tags = []
+            plan_obj.consolidations = []
+            plan_obj.high_cooccurrence = []
+        else:
+            typer.echo(f"❌ Unknown check type: {check}", err=True)
+            typer.echo("💡 Valid options: similar, cooccurrence, orphans", err=True)
+            raise typer.Exit(1)
+
+    # Mode: Output JSON plan
+    if plan:
+        typer.echo(plan_obj.to_json())
+        return
+
+    # Display analysis results
+    _display_tag_hygiene_report(plan_obj)
+
+    # Check if there's anything to fix
+    if not plan_obj.consolidations:
+        typer.echo("\n✅ No consolidations needed")
+        return
+
+    # Phase 3: Must confirm to execute
+    if not confirm:
+        typer.echo("\n⚠️  Add --confirm to apply fixes")
+        return
+
+    # Mode: Interactive fix
+    _interactive_fix(plan_obj, yes)
+
+
+def _display_tag_hygiene_report(plan: "TagHygienePlan") -> None:  # noqa: F821
+    """Display tag hygiene analysis report."""
+
+    typer.echo("\n→ Tag Hygiene Report\n")
+
+    # Similar tags
+    if plan.similar_tags:
+        typer.echo("🔤 Similar Tags (consider consolidating):\n")
+        for group in plan.similar_tags:
+            canonical_msg = f"  {group.canonical} ({group.total_notes} notes total)"
+            typer.echo(f"{canonical_msg} ← suggested canonical")
+            for variant in group.variants:
+                score = group.similarity_scores.get(variant, 0)
+                typer.echo(f"    └── {variant} (similarity: {score:.2f})")
+            typer.echo()
+    else:
+        typer.echo("🔤 Similar Tags: None found\n")
+
+    # High co-occurrence
+    if plan.high_cooccurrence:
+        typer.echo("🔗 High Co-occurrence (often used together):\n")
+        for cooc in plan.high_cooccurrence[:5]:  # Limit to top 5
+            pct = cooc.jaccard_similarity * 100
+            typer.echo(
+                f"  {cooc.tag_a} + {cooc.tag_b}: "
+                f"{cooc.co_occurrence_count} notes ({pct:.0f}% overlap)"
+            )
+        if len(plan.high_cooccurrence) > 5:
+            typer.echo(f"  ... and {len(plan.high_cooccurrence) - 5} more")
+        typer.echo()
+
+    # Orphan tags
+    if plan.orphan_tags:
+        preview = [o.tag for o in plan.orphan_tags[:10]]
+        typer.echo(f"👻 Orphan Tags (used once): {len(plan.orphan_tags)} total")
+        typer.echo(f"   {', '.join(preview)}")
+        if len(plan.orphan_tags) > 10:
+            typer.echo(f"   ... and {len(plan.orphan_tags) - 10} more")
+        typer.echo()
+
+    # Summary
+    typer.echo("─" * 50)
+    typer.echo(
+        f"📊 Summary: {len(plan.consolidations)} consolidation(s), "
+        f"{len(plan.high_cooccurrence)} high-overlap pair(s), "
+        f"{len(plan.orphan_tags)} orphan tag(s)"
+    )
+
+
+def _interactive_fix(plan: "TagHygienePlan", auto_yes: bool = False) -> None:  # noqa: F821
+    """Interactive consolidation flow."""
+    from .tag_hygiene import apply_plan
+
+    typer.echo("\n🔧 Interactive Fix Mode\n")
+
+    applied_count = 0
+    skipped_count = 0
+
+    for i, consolidation in enumerate(plan.consolidations, 1):
+        typer.echo(f"{i}. Merge: {', '.join(consolidation.from_tags)} → {consolidation.to_tag}")
+        typer.echo(f"   Affects: {consolidation.note_count} note(s)")
+
+        if auto_yes:
+            response = "y"
+        else:
+            response = typer.prompt(
+                "   Apply? [Y/n/s(kip all)/q(uit)]",
+                default="y",
+                show_default=False,
+            ).lower()
+
+        if response == "q":
+            typer.echo("   Quitting...")
+            break
+        elif response == "s":
+            typer.echo("   Skipping remaining...")
+            for remaining in plan.consolidations[i - 1 :]:
+                remaining.apply = False
+            break
+        elif response in ("n", "no"):
+            consolidation.apply = False
+            skipped_count += 1
+            typer.echo("   ⊘ Skipped")
+        else:
+            # Apply this consolidation
+            consolidation.apply = True
+            applied_count += 1
+            typer.echo("   ✓ Marked for apply")
+
+        typer.echo()
+
+    # Now apply all marked consolidations
+    if applied_count > 0:
+        typer.echo(f"📝 Applying {applied_count} consolidation(s)...")
+        modified, failed = apply_plan(plan, create_backups=True)
+        typer.echo(f"✅ Done: {modified} notes modified")
+    else:
+        typer.echo("✅ No consolidations applied")
+
+
 @app.command()
 def version() -> None:
     """Show version information."""
-    typer.echo("obsidian-ai-tools v0.1.0")
+    typer.echo("obsidian-ai-tools v1.0.0")
     typer.echo("Knowledge AI Tools for Obsidian")
 
 

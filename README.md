@@ -7,13 +7,15 @@ AI-powered tools for Obsidian knowledge management. Week 1 MVP: YouTube video in
 - **Multi-Source Ingestion**: YouTube videos, web articles, PDFs, and local Markdown files
 - **AI-Powered Processing**: Uses LLMs (via OpenRouter) to generate structured notes
 - **Smart Organization**: Folder rules to automatically organize notes by tags
-- **Full-Text Search**: Whoosh-powered search across your vault
+- **BM25F Search**: Whoosh-powered full-text search with backlink-boosted ranking
+- **Vault Overview**: Per-folder terrain map with TF-IDF keywords and tag distributions (`kai overview`)
+- **Wikilink Traversal**: Follow links between notes and inspect outgoing connections (`kai follow`)
+- **Concept Linking**: TF-IDF similarity to discover and insert `[[wikilinks]]` (`kai connect`)
+- **Tag Hygiene**: Detect and consolidate near-duplicate tags (`kai tags`)
+- **Knowledge Digest**: Periodic summary of vault activity with backlink analysis (`kai digest`)
 - **Robust Architecture**: Built-in caching, circuit breakers, rate limiting, and provider fallbacks
-- 🤖 **LLM-Powered Summarization**: Uses OpenRouter (Claude 3.5 Sonnet) to extract key insights
-- 📝 **Structured Notes**: Consistent frontmatter with metadata, tags, and provenance tracking
-- ⚡ **CLI Interface**: Simple `kai` command with multiple subcommands
-- 🔧 **MCP-Ready**: Pure functions designed for easy Model Context Protocol integration
-- ✅ **Quality Gates**: Ruff, mypy, pytest with comprehensive testing
+- **MCP-Ready**: Pure functions designed for easy Model Context Protocol integration
+- **Quality Gates**: Ruff, mypy, pytest with comprehensive testing
 
 ## Quick Start
 
@@ -194,7 +196,7 @@ kai process-inbox
 
 ### Vault Search
 
-Search your vault for notes using keyword, tag, and date filters:
+Search your vault for notes using keyword, tag, and date filters. Results are ranked by BM25F score boosted by backlink popularity.
 
 ```bash
 # Search by keyword
@@ -211,6 +213,12 @@ kai search --after 2026-01-01 --before 2026-12-31
 
 # Limit results
 kai search --keyword python --limit 5
+
+# Explain why each result matched
+kai search --keyword python --explain
+
+# Disable backlink boost (pure BM25F)
+kai search --keyword python --no-boost
 ```
 
 **Example output:**
@@ -265,14 +273,23 @@ kai rebuild-index
 - After bulk operations on your vault
 - To recover from index corruption
 
-**Example output:**
+### Vault Overview
+
+Get a terrain map of your vault with per-folder keywords and tag distributions:
+
+```bash
+kai overview                     # Terminal overview
+kai overview --format compact    # For agent system prompts
+kai overview --format markdown   # Save to vault
 ```
-🔄 Rebuilding indexes...
-   📋 Rebuilding vault index...
-      ✓ Indexed 42 note(s)
-   🔍 Rebuilding search index...
-      ✓ Search index rebuilt
-✅ Index rebuild complete!
+
+### Wikilink Traversal
+
+Follow a note by title and inspect its outgoing links:
+
+```bash
+kai follow "Attention Mechanisms"
+kai follow "Python Basics"
 ```
 
 ## Generated Note Structure
@@ -359,16 +376,25 @@ obsidian-ai-tools/
 ├── src/obsidian_ai_tools/    # Source code
 │   ├── config.py             # Pydantic settings
 │   ├── models.py             # Data models
+│   ├── indexer.py            # Vault scanning
+│   ├── search.py             # BM25F search + backlink boost
+│   ├── wikilinks.py          # Wikilink extraction and resolution
+│   ├── overview.py           # Vault terrain map
+│   ├── concept_linking.py    # TF-IDF concept linking
+│   ├── folder_organizer.py   # Inbox organization
+│   ├── digest.py             # Knowledge digest
+│   ├── tag_hygiene.py        # Tag analysis and consolidation
+│   ├── refresh.py            # Re-process notes
+│   ├── preview.py            # URL preview
 │   ├── youtube.py            # YouTube transcript fetching
 │   ├── llm.py                # OpenRouter LLM integration
 │   ├── obsidian.py           # Vault file operations
 │   └── cli.py                # Typer CLI
 ├── tests/                    # Unit tests
 ├── prompts/                  # LLM prompt templates
-│   └── youtube_v1.md
 ├── .env.example              # Example configuration
 ├── pyproject.toml            # Project metadata & deps
-├── ARCHITECTURE.md           # Architecture & migration guide
+├── ARCHITECTURE.md           # Architecture documentation
 └── README.md                 # This file
 ```
 
@@ -429,7 +455,7 @@ gitleaks detect --source . --no-git
 
 ### Cycle 2: Multi-Source Ingestion ✅
 - [x] Web article ingestion
-- [x] Markdown file ingestion  
+- [x] Markdown file ingestion
 - [x] Provider abstraction pattern
 - [x] Error handling and validation
 - [x] Rate limiting and retries
@@ -441,24 +467,29 @@ gitleaks detect --source . --no-git
 - [x] Path security validation
 
 ### Cycle 3.5: Vault Search & Index Management ✅
-- [x] Full-text keyword search (`kai search`)
-- [x] Tag-based filtering
-- [x] Date range queries
-- [x] Tag listing (`kai list-tags`)
+- [x] Full-text keyword search (`kai search`) with BM25F + backlink boost
+- [x] Tag-based filtering and date range queries
+- [x] Tag listing (`kai list-tags`, `kai list-tags --by-folder`)
 - [x] Index rebuild command (`kai rebuild-index`)
 - [x] Recursive vault scanning
 
-### Future Cycles
-- [ ] MCP server implementation
-- [ ] Integration with Open WebUI
-- [ ] Multi-source support (articles, PDFs)
-- [ ] Tag normalization
+### Cycle 6: Knowledge Utilization ✅
+- [x] Knowledge digest (`kai digest`)
+- [x] URL preview (`kai preview`) with reading list management
+- [x] Concept linking (`kai connect`) with TF-IDF similarity
+- [x] Smart re-processing (`kai refresh`) with backup/versioning
+- [x] Tag hygiene (`kai tags`) with interactive consolidation
+- [x] Vault terrain map (`kai overview`) with inter-folder TF-IDF keywords
+- [x] Wikilink traversal (`kai follow`) with title resolution
 
-### Future
-- [ ] Semantic search (vector embeddings)
-- [ ] Automated evaluation (LLM-as-judge)
-- [ ] Human-in-the-loop approval workflows
-- [ ] Cost tracking and governance
+### Upcoming
+- [ ] MCP server implementation (Cycle 7)
+- [ ] Integration with Open WebUI
+
+### Deferred Indefinitely
+- Semantic search (vector embeddings) — BM25F + backlink boost is sufficient for personal vaults
+- Automated evaluation (LLM-as-judge)
+- Cost tracking and governance
 
 ## Troubleshooting
 

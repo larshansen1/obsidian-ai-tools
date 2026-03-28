@@ -86,9 +86,7 @@ class TestPreviewInfo:
 class TestReadingListEntry:
     """Tests for ReadingListEntry model."""
 
-    def test_reading_list_entry_creation(
-        self, sample_preview: PreviewInfo
-    ) -> None:
+    def test_reading_list_entry_creation(self, sample_preview: PreviewInfo) -> None:
         """Test creating a ReadingListEntry."""
         entry = ReadingListEntry(url="https://example.com", preview=sample_preview)
 
@@ -228,9 +226,7 @@ class TestReadingListPersistence:
         entries = load_reading_list(tmp_path)
         assert entries == []
 
-    def test_append_to_reading_list(
-        self, tmp_path: Path, sample_preview: PreviewInfo
-    ) -> None:
+    def test_append_to_reading_list(self, tmp_path: Path, sample_preview: PreviewInfo) -> None:
         """Test appending multiple entries."""
         entry1 = ReadingListEntry(url="https://example.com/1", preview=sample_preview)
         entry2 = ReadingListEntry(url="https://example.com/2", preview=sample_preview)
@@ -247,9 +243,7 @@ class TestReadingListPersistence:
         """Test updating entry status."""
         save_to_reading_list(sample_reading_list_entry, tmp_path)
 
-        updated = update_reading_list_status(
-            sample_reading_list_entry.url, "ingested", tmp_path
-        )
+        updated = update_reading_list_status(sample_reading_list_entry.url, "ingested", tmp_path)
         assert updated is True
 
         entries = load_reading_list(tmp_path)
@@ -257,9 +251,7 @@ class TestReadingListPersistence:
 
     def test_update_nonexistent_entry(self, tmp_path: Path) -> None:
         """Test updating non-existent entry returns False."""
-        updated = update_reading_list_status(
-            "https://nonexistent.com", "ingested", tmp_path
-        )
+        updated = update_reading_list_status("https://nonexistent.com", "ingested", tmp_path)
         assert updated is False
 
 
@@ -363,9 +355,7 @@ class TestFormatPreviewJson:
 class TestPreviewCommand:
     """Integration tests for kai preview CLI command."""
 
-    def test_preview_command_no_url(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_preview_command_no_url(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test preview fails without URL."""
         from typer.testing import CliRunner
 
@@ -401,9 +391,7 @@ class TestPreviewCommand:
         monkeypatch.setenv("LLM_MODEL", "test-model")
 
         runner = CliRunner()
-        result = runner.invoke(
-            app, ["preview", "https://example.com", "--vault", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["preview", "https://example.com", "--vault", str(tmp_path)])
 
         assert result.exit_code == 0
         assert "Preview" in result.output
@@ -454,9 +442,7 @@ class TestPreviewCommand:
         monkeypatch.setenv("LLM_MODEL", "test-model")
 
         runner = CliRunner()
-        result = runner.invoke(
-            app, ["preview", "ftp://invalid.com", "--vault", str(tmp_path)]
-        )
+        result = runner.invoke(app, ["preview", "ftp://invalid.com", "--vault", str(tmp_path)])
 
         # Should handle gracefully (not crash)
         assert "Unsupported" in result.output or "Cannot determine" in result.output

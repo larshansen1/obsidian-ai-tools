@@ -201,7 +201,7 @@ kai connect --note "AI/LLMs/Attention.md" --auto-link --confirm
 
 ---
 
-### 6.4: Smart Re-Processing 🎯 Medium Priority
+### 6.4: Smart Re-Processing ✅ Completed
 
 **Problem**: Prompt templates improve, but old notes use outdated prompts
 
@@ -226,23 +226,26 @@ kai refresh --tag ai --prompt-version youtube_v2 --confirm
 - Detect prompt version from note frontmatter
 - Fetch original source (URL stored in metadata)
 - Re-generate note with new prompt
-- Safety: Create `Note_v2.md` or use git branches (never overwrite)
+- Safety: Create `.backup.md` before overwriting
 - Cost tracking for re-processing operations
 
 **Deliverables**:
-- [ ] `refresh.py` module with re-processing logic
-- [ ] `kai refresh` CLI command with filtering options
-- [ ] Version tracking in frontmatter
-- [ ] Backup/versioning strategy (git or `_v2` suffix)
-- [ ] Cost estimation and confirmation prompts
-- [ ] Tests for version detection and re-generation
+- [x] `refresh.py` module with re-processing logic
+- [x] `kai refresh` CLI command with filtering options
+- [x] Version tracking in frontmatter
+- [x] Backup/versioning strategy (`{filename}.backup.md`)
+- [x] Cost estimation and confirmation prompts
+- [x] Tests for version detection and re-generation
+
+> [!NOTE]
+> **Completed Jan 2026**: Implemented `kai refresh` with dry-run, show-diff, and confirm modes. Supports all source types with graceful degradation for unavailable sources.
 
 **Effort**: Low-Medium (3-5 days)
 **Value**: Medium (continuous improvement without manual effort)
 
 ---
 
-### 6.5: Flashcard Extraction (Optional) 🔄 Low Priority
+### 6.5: Flashcard Extraction (Optional) ⏸️ Postponed
 
 **Problem**: Notes are passive; insights get buried
 
@@ -278,33 +281,42 @@ kai extract-flashcards --since 7d --tag ai --output ~/flashcards/
 
 ---
 
-### 6.6: Topic Drift Detection (Backlog) 🔄 Future
+### 6.6: Tag Hygiene & Consolidation ✅ Completed
 
-**Problem**: Tags/folders become dumping grounds over time
+**Problem**: Tags fragment over time (e.g., `neurodivergent` vs `neurodivergence` vs `neurodiversity`)
 
-**Solution**: `kai analyze-taxonomy` command
+**Solution**: `kai tags` command with hybrid automation
 
 ```bash
-# Detect overly broad tags
-kai analyze-taxonomy --suggest-splits
+# Analyze tag hygiene (read-only)
+kai tags
 
-→ Tag "AI" has 47 notes with 3 distinct clusters:
-  Cluster 1 (23 notes): LLM architecture, transformers
-    Suggest: Create "AI/LLMs" subtag
-  Cluster 2 (18 notes): Computer vision, CNNs
-    Suggest: Create "AI/Vision" subtag
+# Interactive fixes with confirmation
+kai tags --fix
+
+# Plan workflow for automation
+kai tags --plan > fixes.json
+kai tags --apply fixes.json
+
+# Auto-accept all (brave mode)
+kai tags --fix --yes
 ```
 
-**Technical Approach**:
-- Keyword clustering (scikit-learn KMeans)
-- Works with existing tag data (no embeddings)
-- Suggests folder rule updates
-- Preview mode before applying changes
+**Features**:
+- Similar tag detection (Levenshtein distance)
+- Co-occurrence analysis (Jaccard similarity)
+- Orphan tag detection (single-use tags)
+- Interactive confirmation or plan-file workflow
+- Automatic frontmatter updates
 
-**Deliverables**: TBD (backlog)
+**Deliverables**:
+- [ ] `tag_hygiene.py` module with analysis and apply functions
+- [ ] `kai tags` CLI command with `--fix`, `--plan`, `--apply`, `--yes` options
+- [ ] Tests for detection, consolidation logic, and edge cases
+- [ ] Backup creation before modifying notes
 
-**Effort**: High (7-10 days, requires tuning)
-**Value**: Low-Medium (manual taxonomy management works fine at current scale)
+**Effort**: Medium (5-7 days)
+**Value**: High (immediately actionable for vaults of any size)
 
 ---
 
@@ -393,11 +405,15 @@ kai analyze-taxonomy --suggest-splits
 
 | Week | Feature | Effort | Value | Status |
 |------|---------|--------|-------|--------|
-| **Week 1-2** | Daily/Weekly Digest | Low | High | 🔄 Planned |
-| **Week 2-3** | Inbox Triage Preview | Low | High | 🔄 Planned |
-| **Week 4-5** | Smart Re-Processing | Low-Med | Medium | 🔄 Planned |
-| **Week 6-8** | Concept Linking | Medium | High | 🔄 Planned |
-| **Week 9-10** | Flashcard Extraction | Medium | Medium | ⏸️ Optional |
+| **Week 1-2** | Daily/Weekly Digest | Low | High | ✅ Complete |
+| **Week 2-3** | Inbox Triage Preview | Low | High | ✅ Complete |
+| **Week 4-5** | Smart Re-Processing | Low-Med | Medium | ✅ Complete |
+| **Week 6-8** | Concept Linking | Medium | High | ✅ Complete |
+| **Week 9-10** | Flashcard Extraction | Medium | Medium | ⏸️ Postponed |
+| **Week 9-10** | Tag Hygiene & Consolidation | Medium | High | ✅ Complete |
+| **Week 10-11** | Vault Overview (`kai overview`) | Low | High | ✅ Complete |
+| **Week 10-11** | Wikilink Traversal (`kai follow`) | Low | Medium | ✅ Complete |
+| **Week 10-11** | Backlink-Boosted BM25 | Low | High | ✅ Complete |
 | **Week 11-13** | MCP Server Foundation | Medium | Medium-High | 🔄 Planned |
 
 ---
@@ -405,7 +421,7 @@ kai analyze-taxonomy --suggest-splits
 ## Backlog (Deferred Indefinitely)
 
 **From previous roadmap:**
-- Semantic search (embeddings + vectors) - current lexical search sufficient
+- Semantic search (embeddings + vectors) — **removed**: Annoy and sentence-transformers dependencies dropped in favour of BM25F + backlink boost, which outperforms hybrid search on personal vault benchmarks
 - Podcast/audio ingestion (Whisper) - not prioritized
 - Tag taxonomy enforcement - manual management works fine
 - Observability dashboard UI - CLI stats output adequate
@@ -439,7 +455,7 @@ Key architectural and strategic decisions:
 
 1. **CLI-first for capture** (2026-01-04): CLI proven superior to UI for ingestion workflows
 2. **MCP for analysis only** (2026-01-04): MCP complements CLI, doesn't replace it
-3. **Defer semantic search** (2025): Whoosh lexical search sufficient for personal use
+3. **Remove semantic search** (2026-03): Annoy + sentence-transformers removed; BM25F + backlink boost sufficient and faster to install
 4. **Maintain flat-function design** (ongoing): No hexagonal migration needed yet
 5. **Observability via CLI** (2025): Dashboard UI deferred, CLI output adequate
 

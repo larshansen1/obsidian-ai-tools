@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: obsidian-ai-tools
-Version: 0.1.0
+Version: 1.0.0
 Summary: AI-powered tools for Obsidian knowledge management
 Requires-Python: >=3.11
 Description-Content-Type: text/markdown
@@ -20,6 +20,13 @@ Requires-Dist: structlog>=24.1.0
 Requires-Dist: python-frontmatter>=1.0.0
 Requires-Dist: Whoosh>=2.7.4
 Requires-Dist: requests>=2.31.0
+Requires-Dist: supadata>=1.5.0
+Requires-Dist: pypdf>=4.0.0
+Requires-Dist: beautifulsoup4>=4.12.0
+Requires-Dist: scikit-learn>=1.3.0
+Requires-Dist: scipy>=1.10.0
+Requires-Dist: annoy>=1.17.3
+Requires-Dist: sentence-transformers>=2.7.0
 
 # Obsidian AI Tools
 
@@ -27,11 +34,11 @@ AI-powered tools for Obsidian knowledge management. Week 1 MVP: YouTube video in
 
 ## Features
 
-- 🎬 **YouTube Transcript Ingestion**: Fetch video transcripts and generate structured Obsidian notes
-- 🌐 **Multi-Source Support**: Ingest from YouTube, web articles, or local markdown files
-- 🔍 **Vault Search**: Full-text search with tag and date filtering
-- 📊 **Index Management**: Rebuild vault indexes with `kai rebuild-index`
-- 📂 **Inbox Organization**: Auto-organize notes into folders based on tags
+- **Multi-Source Ingestion**: YouTube videos, web articles, PDFs, and local Markdown files
+- **AI-Powered Processing**: Uses LLMs (via OpenRouter) to generate structured notes
+- **Smart Organization**: Folder rules to automatically organize notes by tags
+- **Full-Text Search**: Whoosh-powered search across your vault
+- **Robust Architecture**: Built-in caching, circuit breakers, rate limiting, and provider fallbacks
 - 🤖 **LLM-Powered Summarization**: Uses OpenRouter (Claude 3.5 Sonnet) to extract key insights
 - 📝 **Structured Notes**: Consistent frontmatter with metadata, tags, and provenance tracking
 - ⚡ **CLI Interface**: Simple `kai` command with multiple subcommands
@@ -94,8 +101,27 @@ MAX_TRANSCRIPT_LENGTH=50000
 
 Ingest a YouTube video:
 
+### Ingest Content
+
 ```bash
-kai ingest https://www.youtube.com/watch?v=dQw4w9WgXcQ
+# YouTube videos
+kai ingest https://www.youtube.com/watch?v=VIDEO_ID
+
+# Web articles
+kai ingest https://example.com/blog/article
+
+# PDF documents (local or remote)
+kai ingest https://arxiv.org/pdf/2024.12345.pdf
+kai ingest ./documents/research-paper.pdf --max-pages 30
+
+# Local Markdown files
+kai ingest ./notes/draft.md
+
+# Custom prompt version
+kai ingest URL --prompt-version youtube_v2
+
+# Custom vault path
+kai ingest URL --vault /path/to/other/vault
 ```
 
 Output:
@@ -392,6 +418,35 @@ For details on the current architecture and **enterprise migration path**, see [
 2. **Pydantic Settings**: Type-safe configuration with environment variable support
 3. **Explicit Error Types**: Each module defines its own exception hierarchy
 4. **Prompt Templates**: Versioned markdown files (not hardcoded strings)
+
+## Security
+
+This project includes automated security scanning to prevent credential leaks:
+
+### Security Tools
+
+- **gitleaks**: Detects secrets in code (pre-commit hook)
+- **bandit**: Python security linter (pre-commit hook)
+
+### Running Security Scans
+
+```bash
+# Scan for secrets in repository
+./scripts/scan_secrets.sh
+
+# Run all pre-commit hooks (includes security checks)
+pre-commit run --all-files
+
+# Run gitleaks directly
+gitleaks detect --source . --no-git
+```
+
+### Best Practices
+
+- Never commit `.env` files or API keys
+- Use environment variables for sensitive configuration
+- Pre-commit hooks automatically scan for secrets before commits
+- All credentials must be loaded from environment or secure secret managers
 
 ## Roadmap
 

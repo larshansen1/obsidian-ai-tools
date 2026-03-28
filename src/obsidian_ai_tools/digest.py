@@ -6,7 +6,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from .indexer import NoteMetadata, VaultIndex, build_index
+from .indexer import NoteMetadata, build_index
+from .wikilinks import count_backlinks
 
 
 class NoteSummary(BaseModel):
@@ -28,9 +29,7 @@ class DigestReport(BaseModel):
     new_notes_details: list[NoteSummary] = Field(
         default_factory=list, description="Details of each new note"
     )
-    by_source_type: dict[str, int] = Field(
-        default_factory=dict, description="Count by source type"
-    )
+    by_source_type: dict[str, int] = Field(default_factory=dict, description="Count by source type")
     top_tags: list[tuple[str, int]] = Field(
         default_factory=list, description="Top tags with counts"
     )
@@ -39,9 +38,6 @@ class DigestReport(BaseModel):
     )
     inbox_count: int = Field(0, description="Notes still in inbox")
 
-
-# Regex pattern for [[wikilinks]] including [[Link|Alias]] format
-WIKILINK_PATTERN = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
 
 # Characters not allowed in Obsidian wikilinks
 WIKILINK_INVALID_CHARS = re.compile(r"[/\\:\[\]#^|]")
@@ -123,29 +119,6 @@ def extract_summary(note: NoteMetadata, max_length: int = 150) -> str:
             summary_text = summary_text[: max_length - 3].rsplit(" ", 1)[0] + "..."
 
     return summary_text
-
-
-def count_backlinks(vault_index: VaultIndex) -> dict[str, int]:
-    """Count [[wikilink]] references across all notes.
-
-    Args:
-        vault_index: VaultIndex with all notes
-
-    Returns:
-        Dictionary mapping note title to backlink count
-    """
-    backlink_counts: dict[str, int] = {}
-
-    for note in vault_index.notes:
-        # Find all wikilinks in content
-        matches = WIKILINK_PATTERN.findall(note.content)
-
-        for link_target in matches:
-            link_target = link_target.strip()
-            if link_target:
-                backlink_counts[link_target] = backlink_counts.get(link_target, 0) + 1
-
-    return backlink_counts
 
 
 def generate_digest(
@@ -328,22 +301,26 @@ def format_digest_markdown(report: DigestReport) -> str:
     ]
 
     # Notes summary
-    lines.extend([
-        "## 📝 Notes Summary",
-        "",
-        f"- **Total notes in vault**: {report.total_notes}",
-        f"- **New notes this period**: {report.new_notes}",
-        "",
-    ])
+    lines.extend(
+        [
+            "## 📝 Notes Summary",
+            "",
+            f"- **Total notes in vault**: {report.total_notes}",
+            f"- **New notes this period**: {report.new_notes}",
+            "",
+        ]
+    )
 
     # By source type
     if report.by_source_type:
-        lines.extend([
-            "## 📦 By Source Type",
-            "",
-            "| Source | Count |",
-            "|--------|-------|",
-        ])
+        lines.extend(
+            [
+                "## 📦 By Source Type",
+                "",
+                "| Source | Count |",
+                "|--------|-------|",
+            ]
+        )
         for source_type, count in sorted(
             report.by_source_type.items(), key=lambda x: x[1], reverse=True
         ):
@@ -352,10 +329,12 @@ def format_digest_markdown(report: DigestReport) -> str:
 
     # New notes details (grouped by source type)
     if report.new_notes_details:
-        lines.extend([
-            "## 📄 New Notes This Period",
-            "",
-        ])
+        lines.extend(
+            [
+                "## 📄 New Notes This Period",
+                "",
+            ]
+        )
 
         # Group by source type
         by_type: dict[str, list[NoteSummary]] = {}
@@ -380,36 +359,42 @@ def format_digest_markdown(report: DigestReport) -> str:
 
     # Top tags
     if report.top_tags:
-        lines.extend([
-            "## 🏷️ Top Tags",
-            "",
-        ])
+        lines.extend(
+            [
+                "## 🏷️ Top Tags",
+                "",
+            ]
+        )
         for i, (tag, count) in enumerate(report.top_tags, 1):
             lines.append(f"{i}. `{tag}` — {count} note(s)")
         lines.append("")
 
     # Most referenced
     if report.most_referenced:
-        lines.extend([
-            "## 🔗 Most Referenced Notes",
-            "",
-            "These notes were linked to most often from other notes:",
-            "",
-        ])
+        lines.extend(
+            [
+                "## 🔗 Most Referenced Notes",
+                "",
+                "These notes were linked to most often from other notes:",
+                "",
+            ]
+        )
         for i, (title, count) in enumerate(report.most_referenced, 1):
             safe_title = sanitize_wikilink(title)
             lines.append(f"{i}. [[{safe_title}]] — {count} backlink(s)")
         lines.append("")
 
     # Inbox status
-    lines.extend([
-        "## 📥 Inbox Status",
-        "",
-        f"**{report.inbox_count} note(s)** are still in the inbox awaiting organization.",
-        "",
-        "---",
-        "*Generated by kai digest*",
-    ])
+    lines.extend(
+        [
+            "## 📥 Inbox Status",
+            "",
+            f"**{report.inbox_count} note(s)** are still in the inbox awaiting organization.",
+            "",
+            "---",
+            "*Generated by kai digest*",
+        ]
+    )
 
     return "\n".join(lines)
 
