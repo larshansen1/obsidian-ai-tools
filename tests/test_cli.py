@@ -1,5 +1,6 @@
 """Integration tests for the CLI."""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -537,6 +538,108 @@ def _make_dummy_settings(vault_path: Path) -> MagicMock:
     settings.llm_model = "test-model"
     settings.openrouter_api_key = "test-key"
     return settings
+
+
+def test_update_rules_previews_suggestions_without_writing(tmp_path: Path) -> None:
+    """Test update-rules previews suggestions and requires --confirm to write."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    inbox = vault_path / "inbox"
+    inbox.mkdir()
+
+    (vault_path / "folder_rules.json").write_text('{"ai": "AI"}\n', encoding="utf-8")
+    (inbox / "python.md").write_text(
+        """---
+title: Python Note
+tags: [python, programming]
+---
+# Content
+""",
+        encoding="utf-8",
+    )
+
+    with patch(
+        "obsidian_ai_tools.cli.get_settings",
+        return_value=_make_dummy_settings(vault_path),
+    ):
+        result = runner.invoke(
+            app,
+            ["update-rules", "--include-singletons", "--vault", str(vault_path)],
+        )
+
+    assert result.exit_code == 0
+    assert "Found 2 rule suggestion(s)" in result.output
+    assert '"python": "Python"' in result.output
+    assert "Add --confirm to update folder_rules.json" in result.output
+    assert (vault_path / "folder_rules.json").read_text(encoding="utf-8") == '{"ai": "AI"}\n'
+
+
+def test_update_rules_confirm_yes_writes_rules_file(tmp_path: Path) -> None:
+    """Test update-rules --confirm --yes writes suggested rules."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    inbox = vault_path / "inbox"
+    inbox.mkdir()
+
+    (vault_path / "folder_rules.json").write_text('{"ai": "AI"}\n', encoding="utf-8")
+    (inbox / "python.md").write_text(
+        """---
+title: Python Note
+tags: [python]
+---
+# Content
+""",
+        encoding="utf-8",
+    )
+
+    with patch(
+        "obsidian_ai_tools.cli.get_settings",
+        return_value=_make_dummy_settings(vault_path),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "update-rules",
+                "--include-singletons",
+                "--confirm",
+                "--yes",
+                "--vault",
+                str(vault_path),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Updated folder_rules.json" in result.output
+
+    rules = json.loads((vault_path / "folder_rules.json").read_text(encoding="utf-8"))
+    assert rules == {"ai": "AI", "python": "Python"}
+
+
+def test_update_rules_default_skips_singletons(tmp_path: Path) -> None:
+    """Test update-rules defaults to recurring tag suggestions only."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    inbox = vault_path / "inbox"
+    inbox.mkdir()
+
+    (inbox / "python.md").write_text(
+        """---
+title: Python Note
+tags: [python]
+---
+# Content
+""",
+        encoding="utf-8",
+    )
+
+    with patch(
+        "obsidian_ai_tools.cli.get_settings",
+        return_value=_make_dummy_settings(vault_path),
+    ):
+        result = runner.invoke(app, ["update-rules", "--vault", str(vault_path)])
+
+    assert result.exit_code == 0
+    assert "No rule suggestions" in result.output
 
 
 def test_search_requires_criteria(tmp_path: Path) -> None:

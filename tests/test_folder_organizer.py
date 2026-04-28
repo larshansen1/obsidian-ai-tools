@@ -22,6 +22,9 @@ from obsidian_ai_tools.folder_organizer import (
     move_note,
     normalize_tags,
     scan_inbox_notes,
+    suggest_folder_for_tag,
+    suggest_folder_rules,
+    update_folder_rules,
     validate_folder_path,
 )
 
@@ -270,6 +273,157 @@ tags: [javascript]
 
         assert len(notes) == 0
         assert len(failed) == 0
+
+
+class TestRuleSuggestions:
+    """Tests for suggesting and updating folder rules."""
+
+    def test_suggest_folder_for_tag_formats_readable_folder(self) -> None:
+        """Convert tags to readable folder paths."""
+        assert suggest_folder_for_tag("ai/llm-agents") == "AI/LLM Agents"
+        assert suggest_folder_for_tag("machine_learning") == "Machine Learning"
+
+    def test_suggest_folder_rules_only_uses_unmatched_inbox_notes(self, tmp_path: Path) -> None:
+        """Suggest rules only for notes that cannot be processed by existing rules."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        inbox = vault / "inbox"
+        inbox.mkdir()
+
+        (inbox / "matched.md").write_text(
+            """---
+title: Matched Note
+tags: [ai, agents]
+---
+# Content
+""",
+            encoding="utf-8",
+        )
+        (inbox / "unmatched.md").write_text(
+            """---
+title: Unmatched Note
+tags: [python, llm-agents]
+---
+# Content
+""",
+            encoding="utf-8",
+        )
+
+        suggestions, failed = suggest_folder_rules(vault, "inbox", {"ai": "AI"}, min_notes=1)
+
+        assert failed == []
+        assert {suggestion.tag for suggestion in suggestions} == {"python", "llm-agents"}
+        folders = {suggestion.tag: suggestion.folder for suggestion in suggestions}
+        assert folders["python"] == "Python"
+        assert folders["llm-agents"] == "LLM Agents"
+
+    def test_suggest_folder_rules_defaults_to_recurring_tags(self, tmp_path: Path) -> None:
+        """Only suggest tags used by multiple unprocessed notes by default."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        inbox = vault / "inbox"
+        inbox.mkdir()
+
+        (inbox / "one.md").write_text(
+            """---
+title: One
+tags: [relationships, dating]
+---
+# Content
+""",
+            encoding="utf-8",
+        )
+        (inbox / "two.md").write_text(
+            """---
+title: Two
+tags: [relationships, communication]
+---
+# Content
+""",
+            encoding="utf-8",
+        )
+
+        suggestions, failed = suggest_folder_rules(vault, "inbox", {})
+
+        assert failed == []
+        assert [suggestion.tag for suggestion in suggestions] == ["relationships"]
+
+    def test_suggest_folder_rules_prefers_existing_folder(self, tmp_path: Path) -> None:
+        """Use matching existing folders before suggesting a new folder name."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "Personal" / "Relationships").mkdir(parents=True)
+        inbox = vault / "inbox"
+        inbox.mkdir()
+
+        for index in range(2):
+            (inbox / f"note-{index}.md").write_text(
+                f"""---
+title: Relationship Note {index}
+tags: [relationships]
+---
+# Content
+""",
+                encoding="utf-8",
+            )
+
+        suggestions, failed = suggest_folder_rules(vault, "inbox", {})
+
+        assert failed == []
+        assert len(suggestions) == 1
+        assert suggestions[0].folder == "Personal/Relationships"
+        assert suggestions[0].existing_folder_match
+
+    def test_update_folder_rules_creates_rules_file(self, tmp_path: Path) -> None:
+        """Create folder_rules.json when applying suggestions to a new vault."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+
+        suggestions, _failed = suggest_folder_rules(vault, "inbox", {})
+        assert suggestions == []
+
+        from obsidian_ai_tools.folder_organizer import RuleSuggestion
+
+        update_folder_rules(
+            vault,
+            [
+                RuleSuggestion(
+                    tag="python",
+                    folder="Python",
+                    note_count=1,
+                    example_notes=["Python Note"],
+                )
+            ],
+        )
+
+        rules = json.loads((vault / "folder_rules.json").read_text(encoding="utf-8"))
+        assert rules == {"python": "Python"}
+
+    def test_update_folder_rules_preserves_existing_rules(self, tmp_path: Path) -> None:
+        """Do not overwrite existing tag mappings when applying suggestions."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        (vault / "folder_rules.json").write_text(
+            json.dumps({"ai": "Existing AI"}),
+            encoding="utf-8",
+        )
+
+        from obsidian_ai_tools.folder_organizer import RuleSuggestion
+
+        rules = update_folder_rules(
+            vault,
+            [
+                RuleSuggestion(tag="ai", folder="AI", note_count=1, example_notes=["AI Note"]),
+                RuleSuggestion(
+                    tag="python",
+                    folder="Python",
+                    note_count=1,
+                    example_notes=["Python Note"],
+                ),
+            ],
+        )
+
+        assert rules == {"ai": "Existing AI", "python": "Python"}
 
 
 class TestMoveNote:

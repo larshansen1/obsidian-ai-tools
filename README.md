@@ -170,6 +170,22 @@ kai process-inbox
 - Notes without matching tags stay in inbox
 - Reports any files that couldn't be parsed
 
+**Suggest missing rules:**
+```bash
+# Preview rules for inbox notes that do not match existing rules
+kai update-rules
+
+# Include one-off tags when needed
+kai update-rules --include-singletons
+
+# Add suggested rules to folder_rules.json
+kai update-rules --confirm --yes
+```
+
+By default, rule suggestions are conservative: tags must appear in at least two
+unprocessed inbox notes, output is capped, and matching existing folders are
+preferred before suggesting new folder names.
+
 **Example output:**
 ```
 📂 Loading folder rules...

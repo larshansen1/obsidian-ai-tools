@@ -8,7 +8,7 @@ import typer
 from .config import get_settings
 
 if TYPE_CHECKING:
-    from .folder_organizer import NoteToMove
+    from .folder_organizer import NoteToMove, RuleSuggestion
     from .tag_hygiene import TagHygienePlan
 from .llm import generate_note
 from .logging import setup_logging
@@ -606,6 +606,127 @@ def process_inbox(
         typer.echo(f"\n🔍 Dry run complete - {len(notes)} note(s) would be moved")
 
 
+@app.command()
+def update_rules(
+    confirm: Annotated[
+        bool,
+        typer.Option("--confirm", help="Update folder_rules.json (prompts unless --yes)"),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Skip confirmation prompt (requires --confirm)"),
+    ] = False,
+    vault: Annotated[
+        Path | None,
+        typer.Option("--vault", "-v", help="Override vault path"),
+    ] = None,
+    min_notes: Annotated[
+        int,
+        typer.Option(
+            "--min-notes",
+            help="Minimum unprocessed inbox notes a tag must appear in",
+        ),
+    ] = 2,
+    max_suggestions: Annotated[
+        int,
+        typer.Option("--max-suggestions", help="Maximum rule suggestions to show"),
+    ] = 10,
+    include_singletons: Annotated[
+        bool,
+        typer.Option("--include-singletons", help="Include tags used by only one unprocessed note"),
+    ] = False,
+) -> None:
+    """Suggest and optionally add folder rules for unprocessed inbox notes.
+
+    Scans inbox notes that do not match any existing rule in folder_rules.json.
+    Missing tags are suggested as new tag-to-folder mappings.
+
+    Examples:
+        kai update-rules
+        kai update-rules --include-singletons
+        kai update-rules --confirm
+        kai update-rules --confirm --yes
+    """
+    from .folder_organizer import (
+        InvalidRulesError,
+        PathTraversalError,
+        load_folder_rules_or_empty,
+        suggest_folder_rules,
+        update_folder_rules,
+    )
+
+    try:
+        settings = get_settings()
+    except Exception as e:
+        typer.echo(f"❌ Configuration error: {e}", err=True)
+        typer.echo("💡 Make sure you have a .env file with required settings.", err=True)
+        raise typer.Exit(1) from e
+
+    vault_path = vault or settings.obsidian_vault_path
+    effective_min_notes = 1 if include_singletons else min_notes
+    if effective_min_notes < 1:
+        typer.echo("❌ --min-notes must be at least 1", err=True)
+        raise typer.Exit(1)
+    if max_suggestions < 1:
+        typer.echo("❌ --max-suggestions must be at least 1", err=True)
+        raise typer.Exit(1)
+
+    try:
+        typer.echo("📂 Loading folder rules...")
+        rules = load_folder_rules_or_empty(vault_path)
+        if rules:
+            typer.echo(f"   ✓ Loaded {len(rules)} rule(s)")
+        else:
+            typer.echo("   No folder_rules.json found; suggestions will create it")
+
+        typer.echo("📥 Scanning inbox for unprocessed notes...")
+        suggestions, failed_files = suggest_folder_rules(
+            vault_path,
+            settings.obsidian_inbox_folder,
+            rules,
+            min_notes=effective_min_notes,
+            max_suggestions=max_suggestions,
+        )
+    except (InvalidRulesError, PathTraversalError) as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(1) from e
+
+    if failed_files:
+        typer.echo(
+            f"⚠️  Warning: Could not parse {len(failed_files)} file(s): "
+            f"{', '.join(failed_files[:5])}"
+            + (f" and {len(failed_files) - 5} more" if len(failed_files) > 5 else ""),
+            err=True,
+        )
+
+    if not suggestions:
+        typer.echo("✅ No rule suggestions (inbox is empty or all notes already match rules)")
+        return
+
+    _display_rule_suggestions(suggestions)
+
+    if not confirm:
+        typer.echo("\n⚠️  Add --confirm to update folder_rules.json")
+        return
+
+    if yes:
+        user_confirm = True
+    else:
+        user_confirm = typer.confirm(f"\n❓ Add {len(suggestions)} rule(s)?")
+
+    if not user_confirm:
+        typer.echo("❌ Cancelled")
+        return
+
+    try:
+        updated_rules = update_folder_rules(vault_path, suggestions)
+    except (InvalidRulesError, PathTraversalError) as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(1) from e
+
+    typer.echo(f"\n✅ Updated folder_rules.json ({len(updated_rules)} total rule(s))")
+
+
 def _display_batch_summary(notes: list["NoteToMove"], dry_run: bool = False) -> None:
     """Display summary of planned moves.
 
@@ -626,6 +747,19 @@ def _display_batch_summary(notes: list["NoteToMove"], dry_run: bool = False) -> 
         typer.echo(
             f"     → {note.best_folder} (matched: {matched_tags_str}, score: {note.score:.1f})"
         )
+        typer.echo()
+
+
+def _display_rule_suggestions(suggestions: list["RuleSuggestion"]) -> None:
+    """Display suggested rules for unprocessed inbox notes."""
+    typer.echo(f"📋 Found {len(suggestions)} rule suggestion(s):\n")
+
+    for suggestion in suggestions:
+        typer.echo(f'  "{suggestion.tag}": "{suggestion.folder}"')
+        typer.echo(f"     Notes: {suggestion.note_count}")
+        if suggestion.existing_folder_match:
+            typer.echo("     Folder: existing match")
+        typer.echo(f"     Examples: {', '.join(suggestion.example_notes)}")
         typer.echo()
 
 

@@ -10,6 +10,7 @@ Complete reference for all `kai` CLI commands.
   - [list-tags](#list-tags)
   - [rebuild-index](#rebuild-index)
   - [process-inbox](#process-inbox)
+  - [update-rules](#update-rules)
   - [stats](#stats)
   - [quality](#quality)
   - [digest](#digest)
@@ -206,6 +207,42 @@ Create `folder_rules.json` in your vault root:
 3. When multiple tags match, picks most specific folder (deeper paths score higher)
 4. Shows summary and asks for confirmation (unless dry-run)
 5. Moves notes and tracks moves in `.kai/folder_mappings.jsonl`
+
+---
+
+### update-rules
+
+Suggest and optionally add folder rules for inbox notes that do not match existing rules.
+
+Scans unprocessed inbox notes, aggregates their tags, and suggests new `folder_rules.json` entries. Existing rules are preserved.
+
+**Usage:**
+```bash
+kai update-rules [OPTIONS]
+```
+
+**Options:**
+- `--confirm` - Update `folder_rules.json` (prompts for confirmation unless --yes)
+- `--yes`, `-y` - Skip confirmation prompt (requires --confirm)
+- `--vault`, `-v` - Override vault path
+- `--min-notes` - Minimum unprocessed inbox notes a tag must appear in (default: 2)
+- `--max-suggestions` - Maximum rule suggestions to show (default: 10)
+- `--include-singletons` - Include tags used by only one unprocessed note
+
+**Examples:**
+```bash
+kai update-rules                     # Preview suggested rules
+kai update-rules --include-singletons # Include one-off tags
+kai update-rules --confirm           # Update with confirmation
+kai update-rules --confirm --yes     # Update without prompt
+```
+
+**How it works:**
+1. Loads existing rules from `folder_rules.json` if present
+2. Scans inbox notes that do not match any existing rule
+3. Suggests recurring missing tag-to-folder mappings from those notes' tags
+4. Prefers matching existing vault folders and existing rule destinations
+5. Writes the merged rules file only with `--confirm`
 
 ---
 

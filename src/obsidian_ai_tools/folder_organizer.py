@@ -1,6 +1,7 @@
 """Folder organization for inbox notes based on tag rules."""
 
 import json
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -43,6 +44,20 @@ class NoteToMove(BaseModel):
     def matched_tag(self) -> str | None:
         """Return first matched tag for backward compatibility."""
         return self.matched_tags[0] if self.matched_tags else None
+
+
+class RuleSuggestion(BaseModel):
+    """A suggested folder rule for inbox notes without a matching rule."""
+
+    tag: str = Field(..., description="Tag that needs a folder rule")
+    folder: str = Field(..., description="Suggested target folder path")
+    note_count: int = Field(..., description="Number of unprocessed notes using this tag")
+    example_notes: list[str] = Field(
+        default_factory=list, description="Example note titles using this tag"
+    )
+    existing_folder_match: bool = Field(
+        False, description="Whether the folder suggestion matched an existing folder"
+    )
 
 
 class MoveResult(BaseModel):
@@ -131,6 +146,15 @@ def load_folder_rules(vault_path: Path) -> dict[str, str]:
         return rules
     except json.JSONDecodeError as e:
         raise InvalidRulesError(f"Invalid JSON in folder_rules.json: {e}") from e
+
+
+def load_folder_rules_or_empty(vault_path: Path) -> dict[str, str]:
+    """Load folder rules, returning an empty mapping when the file is missing."""
+    rules_path = vault_path / "folder_rules.json"
+    if not rules_path.exists():
+        return {}
+
+    return load_folder_rules(vault_path)
 
 
 def normalize_tags(tags_value: str | list[str] | None) -> list[str]:
@@ -275,6 +299,208 @@ def scan_inbox_notes(
             continue
 
     return notes_to_move, failed_files
+
+
+def _format_tag_segment_as_folder(segment: str) -> str:
+    """Convert one tag path segment to a readable folder segment."""
+    words = [word for word in segment.replace("_", "-").replace(" ", "-").split("-") if word]
+    acronyms = {
+        "ai",
+        "api",
+        "ar",
+        "eu",
+        "hr",
+        "it",
+        "lgbtq",
+        "llm",
+        "ml",
+        "nlp",
+        "pdf",
+        "smr",
+        "ui",
+        "ux",
+        "vr",
+    }
+    formatted_words = [
+        word.upper() if word.lower() in acronyms else word.capitalize() for word in words
+    ]
+    return " ".join(formatted_words)
+
+
+def _tokenize_rule_text(value: str) -> set[str]:
+    """Tokenize tags and folder paths for lightweight matching."""
+    return {
+        token.lower() for token in re.split(r"[^A-Za-z0-9]+", value) if token and len(token) > 1
+    }
+
+
+def _collect_existing_folders(vault_path: Path, rules: dict[str, str]) -> list[str]:
+    """Collect candidate folders from existing rules and vault directories."""
+    folders = set(rules.values())
+
+    ignored = {".git", ".obsidian", ".kai", ".trash"}
+    for path in vault_path.rglob("*"):
+        if not path.is_dir():
+            continue
+
+        try:
+            relative = path.relative_to(vault_path)
+        except ValueError:
+            continue
+
+        parts = relative.parts
+        if not parts or any(part.startswith(".") or part in ignored for part in parts):
+            continue
+        if len(parts) > 4:
+            continue
+
+        folders.add(relative.as_posix())
+
+    return sorted(folders)
+
+
+def _find_existing_folder_match(tag: str, existing_folders: list[str]) -> str | None:
+    """Find the best existing folder for a tag using token overlap."""
+    tag_tokens = _tokenize_rule_text(tag)
+    if not tag_tokens:
+        return None
+
+    best_folder: str | None = None
+    best_score = 0.0
+
+    for folder in existing_folders:
+        folder_tokens = _tokenize_rule_text(folder)
+        if not folder_tokens:
+            continue
+
+        overlap = tag_tokens & folder_tokens
+        if not overlap:
+            continue
+
+        score = len(overlap) / len(tag_tokens)
+        if tag.lower().replace("-", " ") in folder.lower().replace("-", " "):
+            score += 0.5
+
+        if score > best_score:
+            best_score = score
+            best_folder = folder
+
+    return best_folder if best_score >= 0.5 else None
+
+
+def suggest_folder_for_tag(tag: str, existing_folders: list[str] | None = None) -> str:
+    """Suggest a folder path from a tag.
+
+    Existing folders are preferred when their words match the tag.
+    Hierarchical tags keep their hierarchy, while kebab/underscore words become
+    readable folder names. For example, ``ai/llm-agents`` becomes
+    ``AI/LLM Agents``.
+    """
+    if existing_folders:
+        existing_match = _find_existing_folder_match(tag, existing_folders)
+        if existing_match:
+            return existing_match
+
+    segments = [
+        _format_tag_segment_as_folder(segment)
+        for segment in tag.strip("#/").split("/")
+        if segment and segment not in {".", ".."}
+    ]
+    return "/".join(segments) if segments else "Uncategorized"
+
+
+def suggest_folder_rules(
+    vault_path: Path,
+    inbox_folder: str,
+    rules: dict[str, str],
+    min_notes: int = 2,
+    max_suggestions: int = 10,
+) -> tuple[list[RuleSuggestion], list[str]]:
+    """Suggest missing folder rules from inbox notes that do not match any rule.
+
+    Args:
+        vault_path: Path to Obsidian vault
+        inbox_folder: Inbox folder name
+        rules: Existing tag-to-folder mapping
+        min_notes: Minimum unprocessed inbox notes a tag must appear in
+        max_suggestions: Maximum number of suggestions to return
+
+    Returns:
+        Tuple of (suggestions, failed_files) where failed_files are filenames
+        that couldn't be parsed
+    """
+    inbox_path = vault_path / inbox_folder
+    if not inbox_path.exists():
+        return [], []
+
+    tag_counts: dict[str, int] = {}
+    examples_by_tag: dict[str, list[str]] = {}
+    failed_files: list[str] = []
+
+    for note_file in inbox_path.glob("*.md"):
+        try:
+            parsed = parse_frontmatter(note_file)
+            frontmatter = parsed["frontmatter"]
+
+            title = str(frontmatter.get("title", note_file.stem))
+            tags = sorted(set(normalize_tags(frontmatter.get("tags"))))
+
+            best_folder, _matched_tags, _score = find_best_folder(tags, rules)
+            if best_folder:
+                continue
+
+            for tag in tags:
+                if tag in rules:
+                    continue
+
+                tag_counts[tag] = tag_counts.get(tag, 0) + 1
+                examples = examples_by_tag.setdefault(tag, [])
+                if len(examples) < 3:
+                    examples.append(title)
+
+        except Exception:
+            failed_files.append(note_file.name)
+            continue
+
+    existing_folders = _collect_existing_folders(vault_path, rules)
+    suggestions: list[RuleSuggestion] = []
+    for tag, count in tag_counts.items():
+        if count < min_notes:
+            continue
+
+        folder = suggest_folder_for_tag(tag, existing_folders)
+        validate_folder_path(folder, vault_path)
+        suggestions.append(
+            RuleSuggestion(
+                tag=tag,
+                folder=folder,
+                note_count=count,
+                example_notes=examples_by_tag[tag],
+                existing_folder_match=folder in existing_folders,
+            )
+        )
+
+    suggestions.sort(key=lambda suggestion: (-suggestion.note_count, suggestion.tag))
+    return suggestions[:max_suggestions], failed_files
+
+
+def update_folder_rules(vault_path: Path, suggestions: list[RuleSuggestion]) -> dict[str, str]:
+    """Merge rule suggestions into folder_rules.json.
+
+    Existing rules are preserved. Suggested rules for tags already present in the
+    file are ignored.
+    """
+    rules = load_folder_rules_or_empty(vault_path)
+
+    for suggestion in suggestions:
+        if suggestion.tag in rules:
+            continue
+        validate_folder_path(suggestion.folder, vault_path)
+        rules[suggestion.tag] = suggestion.folder
+
+    rules_path = vault_path / "folder_rules.json"
+    rules_path.write_text(json.dumps(rules, indent=2) + "\n", encoding="utf-8")
+    return rules
 
 
 def _create_move_result(
