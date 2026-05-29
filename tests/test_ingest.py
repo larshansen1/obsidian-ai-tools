@@ -8,6 +8,7 @@ Test Strategy:
 """
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +19,12 @@ from obsidian_ai_tools.cli import app
 from obsidian_ai_tools.models import ArticleMetadata
 
 runner = CliRunner()
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def strip_ansi(text: str) -> str:
+    """Remove terminal styling added by Rich/Typer in colored CI environments."""
+    return ANSI_ESCAPE_RE.sub("", text)
 
 
 class TestFileProviderIngest:
@@ -449,11 +456,12 @@ class TestCLIIngestCommand:
     def test_ingest_command_help(self) -> None:
         """Test ingest command help output."""
         result = runner.invoke(app, ["ingest", "--help"])
+        stdout = strip_ansi(result.stdout)
         assert result.exit_code == 0
-        assert "Ingest content into your Obsidian vault" in result.stdout
-        assert "--vault" in result.stdout
-        assert "--prompt-version" in result.stdout
-        assert "--max-pages" in result.stdout
+        assert "Ingest content into your Obsidian vault" in stdout
+        assert "--vault" in stdout
+        assert "--prompt-version" in stdout
+        assert "--max-pages" in stdout
 
     def test_ingest_command_requires_url(self) -> None:
         """Test that ingest command requires a URL argument."""
