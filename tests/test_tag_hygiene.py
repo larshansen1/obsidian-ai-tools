@@ -384,6 +384,7 @@ class TestApplyConsolidation:
         # Check the file was updated
         post = frontmatter.load(sample_note_file)
         tags = post.metadata.get("tags", [])
+        assert isinstance(tags, list)
 
         assert "neurodivergence" not in tags
         assert "neurodivergent" in tags
@@ -407,6 +408,7 @@ class TestApplyConsolidation:
 
         post = frontmatter.load(sample_note_file)
         tags = post.metadata.get("tags", [])
+        assert isinstance(tags, list)
 
         assert "neurodivergence" not in tags
 
