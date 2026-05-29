@@ -2195,6 +2195,52 @@ def _interactive_fix(plan: "TagHygienePlan", auto_yes: bool = False) -> None:  #
 
 
 @app.command()
+def serve(
+    port: Annotated[
+        int,
+        typer.Option("--port", "-p", help="Port to listen on"),
+    ] = 8765,
+    host: Annotated[
+        str,
+        typer.Option("--host", help="Host to bind to (use 127.0.0.1 for local-only)"),
+    ] = "127.0.0.1",
+    reload: Annotated[
+        bool,
+        typer.Option("--reload", help="Auto-reload on code changes (development only)"),
+    ] = False,
+) -> None:
+    """Run kai as a local HTTP service for the Chrome extension.
+
+    Exposes two endpoints:
+      GET  /status  — health check, returns vault/model config
+      POST /ingest  — full ingest pipeline (fetch → LLM → vault write)
+
+    Install server dependencies first:
+        pip install "obsidian-ai-tools[server]"
+
+    Then load the Chrome extension from the chrome-extension/ directory.
+
+    Examples:
+        kai serve
+        kai serve --port 9000
+    """
+    try:
+        import uvicorn
+    except ImportError:
+        typer.echo("❌ uvicorn not installed.", err=True)
+        typer.echo('💡 Run: pip install "obsidian-ai-tools[server]"', err=True)
+        raise typer.Exit(1) from None
+
+    from .server.app import create_app as _create_app
+
+    typer.echo(f"🚀 kai server starting on http://{host}:{port}")
+    typer.echo("   Chrome extension → load chrome-extension/ as an unpacked extension")
+    typer.echo("   Press Ctrl+C to stop\n")
+
+    uvicorn.run(_create_app(), host=host, port=port, reload=reload)
+
+
+@app.command()
 def version() -> None:
     """Show version information."""
     typer.echo("obsidian-ai-tools v1.0.0")

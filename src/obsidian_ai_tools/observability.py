@@ -167,48 +167,52 @@ class ObservabilityDB:
         with duckdb.connect(str(self.db_path)) as conn:
             # Total cost
             result = conn.execute(
-                f"""
+                """
                 SELECT COALESCE(SUM(total_cost_usd), 0) as total_cost
                 FROM costs
-                WHERE timestamp > current_timestamp - INTERVAL '{days}' DAYS
-                """
+                WHERE timestamp > current_timestamp - (? * INTERVAL '1 DAY')
+                """,
+                [days],
             ).fetchone()
             total_cost = float(result[0]) if result else 0.0
 
             # Cost by model
             by_model = conn.execute(
-                f"""
+                """
                 SELECT model, SUM(total_cost_usd) as cost
                 FROM costs
-                WHERE timestamp > current_timestamp - INTERVAL '{days}' DAYS
+                WHERE timestamp > current_timestamp - (? * INTERVAL '1 DAY')
                 GROUP BY model
                 ORDER BY cost DESC
-                """
+                """,
+                [days],
             ).fetchall()
 
             # Cost by source type
             by_source_type = conn.execute(
-                f"""
+                """
                 SELECT
                     COALESCE(source_type, 'Unknown') as source_type,
                     SUM(total_cost_usd) as cost,
                     COUNT(*) as count
                 FROM costs
-                WHERE timestamp > current_timestamp - INTERVAL '{days}' DAYS
+                WHERE timestamp > current_timestamp - (? * INTERVAL '1 DAY')
                 GROUP BY source_type
                 ORDER BY cost DESC
-                """
+                """,
+                [days],
             ).fetchall()
 
             # Cost by operation
             by_operation = conn.execute(
-                f"""
+                """
                 SELECT operation, SUM(total_cost_usd) as cost
                 FROM costs
-                WHERE timestamp > current_timestamp - INTERVAL '{days}' DAYS
+                WHERE timestamp > current_timestamp - (? * INTERVAL '1 DAY')
                 GROUP BY operation
                 ORDER BY cost DESC
-                """
+                """,
+                [days],
             ).fetchall()
 
             # Recent cost (last 7 days)
@@ -278,14 +282,15 @@ class ObservabilityDB:
         with duckdb.connect(str(self.db_path)) as conn:
             # Total ingestions
             result = conn.execute(
-                f"""
+                """
                 SELECT COUNT(*) as total,
                        COALESCE(
                            SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END), 0
                        ) as successes
                 FROM metrics
-                WHERE timestamp > current_timestamp - INTERVAL '{days}' DAYS
-                """
+                WHERE timestamp > current_timestamp - (? * INTERVAL '1 DAY')
+                """,
+                [days],
             ).fetchone()
 
             total = int(result[0]) if result else 0
@@ -294,31 +299,33 @@ class ObservabilityDB:
 
             # By source type
             by_source = conn.execute(
-                f"""
+                """
                 SELECT
                     source_type,
                     COUNT(*) as total,
                     SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) as successes,
                     AVG(duration_seconds) as avg_duration
                 FROM metrics
-                WHERE timestamp > current_timestamp - INTERVAL '{days}' DAYS
+                WHERE timestamp > current_timestamp - (? * INTERVAL '1 DAY')
                 GROUP BY source_type
                 ORDER BY total DESC
-                """
+                """,
+                [days],
             ).fetchall()
 
             # Common errors
             errors = conn.execute(
-                f"""
+                """
                 SELECT error_type, COUNT(*) as count
                 FROM metrics
-                WHERE timestamp > current_timestamp - INTERVAL '{days}' DAYS
+                WHERE timestamp > current_timestamp - (? * INTERVAL '1 DAY')
                   AND outcome = 'failure'
                   AND error_type IS NOT NULL
                 GROUP BY error_type
                 ORDER BY count DESC
                 LIMIT 5
-                """
+                """,
+                [days],
             ).fetchall()
 
             return {
