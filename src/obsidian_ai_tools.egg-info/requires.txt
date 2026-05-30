@@ -19,7 +19,5 @@ pypdf>=4.0.0
 beautifulsoup4>=4.12.0
 scikit-learn>=1.3.0
 scipy>=1.10.0
-
-[server]
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0

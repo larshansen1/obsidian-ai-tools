@@ -25,9 +25,8 @@ Requires-Dist: pypdf>=4.0.0
 Requires-Dist: beautifulsoup4>=4.12.0
 Requires-Dist: scikit-learn>=1.3.0
 Requires-Dist: scipy>=1.10.0
-Provides-Extra: server
-Requires-Dist: fastapi>=0.109.0; extra == "server"
-Requires-Dist: uvicorn[standard]>=0.27.0; extra == "server"
+Requires-Dist: fastapi>=0.109.0
+Requires-Dist: uvicorn[standard]>=0.27.0
 
 # Obsidian AI Tools
 

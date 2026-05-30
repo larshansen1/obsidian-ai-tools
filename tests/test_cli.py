@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from typer.testing import CliRunner
 
@@ -874,3 +874,58 @@ def test_quality_summary_with_data(tmp_path: Path) -> None:
     assert "Total Ingestions: 20" in result.output
     assert "youtube" in result.output
     assert "TimeoutError" in result.output
+
+
+def test_serve_background_starts_detached_process(tmp_path: Path) -> None:
+    """Test serve --background starts a detached child and records its PID."""
+    with (
+        patch("obsidian_ai_tools.cli.Path.home", return_value=tmp_path),
+        patch("obsidian_ai_tools.cli.subprocess.Popen") as mock_popen,
+    ):
+        mock_popen.return_value.pid = 4321
+
+        result = runner.invoke(app, ["serve", "--background", "--port", "9000"])
+
+    assert result.exit_code == 0
+    assert "started in the background on http://127.0.0.1:9000" in result.output
+    assert (tmp_path / ".kai" / "server.pid").read_text(encoding="utf-8") == "4321\n"
+    mock_popen.assert_called_once()
+    command = mock_popen.call_args.args[0]
+    assert command[-4:] == ["--host", "127.0.0.1", "--port", "9000"]
+    assert mock_popen.call_args.kwargs["start_new_session"] is True
+
+
+def test_serve_status_reports_running_background_process(tmp_path: Path) -> None:
+    """Test serve --status reads the PID file and checks that process."""
+    state_dir = tmp_path / ".kai"
+    state_dir.mkdir()
+    (state_dir / "server.pid").write_text("4321\n", encoding="utf-8")
+
+    with (
+        patch("obsidian_ai_tools.cli.Path.home", return_value=tmp_path),
+        patch("obsidian_ai_tools.cli.os.kill") as mock_kill,
+    ):
+        result = runner.invoke(app, ["serve", "--status"])
+
+    assert result.exit_code == 0
+    assert "running in the background (PID 4321)" in result.output
+    mock_kill.assert_called_once_with(4321, 0)
+
+
+def test_serve_stop_terminates_background_process(tmp_path: Path) -> None:
+    """Test serve --stop terminates the recorded background process."""
+    state_dir = tmp_path / ".kai"
+    state_dir.mkdir()
+    pid_path = state_dir / "server.pid"
+    pid_path.write_text("4321\n", encoding="utf-8")
+
+    with (
+        patch("obsidian_ai_tools.cli.Path.home", return_value=tmp_path),
+        patch("obsidian_ai_tools.cli.os.kill") as mock_kill,
+    ):
+        result = runner.invoke(app, ["serve", "--stop"])
+
+    assert result.exit_code == 0
+    assert "kai server stopped (PID 4321)" in result.output
+    assert not pid_path.exists()
+    assert mock_kill.call_args_list == [call(4321, 0), call(4321, 15)]
