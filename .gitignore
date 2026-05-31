@@ -1,6 +1,7 @@
 .env
 __pycache__
 .cache/
+.coverage
 .venv
 .DS_Store
 eval/

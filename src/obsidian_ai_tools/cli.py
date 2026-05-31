@@ -1,8 +1,9 @@
 """Command-line interface for obsidian-ai-tools."""
 
+import logging
 import os
 import signal
-import subprocess  # nosec B404 - detached server launch uses a fixed executable and shell=False
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -1196,7 +1197,9 @@ def preview(
                     provider_used="preview",
                 )
             except Exception:
-                pass  # Never fail preview due to observability
+                logging.getLogger(__name__).warning(
+                    "Failed to record successful preview metric", exc_info=True
+                )
 
             # Format output
             if format_type == "json":
@@ -1243,7 +1246,9 @@ def preview(
                     provider_used="preview",
                 )
             except Exception:
-                pass
+                logging.getLogger(__name__).warning(
+                    "Failed to record unsupported preview metric", exc_info=True
+                )
         except PreviewError as e:
             typer.echo(f"⚠️  Preview failed: {e}", err=True)
             duration = time.time() - start_time
@@ -1257,7 +1262,9 @@ def preview(
                     provider_used="preview",
                 )
             except Exception:
-                pass
+                logging.getLogger(__name__).warning(
+                    "Failed to record failed preview metric", exc_info=True
+                )
 
     # Summary for batch mode
     if batch and len(urls) > 1:
@@ -1631,6 +1638,20 @@ def connect(
 
         return
 
+    if not note and not orphans:
+        typer.echo("❌ Please specify --note, --folder, or --orphans", err=True)
+        raise typer.Exit(1)
+
+    note_path = None
+    if note:
+        if not note.endswith(".md"):
+            note = note + ".md"
+
+        note_path = vault_path / note
+        if not note_path.exists():
+            typer.echo(f"❌ Note not found: {note_path}", err=True)
+            raise typer.Exit(1)
+
     # Build vault index (entire vault) for single note / orphan modes
     typer.echo("📋 Building vault index...")
     vault_index = build_index(vault_path, folder=None)
@@ -1652,18 +1673,8 @@ def connect(
             typer.echo(f"     Path: {rel_path}")
         return
 
-    if not note:
-        typer.echo("❌ Please specify --note, --folder, or --orphans", err=True)
-        raise typer.Exit(1)
-
-    # Resolve note path
-    if not note.endswith(".md"):
-        note = note + ".md"
-
-    note_path = vault_path / note
-    if not note_path.exists():
-        typer.echo(f"❌ Note not found: {note_path}", err=True)
-        raise typer.Exit(1)
+    assert note is not None
+    assert note_path is not None
 
     # Find connections
     typer.echo(f"\n🔗 Finding connections for: {note}")
@@ -2202,7 +2213,8 @@ def _start_background_server(host: str, port: int, reload: bool) -> None:
         command.append("--reload")
 
     with log_path.open("a", encoding="utf-8") as log_file:
-        process = subprocess.Popen(  # nosec B603 - command is an argv list, never a shell string
+        # The command is an argv list, never a shell string.
+        process = subprocess.Popen(  # nosec B603
             command,
             stdin=subprocess.DEVNULL,
             stdout=log_file,

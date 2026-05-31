@@ -23,6 +23,8 @@ def setup_logging(verbose: bool = False) -> None:
     log_file = LOG_FILE
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8"):
+            pass
     except OSError:
         fallback_dir = Path(tempfile.gettempdir()) / "kai" / "logs"
         fallback_dir.mkdir(parents=True, exist_ok=True)

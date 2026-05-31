@@ -1,6 +1,7 @@
 """Vault indexing functionality for searching Obsidian notes."""
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -164,7 +165,9 @@ def scan_vault(vault_path: Path, folder: str | None = "inbox") -> list[NoteMetad
                 )
             )
         except Exception:
-            # Skip files that can't be parsed
+            logging.getLogger(__name__).warning(
+                "Skipping note that could not be indexed: %s", md_file, exc_info=True
+            )
             continue
 
     return notes

@@ -87,4 +87,4 @@ precision = 2
 
 [tool.bandit]
 exclude_dirs = ["tests"]
-skips = ["B101", "B110", "B112"]  # B101: assert in tests; B110/B112: intentional except-pass/continue patterns
+skips = ["B101"]  # B101: assertions are used for internal invariants

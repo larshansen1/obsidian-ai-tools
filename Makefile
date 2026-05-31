@@ -73,7 +73,7 @@ coverage:
 
 .PHONY: bandit
 bandit:
-	bandit -q -r src
+	bandit -q -r src -c pyproject.toml
 
 .PHONY: format
 format:

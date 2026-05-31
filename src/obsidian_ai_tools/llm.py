@@ -1,6 +1,7 @@
 """LLM integration for note generation via OpenRouter."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -179,8 +180,10 @@ def generate_note(
                         f"- {tag} ({count} notes)" for tag, count in tag_items
                     )
             except Exception:
-                # If tag discovery fails, continue without it
-                pass
+                logging.getLogger(__name__).warning(
+                    "Failed to discover existing tags; generating note without them",
+                    exc_info=True,
+                )
 
     # Build prompt
     prompt = build_prompt(metadata, template, existing_tags_str)
@@ -233,8 +236,6 @@ def generate_note(
             )
         except Exception as e:
             # Never fail note generation due to observability issues
-            import logging
-
             logging.getLogger(__name__).debug(f"Failed to record cost: {e}")
 
         # Extract response text

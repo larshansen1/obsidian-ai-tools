@@ -36,12 +36,8 @@ class ObservabilityDB:
                 )
             """)
 
-            # Migration: Add source_type column if it doesn't exist
-            try:
-                conn.execute("ALTER TABLE costs ADD COLUMN source_type VARCHAR")
-            except Exception:
-                # Column already exists, ignore
-                pass
+            # Migration for databases created before source_type was tracked.
+            conn.execute("ALTER TABLE costs ADD COLUMN IF NOT EXISTS source_type VARCHAR")
 
             # Metrics table
             conn.execute("""

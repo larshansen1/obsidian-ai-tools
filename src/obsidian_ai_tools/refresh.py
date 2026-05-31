@@ -1,5 +1,6 @@
 """Smart re-processing module for upgrading notes with new prompt versions."""
 
+import logging
 import re
 import shutil
 from datetime import datetime, timedelta
@@ -150,6 +151,9 @@ def find_refresh_candidates(
         try:
             metadata = parse_frontmatter(md_file)
         except Exception:
+            logging.getLogger(__name__).warning(
+                "Skipping note with unreadable refresh metadata: %s", md_file, exc_info=True
+            )
             continue
 
         # Must have source_url and source_type for refresh
