@@ -1,12 +1,33 @@
 #!/bin/bash
 set -e
 
-# Use project venv if available, otherwise fall back to system Python
+# Prefer the project venv, then fall back to another Python on PATH with the
+# required test modules installed.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_PYTHON="$SCRIPT_DIR/../.venv/bin/python"
 
-if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "import pytest" 2>/dev/null; then
-    PYTHONPATH=. "$VENV_PYTHON" -m pytest --maxfail=1 --disable-warnings -v
+find_test_python() {
+    for python in "$VENV_PYTHON" $(type -a -p python3 2>/dev/null); do
+        if [ ! -x "$python" ]; then
+            continue
+        fi
+        if [ "${COVERAGE:-0}" = "1" ]; then
+            "$python" -c "import coverage, pytest" 2>/dev/null && printf "%s" "$python" && return
+        else
+            "$python" -c "import pytest" 2>/dev/null && printf "%s" "$python" && return
+        fi
+    done
+}
+
+PYTHON="$(find_test_python || true)"
+if [ -z "$PYTHON" ]; then
+    echo "No Python interpreter with pytest${COVERAGE:+ and coverage} installed was found." >&2
+    exit 1
+fi
+
+if [ "${COVERAGE:-0}" = "1" ]; then
+    PYTHONPATH=. "$PYTHON" -m coverage run -m pytest --maxfail=1 --disable-warnings "$@"
+    "$PYTHON" -m coverage report
 else
-    PYTHONPATH=. python3 -m pytest --maxfail=1 --disable-warnings -v
+    PYTHONPATH=. "$PYTHON" -m pytest --maxfail=1 --disable-warnings "$@"
 fi

@@ -64,8 +64,7 @@ test:
 
 .PHONY: coverage
 coverage:
-	PYTHONPATH=. coverage run -m pytest
-	coverage report
+	COVERAGE=1 ./scripts/test.sh
 
 
 # ----------------------------
@@ -74,7 +73,7 @@ coverage:
 
 .PHONY: bandit
 bandit:
-	bandit -q -r app
+	bandit -q -r src
 
 .PHONY: format
 format:
@@ -86,13 +85,13 @@ format:
 # ----------------------------
 
 .PHONY: quality
-quality: lint typecheck radon bandit test
+quality: lint typecheck radon bandit coverage
 
 .PHONY: check
 check: quality
 
 .PHONY: ci
-ci: quality coverage
+ci: quality
 
 
 # ----------------------------

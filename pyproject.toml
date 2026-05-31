@@ -68,6 +68,9 @@ addopts = [
     "--maxfail=1",
 ]
 testpaths = ["tests"]
+markers = [
+    "slow: tests excluded from the fast pre-commit suite",
+]
 
 [tool.coverage.run]
 branch = true

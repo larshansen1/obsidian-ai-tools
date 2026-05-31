@@ -1,14 +1,19 @@
+default_install_hook_types: [pre-commit, pre-push]
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.8
     hooks:
       - id: ruff
+        stages: [pre-commit]
       - id: ruff-format
+        stages: [pre-commit]
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.19.1
     hooks:
       - id: mypy
+        stages: [pre-push]
         args: ["--config-file", "mypy.ini"]
         additional_dependencies:
           - pydantic
@@ -19,12 +24,14 @@ repos:
     rev: 1.9.4
     hooks:
       - id: bandit
+        stages: [pre-commit]
         args: ["-c", "pyproject.toml"]
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.0
     hooks:
       - id: gitleaks
+        stages: [pre-commit]
 
   - repo: local
     hooks:
@@ -33,9 +40,18 @@ repos:
         entry: ./scripts/run_radon.sh
         language: system
         types: [python]
+        stages: [pre-commit]
 
-      - id: pytest
-        name: pytest
-        entry: ./scripts/test.sh
+      - id: pytest-fast
+        name: pytest fast
+        entry: ./scripts/test.sh -m "not slow" -q
         language: system
         pass_filenames: false
+        stages: [pre-commit]
+
+      - id: pytest-coverage
+        name: pytest full coverage
+        entry: env COVERAGE=1 ./scripts/test.sh -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

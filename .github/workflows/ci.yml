@@ -31,8 +31,5 @@ jobs:
       - name: Complexity (radon)
         run: make radon
 
-      - name: Unit tests
-        run: make test
-
-      - name: Coverage enforcement
+      - name: Full tests with coverage enforcement
         run: make coverage

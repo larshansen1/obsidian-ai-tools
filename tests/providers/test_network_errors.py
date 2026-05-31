@@ -10,13 +10,25 @@ Note: We mock at the module level where requests is imported.
 PDF Provider uses requests.get for direct download and requests.post for Supadata fallback.
 """
 
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
+from tenacity import wait_none
 
+from obsidian_ai_tools.providers.base import BaseProvider
 from obsidian_ai_tools.providers.pdf import PDFProvider
 from obsidian_ai_tools.providers.web import WebProvider
+
+
+@pytest.fixture(autouse=True)
+def disable_retry_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise retry attempts without production backoff delays."""
+    retrying_ingest = cast(Any, BaseProvider.ingest).retry_with(wait=wait_none())
+    monkeypatch.setattr(BaseProvider, "ingest", retrying_ingest)
+    monkeypatch.setattr("obsidian_ai_tools.providers.pdf._limiter.wait", lambda _: None)
+    monkeypatch.setattr("obsidian_ai_tools.providers.web._limiter.wait", lambda _: None)
 
 
 class TestPDFProviderNetworkErrors:
@@ -39,6 +51,18 @@ class TestPDFProviderNetworkErrors:
                 provider.ingest("https://example.com/document.pdf")
 
             assert "failed" in str(exc_info.value).lower()
+
+    def test_remote_pdf_failure_retries_three_times(self, provider: PDFProvider) -> None:
+        """Retry transient failures three times without sleeping in tests."""
+        provider.supadata_key = None
+
+        with patch("obsidian_ai_tools.providers.pdf.requests.get") as mock_get:
+            mock_get.side_effect = requests.exceptions.ConnectTimeout("Connection timed out")
+
+            with pytest.raises(RuntimeError):
+                provider.ingest("https://example.com/document.pdf")
+
+            assert mock_get.call_count == 3
 
     def test_remote_pdf_timeout_fallback_also_fails(self, provider: PDFProvider) -> None:
         """Handle timeout when both direct download and fallback fail."""
