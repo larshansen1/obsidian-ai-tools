@@ -1,552 +1,316 @@
 # Obsidian AI Tools
 
-AI-powered tools for Obsidian knowledge management. Week 1 MVP: YouTube video ingestion with LLM-generated structured notes.
+`kai` is a local-first CLI for turning research sources into structured Obsidian notes and maintaining the resulting vault. It supports YouTube videos, web articles, PDFs, and local Markdown files, with OpenRouter-backed note generation and provenance metadata.
 
 ## Features
 
-- **Multi-Source Ingestion**: YouTube videos, web articles, PDFs, and local Markdown files
-- **AI-Powered Processing**: Uses LLMs (via OpenRouter) to generate structured notes
-- **Smart Organization**: Folder rules to automatically organize notes by tags
-- **BM25F Search**: Whoosh-powered full-text search with backlink-boosted ranking
-- **Vault Overview**: Per-folder terrain map with TF-IDF keywords and tag distributions (`kai overview`)
-- **Wikilink Traversal**: Follow links between notes and inspect outgoing connections (`kai follow`)
-- **Concept Linking**: TF-IDF similarity to discover and insert `[[wikilinks]]` (`kai connect`)
-- **Tag Hygiene**: Detect and consolidate near-duplicate tags (`kai tags`)
-- **Knowledge Digest**: Periodic summary of vault activity with backlink analysis (`kai digest`)
-- **Robust Architecture**: Built-in caching, circuit breakers, rate limiting, and provider fallbacks
-- **MCP-Ready**: Pure functions designed for easy Model Context Protocol integration
-- **Quality Gates**: Ruff, mypy, pytest with comprehensive testing
+- Multi-source ingestion for YouTube, web articles, local or remote PDFs, and local Markdown files
+- Structured note generation through OpenRouter with versioned prompt templates
+- YouTube transcript fallbacks through direct scraping, Supadata, and Decodo
+- Rule-based inbox organization and folder-rule suggestions
+- Whoosh BM25 full-text search with backlink boosting, tags, and date filters
+- Vault overview, wikilink traversal, TF-IDF concept linking, and tag hygiene tools
+- URL previews, reading-list management, note refresh workflows, and DuckDB observability
+- Optional local HTTP service and Chrome extension for browser-based ingestion
+- Cache, circuit-breaker, retry, and rate-limiting support
 
-## Quick Start
+## Requirements
 
-### Prerequisites
+- Python 3.11 or newer
+- An [OpenRouter](https://openrouter.ai/) API key
+- An existing Obsidian vault directory
 
-- Python 3.12+
-- OpenRouter API key ([get one here](https://openrouter.ai/))
-- An Obsidian vault
+YouTube ingestion can use free direct transcript fetching. Supadata and Decodo keys are optional fallbacks.
 
-### Installation
+## Installation
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd obsidian-ai-tools
-   ```
+```bash
+git clone https://github.com/larshansen1/obsidian-ai-tools.git
+cd obsidian-ai-tools
 
-2. **Create virtual environment**
-   ```bash
-   python3.12 -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   ```
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+```
 
-3. **Install package**
-   ```bash
-   pip install -e .
-   ```
+For development tools:
 
-4. **Configure environment**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your settings
-   ```
+```bash
+python -m pip install -r requirements-dev.txt
+```
 
-### Configuration
+## Configuration
 
-Create a `.env` file in the project root:
+Copy the example configuration:
+
+```bash
+cp .env.example .env
+```
+
+At minimum, configure:
 
 ```env
-# OpenRouter Configuration
-OPENROUTER_API_KEY=your_api_key_here
-
-# Obsidian Vault Configuration
-OBSIDIAN_VAULT_PATH=/path/to/your/vault
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OBSIDIAN_VAULT_PATH=/path/to/your/obsidian/vault
 OBSIDIAN_INBOX_FOLDER=inbox
-
-# LLM Configuration
-LLM_MODEL=anthropic/claude-3.5-sonnet
-MAX_TRANSCRIPT_LENGTH=50000
+LLM_MODEL=anthropic/claude-sonnet-4
+MAX_TRANSCRIPT_LENGTH=60000
 ```
 
-## Usage
+`kai` searches for `.env` in the current directory and its parents, then falls back to `~/.kai/.env`.
 
-### Basic Usage
+Optional YouTube providers:
 
-Ingest a YouTube video:
+```env
+# Metadata only
+YOUTUBE_API_KEY=your_youtube_api_v3_key_here
 
-### Ingest Content
+# Transcript API fallbacks
+SUPADATA_KEY=your_supadata_api_key_here
+DECODO_API_KEY=your_decodo_basic_auth_token_here
+YOUTUBE_TRANSCRIPT_PROVIDER_ORDER=direct,supadata,decodo
+```
+
+Additional cache, circuit-breaker, and PDF limits are documented in `.env.example`.
+
+## Ingest Content
 
 ```bash
-# YouTube videos
-kai ingest https://www.youtube.com/watch?v=VIDEO_ID
+# YouTube video
+kai ingest "https://www.youtube.com/watch?v=VIDEO_ID"
 
-# Web articles
-kai ingest https://example.com/blog/article
+# Web article
+kai ingest "https://example.com/blog/article"
 
-# PDF documents (local or remote)
-kai ingest https://arxiv.org/pdf/2024.12345.pdf
+# PDF, local or remote
+kai ingest "https://example.com/research-paper.pdf"
 kai ingest ./documents/research-paper.pdf --max-pages 30
 
-# Local Markdown files
+# Local Markdown file
 kai ingest ./notes/draft.md
 
-# Custom prompt version
-kai ingest URL --prompt-version youtube_v2
-
-# Custom vault path
-kai ingest URL --vault /path/to/other/vault
+# YouTube provider override
+kai ingest "https://www.youtube.com/watch?v=VIDEO_ID" \
+  --transcript-providers direct,supadata,decodo
 ```
 
-Output:
-```
-🎥 Ingesting YouTube video...
-   URL: https://www.youtube.com/watch?v=dQw4w9WgXcQ
-📥 Fetching transcript...
-   ✓ Transcript fetched (15234 chars)
-🤖 Generating note with anthropic/claude-3.5-sonnet...
-   ✓ Note generated: 'Understanding AI Agents'
-   ✓ Tags: ai, agents, llm
-💾 Writing note to vault...
-   ✓ Note saved to: /path/to/vault/inbox/youtube-understanding-ai-agents.md
-✅ Ingestion complete!
-```
+`kai ingest` fetches the content, selects the matching prompt template, generates a note through OpenRouter, and writes the result to the configured inbox folder. Useful overrides include `--vault`, `--prompt-version`, `--max-pages`, and `--verbose`.
 
-### Advanced Usage
+## Organize The Inbox
 
-**Override model:**
-```bash
-kai ingest <url> --model anthropic/claude-opus-4
+Create `folder_rules.json` in the root of your vault:
+
+```json
+{
+  "ai": "AI & Machine Learning",
+  "llm": "AI & Machine Learning/LLMs",
+  "python": "Development/Python",
+  "productivity": "Productivity"
+}
 ```
 
-**Override inbox folder:**
-```bash
-kai ingest <url> --inbox research
-```
-
-**Override vault path:**
-```bash
-kai ingest <url> --vault /different/vault/path
-```
-
-**Show version:**
-```bash
-kai version
-```
-
-### Inbox Organization
-
-Automatically organize notes from your inbox into folders based on tags:
+An example is available in `folder_rules.json.example`.
 
 ```bash
-# Preview changes (dry run)
+# Preview moves
 kai process-inbox --dry-run
 
-# Execute moves
-kai process-inbox
-```
+# Execute moves with confirmation
+kai process-inbox --confirm
 
-**Setup:**
-
-1. Create `folder_rules.json` in your vault root:
-   ```json
-   {
-     "ai": "AI & Machine Learning",
-     "llm": "AI & Machine Learning/LLMs",
-     "python": "Development/Python",
-     "productivity": "Productivity"
-   }
-   ```
-
-2. Copy the example file:
-   ```bash
-   cp folder_rules.json.example /path/to/vault/folder_rules.json
-   ```
-
-**How it works:**
-- Scans all notes in your inbox folder
-- Matches note tags against your folder rules
-- When multiple tags match, picks the most specific folder (deeper paths score higher)
-- Shows summary and asks for confirmation
-- Moves notes and tracks moves in `.kai/folder_mappings.jsonl`
-- Notes without matching tags stay in inbox
-- Reports any files that couldn't be parsed
-
-**Suggest missing rules:**
-```bash
-# Preview rules for inbox notes that do not match existing rules
+# Suggest missing rules
 kai update-rules
 
-# Include one-off tags when needed
-kai update-rules --include-singletons
-
-# Add suggested rules to folder_rules.json
+# Add suggestions without an interactive prompt
 kai update-rules --confirm --yes
 ```
 
-By default, rule suggestions are conservative: tags must appear in at least two
-unprocessed inbox notes, output is capped, and matching existing folders are
-preferred before suggesting new folder names.
+Moves are recorded in `.kai/folder_mappings.jsonl` inside the vault. `kai update-rules` defaults to tags found in at least two unmatched inbox notes; use `--include-singletons` when one-off tags should be considered.
 
-**Example output:**
-```
-📂 Loading folder rules...
-   ✓ Loaded 8 rule(s)
-📥 Scanning inbox for notes...
-📋 Found 3 note(s) to move:
-
-  📄 youtube-understanding-agents.md
-     Tags: ai, llm, agents
-     → AI & Machine Learning/LLMs (matched: llm, score: 1.2)
-
-  📄 article-python-tips.md
-     Tags: python, programming
-     → Development/Python (matched: python, score: 1.0)
-
-❓ Move 3 note(s)? [y/n]: y
-
-💾 Moving notes...
-   ✓ Moved youtube-understanding-agents.md → AI & Machine Learning/LLMs
-   ✓ Moved article-python-tips.md → Development/Python
-
-✅ Successfully moved 3/3 note(s)
-```
-
-### Vault Search
-
-Search your vault for notes using keyword, tag, and date filters. Results are ranked by BM25F score boosted by backlink popularity.
+## Search And Explore
 
 ```bash
-# Search by keyword
+# Full-text search with backlink boosting
 kai search --keyword "machine learning"
 
-# Search by tag
-kai search --tag ai
-
 # Combine filters
-kai search --keyword agents --tag llm
+kai search --keyword agents --tag llm --after 2026-01-01 --limit 5
 
-# Filter by date range
-kai search --after 2026-01-01 --before 2026-12-31
-
-# Limit results
-kai search --keyword python --limit 5
-
-# Explain why each result matched
+# Inspect scoring or disable backlink boosting
 kai search --keyword python --explain
-
-# Disable backlink boost (pure BM25F)
 kai search --keyword python --no-boost
-```
 
-**Example output:**
-```
-🔍 Searching vault...
-   Found 2 result(s):
-
-1. Understanding AI Agents
-   Tags: ai, llm, agents
-   Created: 2026-01-02
-   Path: /vault/AI & Machine Learning/LLMs/understanding-ai-agents.md
-   Open: obsidian://open?vault=MyVault&file=...
-   Preview: This video explores how AI agents work...
-
-2. Building Python Agents
-   Tags: python, ai, agents
-   Created: 2026-01-01
-   Path: /vault/Development/Python/building-python-agents.md
-   Open: obsidian://open?vault=MyVault&file=...
-```
-
-### Tag Management
-
-List all tags in your vault with counts:
-
-```bash
-kai list-tags
-```
-
-**Example output:**
-```
-📋 Listing tags...
-   Found 12 unique tag(s):
-
-   ai: 15 note(s)
-   python: 8 note(s)
-   llm: 6 note(s)
-   productivity: 4 note(s)
-```
-
-### Index Management
-
-Rebuild the vault indexes when needed:
-
-```bash
+# Index and tag maintenance
 kai rebuild-index
-```
+kai list-tags
+kai list-tags --by-folder
 
-**When to use:**
-- After manually editing tags in notes
-- When search results seem outdated
-- After bulk operations on your vault
-- To recover from index corruption
-
-### Vault Overview
-
-Get a terrain map of your vault with per-folder keywords and tag distributions:
-
-```bash
-kai overview                     # Terminal overview
-kai overview --format compact    # For agent system prompts
-kai overview --format markdown   # Save to vault
-```
-
-### Wikilink Traversal
-
-Follow a note by title and inspect its outgoing links:
-
-```bash
+# Vault-level views
+kai overview
+kai overview --format compact
+kai digest --days 7
 kai follow "Attention Mechanisms"
-kai follow "Python Basics"
 ```
 
-## Generated Note Structure
+`kai overview --format compact` is intended for agent context. `kai digest --output weekly-review` writes a Markdown digest to the configured inbox.
 
-Notes follow this schema (defined in `prompts/youtube_v1.md`):
+## Connect And Maintain Notes
+
+```bash
+# Find related notes or unlinked notes
+kai connect --note "AI/Attention.md"
+kai connect --folder "AI/LLMs"
+kai connect --orphans
+
+# Preview and apply wikilink insertion
+kai connect --folder "AI" --auto-link --dry-run
+kai connect --folder "AI" --auto-link --confirm
+
+# Analyze tag hygiene
+kai tags
+kai tags --plan > plan.json
+kai tags --apply plan.json
+
+# Preview and refresh notes generated by older prompts
+kai refresh --prompt-version youtube_v2 --dry-run
+kai refresh --prompt-version youtube_v2 --tag ai --confirm
+```
+
+Commands that modify notes require explicit confirmation. `kai refresh` creates backup files unless `--no-backup` is supplied.
+
+## Preview And Reading List
+
+Preview URLs before committing them to the vault:
+
+```bash
+kai preview "https://example.com/article"
+kai preview "https://example.com/article" --interactive
+pbpaste | kai preview --batch
+```
+
+Interactive preview mode can ingest immediately or save an item to `.kai/reading_list.jsonl`.
+
+```bash
+kai reading-list list
+kai reading-list list --status pending
+kai reading-list ingest
+kai reading-list ingest --all
+kai reading-list clear --confirm
+```
+
+## Observability
+
+Ingestion metrics and OpenRouter costs are stored in `.kai/observability.duckdb` inside the vault.
+
+```bash
+kai stats
+kai stats --days 7
+kai stats --recent
+kai quality
+kai quality --days 90
+```
+
+## Local HTTP Service
+
+The repository includes a small FastAPI service and a Chrome extension for browser-based capture:
+
+```bash
+# Foreground
+kai serve
+
+# Detached
+kai serve --background
+kai serve --status
+kai serve --status --log
+kai serve --stop
+```
+
+The server binds to `127.0.0.1:8765` by default and exposes:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/status` | Report the configured vault, inbox, and model |
+| `POST` | `/ingest` | Run the full ingestion pipeline |
+| `GET` | `/docs` | OpenAPI documentation |
+
+To use the browser extension, start the server and load `chrome-extension/` as an unpacked extension in Chrome.
+
+## Command Reference
+
+Run `kai COMMAND --help` for all options.
+
+| Command | Purpose |
+| --- | --- |
+| `kai ingest URL` | Generate a note from a supported source |
+| `kai preview [URL]` | Preview URLs and estimate ingestion cost |
+| `kai reading-list ...` | List, ingest, or clear saved URLs |
+| `kai search` | Search vault content with keyword, tag, and date filters |
+| `kai list-tags` | List vault tags globally or by folder |
+| `kai rebuild-index` | Rebuild metadata and Whoosh indexes |
+| `kai process-inbox` | Move inbox notes according to tag rules |
+| `kai update-rules` | Suggest or add missing folder rules |
+| `kai overview` | Show per-folder keywords and tag distributions |
+| `kai follow NOTE_TITLE` | Resolve a note and print its full content |
+| `kai digest` | Summarize recent vault activity |
+| `kai connect` | Suggest or insert TF-IDF-based wikilinks |
+| `kai refresh` | Regenerate older notes with a target prompt version |
+| `kai tags` | Analyze and fix tag hygiene issues |
+| `kai stats` | Show LLM API cost statistics |
+| `kai quality` | Show ingestion success rates and common errors |
+| `kai serve` | Run the local ingestion service |
+| `kai version` | Print the installed version |
+
+## Generated Notes
+
+Generated notes include frontmatter for traceability:
 
 ```markdown
 ---
-type: source-note
-source_type: youtube
-source_url: https://youtube.com/watch?v=xxx
-created: 2025-01-24T10:30:00
-model: anthropic/claude-3.5-sonnet
-prompt_version: youtube_v1
+title: Understanding AI Agents
 tags:
   - ai
   - agents
-  - productivity
+created: 2026-01-24T10:30:00
+type: source-note
+source_type: youtube
+source_url: https://youtube.com/watch?v=VIDEO_ID
+model: anthropic/claude-sonnet-4
+prompt_version: youtube_v2
 ---
-
-# Understanding AI Agents
-
-## Summary
-
-A 2-3 sentence summary of the video content...
-
-## Key Points
-
-- First key insight or takeaway
-- Second key insight or takeaway
-- Third key insight or takeaway
-
-## Source
-
-[Original Video](https://youtube.com/watch?v=xxx)
 ```
 
-### Provenance Tracking
-
-Every note includes:
-- ✅ Source URL
-- ✅ Timestamp of creation
-- ✅ LLM model used
-- ✅ Prompt version
-- ✅ Source type
-
-This enables audit trails and future re-processing with improved prompts.
+Prompt templates live in `prompts/`.
 
 ## Development
 
-### Running Tests
-
 ```bash
-# All tests
-pytest tests/
+# Tests
+./scripts/test.sh
 
-# With coverage
-pytest tests/ --cov=src/obsidian_ai_tools --cov-report=term-missing
+# Coverage
+COVERAGE=1 ./scripts/test.sh
 
-# Verbose
-pytest tests/ -v
+# Individual quality gates
+make lint
+make typecheck
+make radon
+make bandit
+
+# Full local quality suite
+make quality
 ```
 
-### Quality Gates
-
-```bash
-# Linting
-ruff check src/
-
-# Type checking
-mypy src/ --config-file mypy.ini
-
-# Format code
-ruff format src/
-
-# Run all quality checks
-make quality  # or: ruff check && mypy src/ && pytest tests/
-```
-
-### Project Structure
-
-```
-obsidian-ai-tools/
-├── src/obsidian_ai_tools/    # Source code
-│   ├── config.py             # Pydantic settings
-│   ├── models.py             # Data models
-│   ├── indexer.py            # Vault scanning
-│   ├── search.py             # BM25F search + backlink boost
-│   ├── wikilinks.py          # Wikilink extraction and resolution
-│   ├── overview.py           # Vault terrain map
-│   ├── concept_linking.py    # TF-IDF concept linking
-│   ├── folder_organizer.py   # Inbox organization
-│   ├── digest.py             # Knowledge digest
-│   ├── tag_hygiene.py        # Tag analysis and consolidation
-│   ├── refresh.py            # Re-process notes
-│   ├── preview.py            # URL preview
-│   ├── youtube.py            # YouTube transcript fetching
-│   ├── llm.py                # OpenRouter LLM integration
-│   ├── obsidian.py           # Vault file operations
-│   └── cli.py                # Typer CLI
-├── tests/                    # Unit tests
-├── prompts/                  # LLM prompt templates
-├── .env.example              # Example configuration
-├── pyproject.toml            # Project metadata & deps
-├── ARCHITECTURE.md           # Architecture documentation
-└── README.md                 # This file
-```
-
-## Architecture
-
-This project uses a **pragmatic functional architecture** optimized for:
-- Fast iteration (Week 1 tracer bullet)
-- Pure functions (MCP-ready)
-- Clear module boundaries
-- Easy testing
-
-For details on the current architecture and **enterprise migration path**, see [ARCHITECTURE.md](./ARCHITECTURE.md).
-
-### Key Design Decisions
-
-1. **Pure Functions**: Core logic in `youtube.py`, `llm.py`, `obsidian.py` has no side effects
-2. **Pydantic Settings**: Type-safe configuration with environment variable support
-3. **Explicit Error Types**: Each module defines its own exception hierarchy
-4. **Prompt Templates**: Versioned markdown files (not hardcoded strings)
+The coverage threshold is currently `45%`, as configured in `pyproject.toml`.
 
 ## Security
 
-This project includes automated security scanning to prevent credential leaks:
-
-### Security Tools
-
-- **gitleaks**: Detects secrets in code (pre-commit hook)
-- **bandit**: Python security linter (pre-commit hook)
-
-### Running Security Scans
+Keep `.env` files and API keys out of version control. The repository includes pre-commit hooks and `scripts/scan_secrets.sh` for local secret scanning:
 
 ```bash
-# Scan for secrets in repository
-./scripts/scan_secrets.sh
-
-# Run all pre-commit hooks (includes security checks)
 pre-commit run --all-files
-
-# Run gitleaks directly
-gitleaks detect --source . --no-git
+./scripts/scan_secrets.sh
 ```
-
-### Best Practices
-
-- Never commit `.env` files or API keys
-- Use environment variables for sensitive configuration
-- Pre-commit hooks automatically scan for secrets before commits
-- All credentials must be loaded from environment or secure secret managers
-
-## Roadmap
-
-### Cycle 1: Tracer Bullet ✅
-- [x] YouTube transcript ingestion
-- [x] LLM note generation via OpenRouter
-- [x] CLI interface (`kai ingest`)
-- [x] Provenance tracking
-- [x] Quality gates (ruff, mypy, pytest)
-
-### Cycle 2: Multi-Source Ingestion ✅
-- [x] Web article ingestion
-- [x] Markdown file ingestion
-- [x] Provider abstraction pattern
-- [x] Error handling and validation
-- [x] Rate limiting and retries
-
-### Cycle 3: Inbox Organization ✅
-- [x] Rule-based folder organization
-- [x] Batch processing with dry-run mode
-- [x] Move tracking and audit logs
-- [x] Path security validation
-
-### Cycle 3.5: Vault Search & Index Management ✅
-- [x] Full-text keyword search (`kai search`) with BM25F + backlink boost
-- [x] Tag-based filtering and date range queries
-- [x] Tag listing (`kai list-tags`, `kai list-tags --by-folder`)
-- [x] Index rebuild command (`kai rebuild-index`)
-- [x] Recursive vault scanning
-
-### Cycle 6: Knowledge Utilization ✅
-- [x] Knowledge digest (`kai digest`)
-- [x] URL preview (`kai preview`) with reading list management
-- [x] Concept linking (`kai connect`) with TF-IDF similarity
-- [x] Smart re-processing (`kai refresh`) with backup/versioning
-- [x] Tag hygiene (`kai tags`) with interactive consolidation
-- [x] Vault terrain map (`kai overview`) with inter-folder TF-IDF keywords
-- [x] Wikilink traversal (`kai follow`) with title resolution
-
-### Upcoming
-- [ ] MCP server implementation (Cycle 7)
-- [ ] Integration with Open WebUI
-
-### Deferred Indefinitely
-- Semantic search (vector embeddings) — BM25F + backlink boost is sufficient for personal vaults
-- Automated evaluation (LLM-as-judge)
-- Cost tracking and governance
-
-## Troubleshooting
-
-### "No transcript available"
-
-- Video may not have English captions
-- Video may be private or restricted
-- Try a different video to verify setup
-
-### "Configuration error"
-
-- Ensure `.env` file exists and has all required fields
-- Check that `OBSIDIAN_VAULT_PATH` points to a valid directory
-- Verify `OPENROUTER_API_KEY` is set
-
-### "Failed to generate note"
-
-- Check OpenRouter API key is valid
-- Verify you have API credits
-- Check transcript length isn't exceeding `MAX_TRANSCRIPT_LENGTH`
-
-### Coverage warnings
-
-Current coverage threshold is set to 45% for MVP. This excludes:
-- `cli.py` (integration tested via E2E)
-- `config.py` (requires environment setup)
-
-Production target is 85%+. See [ARCHITECTURE.md](./ARCHITECTURE.md) for testing strategy.
-
-## Contributing
-
-This is a personal learning project following the [Tracer Bullet Approach](https://github.com/larshansen1/obsidian-ai-tools/docs/Tracer%20Bullet%20Approach.md).
-
-Contributions welcome, but please note this is an intentionally iterative learning project where simplicity and shipping quickly are prioritized over perfection.
 
 ## License
 
 MIT
-
-## Acknowledgments
-
-- Built as part of [Personal AI Projects Learning Roadmap](https://github.com/larshansen1/obsidian-ai-tools/docs/Learning%20Roadmap.md)
-- Uses [OpenRouter](https://openrouter.ai/) for LLM access
-- Inspired by the Pragmatic Programmer's Tracer Bullet methodology
