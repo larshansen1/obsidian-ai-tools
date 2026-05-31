@@ -35,6 +35,13 @@ repos:
 
   - repo: local
     hooks:
+      - id: readme-command-reference
+        name: README command reference
+        entry: python scripts/check_readme_commands.py
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
       - id: radon-cc
         name: radon cc check
         entry: ./scripts/run_radon.sh

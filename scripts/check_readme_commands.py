@@ -7,7 +7,7 @@ import re
 import sys
 from pathlib import Path
 
-from typer.testing import CliRunner
+from typer.main import get_command
 
 from obsidian_ai_tools.cli import app
 
@@ -37,18 +37,12 @@ def readme_commands() -> set[str]:
 
 
 def cli_commands() -> set[str]:
-    """Extract top-level command names from `kai --help`."""
-    result = CliRunner().invoke(app, ["--help"])
-    if result.exit_code != 0:
-        raise RuntimeError("Failed to generate `kai --help` output") from result.exception
-
-    commands: set[str] = set()
-    for line in result.output.splitlines():
-        match = re.match(r"^\s*│\s*([a-z][a-z0-9-]*)\s+", line)
-        if match:
-            commands.add(match.group(1))
-
-    return commands
+    """Extract top-level command names from Typer's Click command graph."""
+    command = get_command(app)
+    commands = getattr(command, "commands", None)
+    if not isinstance(commands, dict):
+        raise RuntimeError("Expected the kai CLI to register a command group")
+    return set(commands)
 
 
 def main() -> int:
