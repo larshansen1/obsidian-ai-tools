@@ -368,6 +368,96 @@ def test_reading_list_clear_requires_confirm(tmp_path: Path) -> None:
     assert "Add --confirm to clear items" in result.stdout
 
 
+def test_reading_list_list_renders_saved_entries(tmp_path: Path) -> None:
+    """Test reading-list list renders saved preview details."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+    entry = MagicMock(
+        url="https://example.com/article",
+        status="pending",
+        preview=MagicMock(title="Saved Article", estimated_cost_usd=0.01),
+    )
+
+    with (
+        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch("obsidian_ai_tools.preview.load_reading_list", return_value=[entry]),
+    ):
+        result = runner.invoke(app, ["reading-list", "list", "--vault", str(vault_path)])
+
+    assert result.exit_code == 0
+    assert "Reading List (1 item(s))" in result.output
+    assert "Saved Article" in result.output
+    assert "Status: pending" in result.output
+
+
+def test_reading_list_ingest_handles_no_pending_entries(tmp_path: Path) -> None:
+    """Test reading-list ingest exits cleanly when nothing is pending."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+    entry = MagicMock(status="ingested")
+
+    with (
+        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch("obsidian_ai_tools.preview.load_reading_list", return_value=[entry]),
+    ):
+        result = runner.invoke(app, ["reading-list", "ingest", "--vault", str(vault_path)])
+
+    assert result.exit_code == 0
+    assert "No pending items" in result.output
+
+
+def test_reading_list_ingest_all_marks_successful_entries(tmp_path: Path) -> None:
+    """Test reading-list ingest --all marks each successful URL as ingested."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+    entries = [
+        MagicMock(url="https://example.com/one", status="pending", preview=MagicMock(title="One")),
+        MagicMock(url="https://example.com/two", status="pending", preview=MagicMock(title="Two")),
+    ]
+    nested_runner = MagicMock()
+    nested_runner.invoke.return_value.exit_code = 0
+
+    with (
+        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch("obsidian_ai_tools.preview.load_reading_list", return_value=entries),
+        patch("obsidian_ai_tools.preview.update_reading_list_status") as update_status,
+        patch("typer.testing.CliRunner", return_value=nested_runner),
+    ):
+        result = runner.invoke(
+            app,
+            ["reading-list", "ingest", "--all", "--vault", str(vault_path)],
+        )
+
+    assert result.exit_code == 0
+    assert "Ingested 2 item(s). 0 pending remaining." in result.output
+    assert update_status.call_count == 2
+
+
+def test_reading_list_clear_confirm_yes_removes_matching_entries(tmp_path: Path) -> None:
+    """Test reading-list clear --confirm --yes rewrites the reading list."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+    kai_dir = vault_path / ".kai"
+    kai_dir.mkdir()
+    reading_list_path = kai_dir / "reading_list.jsonl"
+    reading_list_path.write_text(
+        '{"url": "https://example.com", "preview": {"url": "https://example.com", '
+        '"source_type": "web", "title": "Test", "content_length": 100, '
+        '"estimated_cost_usd": 0.01, "key_topics": []}, "status": "ingested"}\n',
+        encoding="utf-8",
+    )
+
+    with patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)):
+        result = runner.invoke(
+            app,
+            ["reading-list", "clear", "--confirm", "--yes", "--vault", str(vault_path)],
+        )
+
+    assert result.exit_code == 0
+    assert "Cleared 1 item(s). 0 remaining." in result.stdout
+    assert reading_list_path.read_text(encoding="utf-8") == ""
+
+
 def test_tags_requires_confirm(tmp_path: Path) -> None:
     """Test tags command requires --confirm to apply fixes."""
     vault_path = tmp_path / "mock_vault"
@@ -428,6 +518,51 @@ def test_tags_apply_requires_confirm(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "Add --confirm to apply fixes" in result.stdout
     apply_plan.assert_not_called()
+
+
+def test_tags_apply_confirm_yes_applies_reviewed_plan(tmp_path: Path) -> None:
+    """Test tags --apply --confirm --yes executes a reviewed plan."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "consolidations": [
+                    {
+                        "action": "merge",
+                        "from_tags": ["python3"],
+                        "to_tag": "python",
+                        "affected_notes": [],
+                        "note_count": 0,
+                        "apply": True,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with (
+        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch("obsidian_ai_tools.tag_hygiene.apply_plan", return_value=(1, 0)) as apply_plan,
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "tags",
+                "--apply",
+                str(plan_path),
+                "--confirm",
+                "--yes",
+                "--vault",
+                str(vault_path),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Done: 1 notes modified, 0 skipped" in result.stdout
+    apply_plan.assert_called_once()
 
 
 def test_connect_auto_link_requires_confirm(tmp_path: Path) -> None:
@@ -530,6 +665,97 @@ This note is about data science in general and is different content.
     assert "Add --confirm to insert links" in result.stdout
 
 
+def test_connect_folder_auto_link_dry_run_lists_links(tmp_path: Path) -> None:
+    """Test connect --auto-link --dry-run previews grouped wikilinks."""
+    vault_path = tmp_path / "mock_vault"
+    folder = vault_path / "inbox"
+    folder.mkdir(parents=True)
+    source_note = folder / "note.md"
+    suggestion = MagicMock(
+        source_note=source_note,
+        target_title="Related Note",
+        similarity_score=0.75,
+        keywords_shared=["python"],
+    )
+    linker = MagicMock()
+    linker.find_all_connections.return_value = [suggestion]
+    indexed_note = {
+        "file_path": source_note,
+        "title": "Source Note",
+        "content": "python testing",
+        "modified_time": 1.0,
+    }
+
+    with (
+        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch("obsidian_ai_tools.indexer.scan_vault", return_value=[indexed_note]),
+        patch("obsidian_ai_tools.concept_linking.ConceptLinker", return_value=linker),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "connect",
+                "--folder",
+                "inbox",
+                "--auto-link",
+                "--dry-run",
+                "--vault",
+                str(vault_path),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "DRY RUN - Would insert links into 1 notes" in result.output
+    assert "[[Related Note]]" in result.output
+    linker.insert_wikilinks.assert_not_called()
+
+
+def test_connect_folder_auto_link_confirm_yes_inserts_links(tmp_path: Path) -> None:
+    """Test connect --auto-link --confirm --yes inserts grouped wikilinks."""
+    vault_path = tmp_path / "mock_vault"
+    folder = vault_path / "inbox"
+    folder.mkdir(parents=True)
+    source_note = folder / "note.md"
+    suggestion = MagicMock(
+        source_note=source_note,
+        target_title="Related Note",
+        similarity_score=0.75,
+        keywords_shared=[],
+    )
+    linker = MagicMock()
+    linker.find_all_connections.return_value = [suggestion]
+    linker.insert_wikilinks.return_value = ["[[Related Note]]"]
+    indexed_note = {
+        "file_path": source_note,
+        "title": "Source Note",
+        "content": "python testing",
+        "modified_time": 1.0,
+    }
+
+    with (
+        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch("obsidian_ai_tools.indexer.scan_vault", return_value=[indexed_note]),
+        patch("obsidian_ai_tools.concept_linking.ConceptLinker", return_value=linker),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "connect",
+                "--folder",
+                "inbox",
+                "--auto-link",
+                "--confirm",
+                "--yes",
+                "--vault",
+                str(vault_path),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert "Inserted 1 link(s) into 1 note(s)" in result.output
+    linker.insert_wikilinks.assert_called_once_with(source_note, [suggestion], dry_run=False)
+
+
 def test_refresh_requires_confirm(tmp_path: Path) -> None:
     """Test refresh command requires --confirm flag before execution."""
     vault_path = tmp_path / "mock_vault"
@@ -592,6 +818,60 @@ def test_refresh_confirm_prompts_before_execution(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "Refresh 1 note(s)?" in result.output
     assert "Cancelled" in result.output
+    refresh_batch.assert_not_called()
+
+
+def test_refresh_confirm_yes_executes_batch(tmp_path: Path) -> None:
+    """Test refresh --confirm --yes executes without prompting."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+    candidate = MagicMock()
+    candidate.file_path = vault_path / "inbox" / "test.md"
+    candidate.title = "Test Note"
+    candidate.current_prompt_version = "youtube_v1"
+    candidate.target_prompt_version = "youtube_v2"
+    summary = MagicMock(refreshed=1, total_candidates=1, skipped=0, total_cost_usd=0.02, errors=[])
+
+    with (
+        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch("obsidian_ai_tools.refresh.find_refresh_candidates", return_value=[candidate]),
+        patch("obsidian_ai_tools.refresh.estimate_refresh_cost", return_value=0.02),
+        patch("obsidian_ai_tools.refresh.refresh_batch", return_value=summary) as refresh_batch,
+    ):
+        result = runner.invoke(
+            app,
+            ["refresh", "-p", "youtube_v2", "--confirm", "--yes", "--vault", str(vault_path)],
+        )
+
+    assert result.exit_code == 0
+    assert "Refresh complete" in result.output
+    assert "Refreshed: 1/1" in result.output
+    refresh_batch.assert_called_once()
+
+
+def test_refresh_dry_run_lists_candidates_without_execution(tmp_path: Path) -> None:
+    """Test refresh --dry-run reports candidates without calling refresh_batch."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+    candidate = MagicMock()
+    candidate.file_path = vault_path / "inbox" / "test.md"
+    candidate.title = "Test Note"
+    candidate.current_prompt_version = "youtube_v1"
+    candidate.target_prompt_version = "youtube_v2"
+
+    with (
+        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch("obsidian_ai_tools.refresh.find_refresh_candidates", return_value=[candidate]),
+        patch("obsidian_ai_tools.refresh.estimate_refresh_cost", return_value=0.02),
+        patch("obsidian_ai_tools.refresh.refresh_batch") as refresh_batch,
+    ):
+        result = runner.invoke(
+            app,
+            ["refresh", "-p", "youtube_v2", "--dry-run", "--vault", str(vault_path)],
+        )
+
+    assert result.exit_code == 0
+    assert "DRY RUN - No changes made" in result.output
     refresh_batch.assert_not_called()
 
 

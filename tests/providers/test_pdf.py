@@ -2,7 +2,7 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from pypdf import PdfWriter
@@ -265,6 +265,58 @@ class TestPDFProvider:
                 provider._ingest(str(tmp_path))
         finally:
             tmp_path.unlink(missing_ok=True)
+
+    def test_extract_text_maps_metadata_and_skips_failed_page(self, tmp_path: Path) -> None:
+        """PDF extraction should preserve metadata and tolerate one unreadable page."""
+        provider = PDFProvider()
+        pdf = tmp_path / "report-name.pdf"
+        pdf.write_bytes(b"pdf")
+        good_page = MagicMock()
+        good_page.extract_text.return_value = "Useful content"
+        bad_page = MagicMock()
+        bad_page.extract_text.side_effect = RuntimeError("bad page")
+        reader = MagicMock()
+        reader.pages = [good_page, bad_page]
+        reader.metadata = {
+            "/Title": "Report",
+            "/Author": "Author",
+            "/CreationDate": "2026-01-01",
+        }
+
+        with patch("obsidian_ai_tools.providers.pdf.PdfReader", return_value=reader):
+            result = provider._extract_text_from_pdf(pdf, max_pages=5)
+
+        assert result.title == "Report"
+        assert result.author == "Author"
+        assert result.published_date == "2026-01-01"
+        assert result.content == "Useful content"
+
+    def test_extract_text_uses_filename_defaults_and_truncates(self, tmp_path: Path) -> None:
+        """Missing PDF metadata should fall back to the filename."""
+        provider = PDFProvider()
+        pdf = tmp_path / "report-name.pdf"
+        pdf.write_bytes(b"pdf")
+        pages = [MagicMock(), MagicMock()]
+        pages[0].extract_text.return_value = "First page"
+        pages[1].extract_text.return_value = "Ignored page"
+        reader = MagicMock()
+        reader.pages = pages
+        reader.metadata = {}
+
+        with patch("obsidian_ai_tools.providers.pdf.PdfReader", return_value=reader):
+            result = provider._extract_text_from_pdf(pdf, max_pages=1)
+
+        assert result.title == "Report Name"
+        assert result.author == "Unknown"
+        assert result.content == "First page"
+
+    def test_fetch_supadata_rejects_empty_content(self) -> None:
+        """Supadata PDF fallback should reject empty extraction responses."""
+        provider = PDFProvider()
+        with patch("obsidian_ai_tools.providers.pdf.requests.post") as mock_post:
+            mock_post.return_value.json.return_value = {}
+            with pytest.raises(ValueError, match="no content"):
+                provider._fetch_supadata("https://example.com/report.pdf")
 
 
 class TestPDFProviderFactory:

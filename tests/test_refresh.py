@@ -1,6 +1,7 @@
 """Tests for the refresh module."""
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from obsidian_ai_tools.refresh import (
     RefreshCandidate,
@@ -10,6 +11,8 @@ from obsidian_ai_tools.refresh import (
     estimate_refresh_cost,
     find_refresh_candidates,
     parse_frontmatter,
+    refresh_batch,
+    refresh_note,
 )
 
 
@@ -450,3 +453,125 @@ class TestRefreshModels:
 
         assert summary.total_candidates == 10
         assert len(summary.errors) == 2
+
+
+def _candidate(tmp_path: Path) -> RefreshCandidate:
+    note = tmp_path / "inbox" / "note.md"
+    note.parent.mkdir(exist_ok=True)
+    note.write_text("original", encoding="utf-8")
+    return RefreshCandidate(
+        file_path=note,
+        title="Note",
+        current_prompt_version="youtube_v1",
+        target_prompt_version="youtube_v2",
+        source_url="https://youtube.com/watch?v=abc",
+        source_type="youtube",
+    )
+
+
+class TestRefreshNote:
+    """Tests for the destructive single-note refresh workflow."""
+
+    def test_refresh_note_success_creates_backup_and_writes_same_folder(
+        self, tmp_path: Path
+    ) -> None:
+        """A refresh should preserve the original and write into its current folder."""
+        candidate = _candidate(tmp_path)
+        provider = MagicMock()
+        provider.ingest.return_value = MagicMock()
+        generated_note = MagicMock()
+
+        with (
+            patch(
+                "obsidian_ai_tools.providers.factory.ProviderFactory.get_provider",
+                return_value=provider,
+            ),
+            patch("obsidian_ai_tools.llm.generate_note", return_value=generated_note),
+            patch("obsidian_ai_tools.obsidian.write_note") as write_note,
+        ):
+            result = refresh_note(candidate, tmp_path, "model", "key")
+
+        assert result.success is True
+        assert result.backup_path == tmp_path / "inbox" / "note.backup.md"
+        assert result.backup_path.read_text(encoding="utf-8") == "original"
+        assert result.cost_usd == 0.02
+        write_note.assert_called_once_with(generated_note, tmp_path, "inbox")
+
+    def test_refresh_note_reports_source_failure(self, tmp_path: Path) -> None:
+        """Source fetch failures should return a skipped refresh result."""
+        candidate = _candidate(tmp_path)
+
+        with patch(
+            "obsidian_ai_tools.providers.factory.ProviderFactory.get_provider",
+            side_effect=RuntimeError("offline"),
+        ):
+            result = refresh_note(candidate, tmp_path, "model", "key")
+
+        assert result.success is False
+        assert "Source unavailable" in str(result.error)
+        assert result.backup_path is not None
+
+    def test_refresh_note_reports_generation_failure(self, tmp_path: Path) -> None:
+        """LLM failures should not overwrite the original note."""
+        from obsidian_ai_tools.llm import NoteGenerationError
+
+        candidate = _candidate(tmp_path)
+        provider = MagicMock()
+
+        with (
+            patch(
+                "obsidian_ai_tools.providers.factory.ProviderFactory.get_provider",
+                return_value=provider,
+            ),
+            patch(
+                "obsidian_ai_tools.llm.generate_note",
+                side_effect=NoteGenerationError("bad response"),
+            ),
+        ):
+            result = refresh_note(candidate, tmp_path, "model", "key", create_backup_file=False)
+
+        assert result.success is False
+        assert result.backup_path is None
+        assert "LLM generation failed" in str(result.error)
+
+    def test_refresh_note_reports_unexpected_write_failure(self, tmp_path: Path) -> None:
+        """Unexpected write errors should be returned instead of escaping."""
+        candidate = _candidate(tmp_path)
+        provider = MagicMock()
+
+        with (
+            patch(
+                "obsidian_ai_tools.providers.factory.ProviderFactory.get_provider",
+                return_value=provider,
+            ),
+            patch("obsidian_ai_tools.llm.generate_note", return_value=MagicMock()),
+            patch("obsidian_ai_tools.obsidian.write_note", side_effect=OSError("disk full")),
+        ):
+            result = refresh_note(candidate, tmp_path, "model", "key", create_backup_file=False)
+
+        assert result.success is False
+        assert "Unexpected error: disk full" == result.error
+
+
+class TestRefreshBatch:
+    """Tests for aggregation of batch refresh results."""
+
+    def test_refresh_batch_aggregates_successes_and_errors(self, tmp_path: Path) -> None:
+        """Batch summaries should count refreshed and skipped notes."""
+        first = _candidate(tmp_path)
+        second = first.model_copy(update={"file_path": tmp_path / "second.md"})
+
+        with patch(
+            "obsidian_ai_tools.refresh.refresh_note",
+            side_effect=[
+                RefreshResult(file_path=first.file_path, success=True, cost_usd=0.02),
+                RefreshResult(file_path=second.file_path, success=False, error="offline"),
+            ],
+        ):
+            summary = refresh_batch([first, second], tmp_path, "model", "key")
+
+        assert summary.total_candidates == 2
+        assert summary.refreshed == 1
+        assert summary.skipped == 1
+        assert summary.total_cost_usd == 0.02
+        assert summary.errors == ["second.md: offline"]

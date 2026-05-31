@@ -18,3 +18,6 @@ docs/decisions.md
 
 # Local tag-hygiene output
 /plan.json
+
+# Local uv environment resolution
+/uv.lock

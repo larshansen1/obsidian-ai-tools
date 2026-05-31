@@ -80,7 +80,7 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 45  # MVP threshold - increase to 85+ after adding integration tests
+fail_under = 80  # Risk-based regression floor; raise as high-risk workflows gain coverage
 show_missing = true
 skip_covered = false
 precision = 2

@@ -305,6 +305,67 @@ class TestGeneratePreview:
         with pytest.raises(UnsupportedURLError):
             generate_preview("ftp://example.com/file")
 
+    @patch("obsidian_ai_tools.youtube.YouTubeClient")
+    def test_generate_preview_youtube_uses_duration(self, client_cls: MagicMock) -> None:
+        """YouTube previews should estimate words from H:MM:SS duration."""
+        client_cls.return_value._fetch_metadata.return_value = {
+            "title": "Long Video",
+            "duration": "1:30:00",
+        }
+
+        preview = generate_preview("https://youtube.com/watch?v=abc")
+
+        assert preview.title == "Long Video"
+        assert preview.content_length == 90 * 150
+        assert preview.duration == "1:30:00"
+
+    @patch("obsidian_ai_tools.youtube.YouTubeClient")
+    def test_generate_preview_youtube_uses_default_without_duration(
+        self, client_cls: MagicMock
+    ) -> None:
+        """YouTube previews should retain a default estimate without duration."""
+        client_cls.return_value._fetch_metadata.return_value = {"title": "Short Video"}
+
+        preview = generate_preview("https://youtube.com/watch?v=abc")
+
+        assert preview.content_length == 5000
+
+    @patch("requests.get")
+    def test_generate_preview_web_falls_back_to_h1(self, mock_get: MagicMock) -> None:
+        """Web previews should use the first heading when title metadata is absent."""
+        mock_get.return_value.text = (
+            "<html><body><h1>Fallback Heading</h1><p>body words</p></body></html>"
+        )
+
+        preview = generate_preview("https://example.com/no-title")
+
+        assert preview.title == "Fallback Heading"
+
+    @patch("requests.get", side_effect=OSError("offline"))
+    def test_generate_preview_web_wraps_fetch_error(self, mock_get: MagicMock) -> None:
+        """Web preview fetch errors should use the public PreviewError."""
+        from obsidian_ai_tools.preview import PreviewError
+
+        with pytest.raises(PreviewError, match="Failed to preview web page"):
+            generate_preview("https://example.com/offline")
+
+    def test_generate_preview_local_pdf(self, tmp_path: Path) -> None:
+        """Local PDF previews should estimate content from file size."""
+        pdf = tmp_path / "local-report.pdf"
+        pdf.write_bytes(b"x" * 250_000)
+
+        preview = generate_preview(str(pdf))
+
+        assert preview.title == "local report"
+        assert preview.content_length == 1000
+
+    def test_generate_preview_missing_local_pdf(self, tmp_path: Path) -> None:
+        """Missing local PDFs should raise a public preview error."""
+        from obsidian_ai_tools.preview import PreviewError
+
+        with pytest.raises(PreviewError, match="PDF not found"):
+            generate_preview(str(tmp_path / "missing.pdf"))
+
 
 # =============================================================================
 # Tests for Formatters
@@ -446,3 +507,67 @@ class TestPreviewCommand:
 
         # Should handle gracefully (not crash)
         assert "Unsupported" in result.output or "Cannot determine" in result.output
+
+    @patch("obsidian_ai_tools.preview.generate_preview")
+    @patch("obsidian_ai_tools.observability.ObservabilityDB")
+    def test_preview_command_batch_reports_summary(
+        self,
+        mock_db: MagicMock,
+        mock_generate: MagicMock,
+        tmp_path: Path,
+        sample_preview: PreviewInfo,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Batch mode should process valid stdin URLs and report total cost."""
+        from typer.testing import CliRunner
+
+        from obsidian_ai_tools.cli import app
+
+        mock_generate.return_value = sample_preview
+        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        monkeypatch.setenv("LLM_MODEL", "test-model")
+
+        result = CliRunner().invoke(
+            app,
+            ["preview", "--batch", "--vault", str(tmp_path)],
+            input="https://example.com/one\ninvalid\nhttps://example.com/two\n",
+        )
+
+        assert result.exit_code == 0
+        assert "Processing 2 URL(s)" in result.output
+        assert "Previewed 2/2 URL(s)" in result.output
+        assert "Total estimated cost" in result.output
+        assert mock_db.return_value.record_metric.call_count == 2
+
+    @patch("obsidian_ai_tools.preview.generate_preview")
+    @patch("obsidian_ai_tools.preview.save_to_reading_list")
+    @patch("obsidian_ai_tools.observability.ObservabilityDB")
+    def test_preview_command_interactive_save(
+        self,
+        mock_db: MagicMock,
+        mock_save: MagicMock,
+        mock_generate: MagicMock,
+        tmp_path: Path,
+        sample_preview: PreviewInfo,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Interactive preview should save the selected URL to the reading list."""
+        from typer.testing import CliRunner
+
+        from obsidian_ai_tools.cli import app
+
+        mock_generate.return_value = sample_preview
+        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        monkeypatch.setenv("LLM_MODEL", "test-model")
+
+        result = CliRunner().invoke(
+            app,
+            ["preview", sample_preview.url, "--interactive", "--vault", str(tmp_path)],
+            input="s\n",
+        )
+
+        assert result.exit_code == 0
+        assert "Saved to reading list" in result.output
+        mock_save.assert_called_once()

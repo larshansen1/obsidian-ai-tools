@@ -259,6 +259,69 @@ class TestWebProviderIngest:
                 with pytest.raises(RuntimeError, match="Failed to fetch"):
                     provider._ingest("https://example.com/article")
 
+    def test_web_provider_ingest_returns_raw_github_content(self) -> None:
+        """GitHub blob URLs should be converted to raw content before extraction."""
+        from obsidian_ai_tools.providers.web import WebProvider
+
+        provider = WebProvider()
+        with patch.object(
+            provider,
+            "_fetch_raw",
+            return_value={
+                "content": "# Readme",
+                "title": "README.md",
+                "author": "Unknown",
+                "date": None,
+                "site_name": "Raw Source",
+                "url": "https://raw.githubusercontent.com/user/repo/main/README.md",
+            },
+        ) as fetch_raw:
+            result = provider._ingest("https://github.com/user/repo/blob/main/README.md")
+
+        assert result.title == "README.md"
+        fetch_raw.assert_called_once_with(
+            "https://raw.githubusercontent.com/user/repo/main/README.md"
+        )
+
+    def test_web_provider_direct_extraction_defaults_metadata(self) -> None:
+        """Trafilatura extraction should map missing metadata to stable defaults."""
+        from obsidian_ai_tools.providers.web import WebProvider
+
+        provider = WebProvider()
+        with (
+            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value="<html />"),
+            patch(
+                "obsidian_ai_tools.providers.web.trafilatura.extract",
+                return_value='{"text": "Article body", "hostname": "example.com"}',
+            ),
+        ):
+            result = provider._ingest("https://example.com/article")
+
+        assert result.content == "Article body"
+        assert result.title == "Untitled Web Page"
+        assert result.author == "Unknown Author"
+        assert result.site_name == "example.com"
+
+    def test_web_provider_raw_content_rejects_empty_response(self) -> None:
+        """Empty raw files should not be treated as successful extraction."""
+        from obsidian_ai_tools.providers.web import WebProvider
+
+        provider = WebProvider()
+        with patch("obsidian_ai_tools.providers.web.requests.get") as mock_get:
+            mock_get.return_value.text = "   "
+            with pytest.raises(ValueError, match="Empty content"):
+                provider._fetch_raw("https://example.com/empty.txt")
+
+    def test_web_provider_supadata_rejects_empty_content(self) -> None:
+        """Supadata fallback should reject responses without article text."""
+        from obsidian_ai_tools.providers.web import WebProvider
+
+        provider = WebProvider()
+        with patch("obsidian_ai_tools.providers.web.requests.get") as mock_get:
+            mock_get.return_value.json.return_value = {}
+            with pytest.raises(ValueError, match="no content"):
+                provider._fetch_supadata("https://example.com/article")
+
 
 class TestPDFProviderIngest:
     """Tests for PDF ingestion workflow."""

@@ -1,6 +1,7 @@
 """Tests for Obsidian file writing functionality."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -202,3 +203,37 @@ class TestWriteNote:
             # PathTraversalError = blocked correctly
             # OSError = symlink creation failed (acceptable on some systems)
             pass
+
+    def test_write_note_wraps_directory_creation_error(
+        self, temp_vault: Path, sample_note: Note
+    ) -> None:
+        """Directory creation failures should become FileWriteError."""
+        from obsidian_ai_tools.obsidian import FileWriteError
+
+        with (
+            patch("pathlib.Path.mkdir", side_effect=OSError("permission denied")),
+            pytest.raises(FileWriteError, match="Failed to create inbox directory"),
+        ):
+            write_note(sample_note, temp_vault)
+
+    def test_write_note_wraps_path_resolution_error(
+        self, temp_vault: Path, sample_note: Note
+    ) -> None:
+        """Path validation failures should become FileWriteError."""
+        from obsidian_ai_tools.obsidian import FileWriteError
+
+        with (
+            patch("pathlib.Path.resolve", side_effect=OSError("broken path")),
+            pytest.raises(FileWriteError, match="Path validation failed"),
+        ):
+            write_note(sample_note, temp_vault)
+
+    def test_write_note_wraps_write_error(self, temp_vault: Path, sample_note: Note) -> None:
+        """Write failures should become FileWriteError."""
+        from obsidian_ai_tools.obsidian import FileWriteError
+
+        with (
+            patch("pathlib.Path.write_text", side_effect=OSError("disk full")),
+            pytest.raises(FileWriteError, match="Failed to write note"),
+        ):
+            write_note(sample_note, temp_vault)
