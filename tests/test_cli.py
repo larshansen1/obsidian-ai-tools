@@ -912,6 +912,34 @@ def test_serve_status_reports_running_background_process(tmp_path: Path) -> None
     mock_kill.assert_called_once_with(4321, 0)
 
 
+def test_serve_status_log_shows_recent_background_output(tmp_path: Path) -> None:
+    """Test serve --status --log prints only the most recent log lines."""
+    state_dir = tmp_path / ".kai"
+    state_dir.mkdir()
+    (state_dir / "server.log").write_text(
+        "\n".join(f"log line {number}" for number in range(25)),
+        encoding="utf-8",
+    )
+
+    with patch("obsidian_ai_tools.cli.Path.home", return_value=tmp_path):
+        result = runner.invoke(app, ["serve", "--status", "--log"])
+
+    assert result.exit_code == 0
+    assert "kai server is not running in the background." in result.output
+    assert "Recent log output" in result.output
+    assert "log line 4" not in result.output
+    assert "log line 5" in result.output
+    assert "log line 24" in result.output
+
+
+def test_serve_log_requires_status() -> None:
+    """Test serve --log is only accepted as a status modifier."""
+    result = runner.invoke(app, ["serve", "--log"])
+
+    assert result.exit_code == 1
+    assert "--log must be used with --status" in result.output
+
+
 def test_serve_stop_terminates_background_process(tmp_path: Path) -> None:
     """Test serve --stop terminates the recorded background process."""
     state_dir = tmp_path / ".kai"

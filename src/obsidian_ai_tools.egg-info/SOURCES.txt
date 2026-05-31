@@ -11,6 +11,7 @@ src/obsidian_ai_tools/config.py
 src/obsidian_ai_tools/digest.py
 src/obsidian_ai_tools/folder_organizer.py
 src/obsidian_ai_tools/indexer.py
+src/obsidian_ai_tools/ingestion.py
 src/obsidian_ai_tools/llm.py
 src/obsidian_ai_tools/logging.py
 src/obsidian_ai_tools/models.py
@@ -53,8 +54,10 @@ tests/test_fixtures.py
 tests/test_folder_organizer.py
 tests/test_indexer.py
 tests/test_ingest.py
+tests/test_ingestion_service.py
 tests/test_integration.py
 tests/test_llm.py
+tests/test_logging.py
 tests/test_models.py
 tests/test_obsidian.py
 tests/test_overview.py

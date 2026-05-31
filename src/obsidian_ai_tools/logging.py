@@ -2,6 +2,7 @@
 
 import logging
 import logging.config
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -19,11 +20,13 @@ def setup_logging(verbose: bool = False) -> None:
         verbose: If True, set log level to DEBUG, otherwise INFO.
     """
     # Ensure log directory exists
+    log_file = LOG_FILE
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        # Fallback to current directory if permission denied
-        pass
+    except OSError:
+        fallback_dir = Path(tempfile.gettempdir()) / "kai" / "logs"
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        log_file = fallback_dir / "ingest.log"
 
     log_level = logging.DEBUG if verbose else logging.INFO
 
@@ -67,7 +70,7 @@ def setup_logging(verbose: bool = False) -> None:
                 "file": {
                     "class": "logging.handlers.RotatingFileHandler",
                     "formatter": "json",
-                    "filename": str(LOG_FILE),
+                    "filename": str(log_file),
                     "maxBytes": 10 * 1024 * 1024,  # 10 MB
                     "backupCount": 5,
                     "encoding": "utf-8",

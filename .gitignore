@@ -8,6 +8,9 @@ eval/
 # Gitleaks report
 gitleaks-report.json
 
+# Radon complexity report
+cc.json
+
 #docs/roadmap-2026.md
 docs/decisions.md
 .gitnexus

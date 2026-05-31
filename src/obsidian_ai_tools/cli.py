@@ -2,7 +2,7 @@
 
 import os
 import signal
-import subprocess
+import subprocess  # nosec B404 - detached server launch uses a fixed executable and shell=False
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
@@ -10,14 +10,21 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from .config import get_settings
+from .ingestion import (
+    ContentFetchError,
+    IngestionProgress,
+    IngestionRequest,
+    NoteGenerationStageError,
+    ProviderSelectionError,
+    VaultWriteError,
+    ingest_content,
+)
 
 if TYPE_CHECKING:
     from .folder_organizer import NoteToMove, RuleSuggestion
     from .tag_hygiene import TagHygienePlan
-from .llm import generate_note
 from .logging import setup_logging
 from .models import ArticleMetadata, VideoMetadata
-from .obsidian import write_note
 from .youtube import (
     InvalidYouTubeURLError,
     TranscriptUnavailableError,
@@ -100,126 +107,76 @@ def ingest(
         typer.echo("💡 Make sure you have a .env file with required settings.", err=True)
         raise typer.Exit(1) from e
 
-    vault_path = Path(vault) if vault else settings.obsidian_vault_path
+    def show_progress(progress: IngestionProgress) -> None:
+        if progress.stage == "provider_selected":
+            typer.echo(f"🌐 Ingesting {progress.provider_name} content...")
+            typer.echo(f"   Source: {url}")
+        elif progress.stage == "fetching":
+            typer.echo(f"📥 Fetching content using {progress.provider_name} provider...")
+            if progress.provider_name == "youtube" and progress.transcript_providers:
+                providers_list = progress.transcript_providers.replace(",", ", ")
+                typer.echo(f"   🔍 Trying transcript providers: {providers_list}")
+        elif progress.stage == "content_fetched":
+            metadata = progress.metadata
+            if isinstance(metadata, VideoMetadata):
+                if progress.provider_name == "youtube" and metadata.provider_used:
+                    typer.echo(
+                        f"   ✓ Transcript via {metadata.provider_used} "
+                        f"({len(metadata.transcript)} chars)"
+                    )
+                else:
+                    typer.echo(f"   ✓ Transcript fetched ({len(metadata.transcript)} chars)")
+            elif isinstance(metadata, ArticleMetadata):
+                typer.echo(
+                    f"   ✓ Content fetched: '{metadata.title}' ({len(metadata.content)} chars)"
+                )
+                if progress.provider_name == "pdf" and "Only the first" in metadata.content:
+                    typer.echo("   ⚠️  PDF truncated due to page limit", err=False)
+        elif progress.stage == "generating":
+            typer.echo(
+                f"🤖 Generating note with {settings.llm_model} ({progress.prompt_version})..."
+            )
+        elif progress.stage == "note_generated" and progress.note is not None:
+            typer.echo(f"   ✓ Note generated: '{progress.note.title}'")
+            typer.echo(f"   ✓ Tags: {', '.join(progress.note.tags)}")
+        elif progress.stage == "writing":
+            typer.echo("💾 Writing note to vault...")
+        elif progress.stage == "note_written":
+            typer.echo(f"   ✓ Note saved to: {progress.file_path}")
 
-    # Provider selection
-    from .providers.factory import ProviderFactory
-
+    request = IngestionRequest(
+        url=url,
+        vault_path=Path(vault) if vault else None,
+        prompt_version=prompt_version,
+        transcript_providers=transcript_providers,
+        max_pages=max_pages,
+    )
     try:
-        provider = ProviderFactory.get_provider(url)
-    except ValueError:
+        ingest_content(request, settings, on_progress=show_progress)
+    except ProviderSelectionError:
         typer.echo("❌ Unknown source type. Please provide a valid URL or file path.", err=True)
         raise typer.Exit(1) from None
-
-    typer.echo(f"🌐 Ingesting {provider.name} content...")
-    typer.echo(f"   Source: {url}")
-
-    # Determine default prompt version
-    if not prompt_version:
-        if provider.name == "youtube":
-            prompt_version = "youtube_v2"
-        elif provider.name == "file":
-            prompt_version = "markdown_v1"
-        elif provider.name == "pdf":
-            prompt_version = "pdf_v1"
+    except ContentFetchError as e:
+        cause = e.__cause__
+        if isinstance(cause, InvalidYouTubeURLError):
+            typer.echo(f"❌ Invalid URL: {cause}", err=True)
+        elif isinstance(cause, TranscriptUnavailableError):
+            typer.echo(f"❌ Transcript unavailable: {cause}", err=True)
+            typer.echo(
+                "💡 This video may not have English captions or may be private.",
+                err=True,
+            )
+        elif isinstance(cause, FileNotFoundError):
+            typer.echo(f"❌ File not found: {cause}", err=True)
         else:
-            prompt_version = "article_v1"
-
-    # Step 1: Fetch content metadata
-    metadata: VideoMetadata | ArticleMetadata
-
-    try:
-        typer.echo(f"📥 Fetching content using {provider.name} provider...")
-
-        # Show provider order for YouTube if specified
-        if provider.name == "youtube" and transcript_providers:
-            providers_list = transcript_providers.replace(",", ", ")
-            typer.echo(f"   🔍 Trying transcript providers: {providers_list}")
-
-        # Pass parameters to provider if applicable
-        kwargs: dict[str, int | str] = {}
-        if provider.name == "pdf" and max_pages is not None:
-            kwargs["max_pages"] = max_pages
-        if provider.name == "youtube" and transcript_providers is not None:
-            kwargs["provider_order"] = transcript_providers
-
-        metadata = provider.ingest(url, **kwargs)
-
-        # Log success based on metadata type
-        if isinstance(metadata, VideoMetadata):
-            # Display provider used for YouTube
-            if provider.name == "youtube" and metadata.provider_used:
-                typer.echo(
-                    f"   ✓ Transcript via {metadata.provider_used} "
-                    f"({len(metadata.transcript)} chars)"
-                )
-            else:
-                typer.echo(f"   ✓ Transcript fetched ({len(metadata.transcript)} chars)")
-        elif isinstance(metadata, ArticleMetadata):
-            typer.echo(f"   ✓ Content fetched: '{metadata.title}' ({len(metadata.content)} chars)")
-
-            # Check for PDF truncation (provider may have added note in content)
-            if provider.name == "pdf" and "Only the first" in metadata.content:
-                typer.echo("   ⚠️  PDF truncated due to page limit", err=False)
-
-    except InvalidYouTubeURLError as e:
-        typer.echo(f"❌ Invalid URL: {e}", err=True)
+            typer.echo(f"❌ Failed to fetch content: {cause or e}", err=True)
         raise typer.Exit(1) from e
-    except TranscriptUnavailableError as e:
-        typer.echo(f"❌ Transcript unavailable: {e}", err=True)
-        typer.echo(
-            "💡 This video may not have English captions or may be private.",
-            err=True,
-        )
-        raise typer.Exit(1) from e
-    except FileNotFoundError as e:
-        typer.echo(f"❌ File not found: {e}", err=True)
-        raise typer.Exit(1) from e
-    except Exception as e:
-        typer.echo(f"❌ Failed to fetch content: {e}", err=True)
-        raise typer.Exit(1) from e
-
-    # Step 2: Generate note via LLM
-    try:
-        typer.echo(f"🤖 Generating note with {settings.llm_model} ({prompt_version})...")
-        note = generate_note(
-            metadata=metadata,
-            model=settings.llm_model,
-            api_key=settings.openrouter_api_key,
-            vault_path=vault_path,  # Pass vault for tag discovery
-            max_content_length=settings.max_transcript_length,
-            prompt_version=prompt_version,
-        )
-        typer.echo(f"   ✓ Note generated: '{note.title}'")
-        typer.echo(f"   ✓ Tags: {', '.join(note.tags)}")
-
-    except Exception as e:
-        typer.echo(f"❌ Failed to generate note: {e}", err=True)
+    except NoteGenerationStageError as e:
+        typer.echo(f"❌ Failed to generate note: {e.__cause__ or e}", err=True)
         typer.echo("💡 Check your OpenRouter API key and model configuration.", err=True)
         raise typer.Exit(1) from e
-
-    # Step 3: Write note to vault
-    try:
-        typer.echo("💾 Writing note to vault...")
-        file_path = write_note(
-            note=note,
-            vault_path=vault_path,
-            inbox_folder=settings.obsidian_inbox_folder,
-        )
-        import logging
-
-        logging.getLogger("obsidian_ai_tools.cli").info(
-            "Note persisted to vault",
-            extra={
-                "file_path": str(file_path),
-                "title": note.title,
-                "url": url,
-            },
-        )
-        typer.echo(f"   ✓ Note saved to: {file_path}")
-
-    except Exception as e:
-        typer.echo(f"❌ Failed to write note: {e}", err=True)
+    except VaultWriteError as e:
+        typer.echo(f"❌ Failed to write note: {e.__cause__ or e}", err=True)
         raise typer.Exit(1) from e
 
     # Success!
@@ -2245,7 +2202,7 @@ def _start_background_server(host: str, port: int, reload: bool) -> None:
         command.append("--reload")
 
     with log_path.open("a", encoding="utf-8") as log_file:
-        process = subprocess.Popen(
+        process = subprocess.Popen(  # nosec B603 - command is an argv list, never a shell string
             command,
             stdin=subprocess.DEVNULL,
             stdout=log_file,
@@ -2271,6 +2228,19 @@ def _stop_background_server() -> None:
     os.kill(running_pid, signal.SIGTERM)
     pid_path.unlink(missing_ok=True)
     typer.echo(f"🛑 kai server stopped (PID {running_pid}).")
+
+
+def _show_background_server_log() -> None:
+    _, log_path = _server_state_paths()
+    try:
+        lines = log_path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        typer.echo(f"No server log found at {log_path}.")
+        return
+
+    typer.echo(f"\nRecent log output ({log_path}):")
+    for line in lines[-20:]:
+        typer.echo(line)
 
 
 @app.command()
@@ -2299,6 +2269,10 @@ def serve(
         bool,
         typer.Option("--status", help="Show whether the detached server is running"),
     ] = False,
+    log: Annotated[
+        bool,
+        typer.Option("--log", help="With --status, show the last 20 server log lines"),
+    ] = False,
 ) -> None:
     """Run kai as a local HTTP service for the Chrome extension.
 
@@ -2315,9 +2289,14 @@ def serve(
         kai serve
         kai serve --background
         kai serve --status
+        kai serve --status --log
         kai serve --stop
         kai serve --port 9000
     """
+    if log and not status:
+        typer.echo("❌ --log must be used with --status.", err=True)
+        raise typer.Exit(1)
+
     selected_actions = sum((background, stop, status))
     if selected_actions > 1:
         typer.echo("❌ Use only one of --background, --stop, or --status.", err=True)
@@ -2333,6 +2312,8 @@ def serve(
             typer.echo("kai server is not running in the background.")
         else:
             typer.echo(f"kai server is running in the background (PID {running_pid}).")
+        if log:
+            _show_background_server_log()
         return
 
     if background:
