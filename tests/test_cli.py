@@ -393,6 +393,43 @@ tags: [neurodivergent, neurodivergence]
     assert "Add --confirm to apply fixes" in result.stdout
 
 
+def test_tags_apply_requires_confirm(tmp_path: Path) -> None:
+    """Test tags --apply requires --confirm before applying a reviewed plan."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text(
+        json.dumps(
+            {
+                "consolidations": [
+                    {
+                        "action": "merge",
+                        "from_tags": ["python3"],
+                        "to_tag": "python",
+                        "affected_notes": [],
+                        "note_count": 0,
+                        "apply": True,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with (
+        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch("obsidian_ai_tools.tag_hygiene.apply_plan") as apply_plan,
+    ):
+        result = runner.invoke(
+            app,
+            ["tags", "--apply", str(plan_path), "--vault", str(vault_path)],
+        )
+
+    assert result.exit_code == 0
+    assert "Add --confirm to apply fixes" in result.stdout
+    apply_plan.assert_not_called()
+
+
 def test_connect_auto_link_requires_confirm(tmp_path: Path) -> None:
     """Test connect --auto-link requires --confirm flag."""
     vault_path = tmp_path / "mock_vault"
@@ -528,6 +565,34 @@ def test_refresh_requires_confirm(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "Add --confirm to execute refresh" in result.output
+
+
+def test_refresh_confirm_prompts_before_execution(tmp_path: Path) -> None:
+    """Test refresh --confirm prompts before refreshing candidates."""
+    vault_path = tmp_path / "mock_vault"
+    vault_path.mkdir()
+    candidate = MagicMock()
+    candidate.file_path = vault_path / "inbox" / "test.md"
+    candidate.title = "Test Note"
+    candidate.current_prompt_version = "youtube_v1"
+    candidate.target_prompt_version = "youtube_v2"
+
+    with (
+        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch("obsidian_ai_tools.refresh.find_refresh_candidates", return_value=[candidate]),
+        patch("obsidian_ai_tools.refresh.estimate_refresh_cost", return_value=1.23),
+        patch("obsidian_ai_tools.refresh.refresh_batch") as refresh_batch,
+    ):
+        result = runner.invoke(
+            app,
+            ["refresh", "-p", "youtube_v2", "--confirm", "--vault", str(vault_path)],
+            input="n\n",
+        )
+
+    assert result.exit_code == 0
+    assert "Refresh 1 note(s)?" in result.output
+    assert "Cancelled" in result.output
+    refresh_batch.assert_not_called()
 
 
 def _make_dummy_settings(vault_path: Path) -> MagicMock:

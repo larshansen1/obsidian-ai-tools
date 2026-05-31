@@ -1875,6 +1875,13 @@ def refresh(
         typer.echo("\n⚠️  Add --confirm to execute refresh")
         return
 
+    # Prompt for confirmation (skip if --yes)
+    if not yes:
+        proceed = typer.confirm(f"Refresh {len(candidates)} note(s)?")
+        if not proceed:
+            typer.echo("❌ Cancelled")
+            return
+
     # Warning for no-backup (skip if --yes)
     if no_backup and not yes:
         proceed = typer.confirm(
@@ -1959,7 +1966,7 @@ def tags_command(
         kai tags --confirm              # Interactive fixes
         kai tags --confirm --yes        # Auto-fix all
         kai tags --plan > plan.json     # Generate plan
-        kai tags --apply plan.json      # Apply plan
+        kai tags --apply plan.json --confirm # Apply plan with confirmation
         kai tags --check similar        # Run only similar tag check
     """
     from .indexer import build_index
@@ -2003,9 +2010,13 @@ def tags_command(
             typer.echo("✅ No actions marked for apply")
             return
 
+        if not confirm:
+            typer.echo("\n⚠️  Add --confirm to apply fixes")
+            return
+
         if not yes:
-            confirm = typer.confirm(f"Apply {total_actions} action(s)?")
-            if not confirm:
+            proceed = typer.confirm(f"Apply {total_actions} action(s)?")
+            if not proceed:
                 typer.echo("❌ Cancelled")
                 return
 

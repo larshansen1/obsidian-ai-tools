@@ -519,10 +519,10 @@ kai tags [OPTIONS]
 ```
 
 **Options:**
-- `--fix` - Interactively apply fixes
+- `--confirm` - Execute fixes (prompts unless `--yes`)
 - `--plan` - Output JSON plan for review
 - `--apply` - Apply fixes from plan file
-- `--yes`, `-y` - Auto-accept all suggestions (use with --fix)
+- `--yes`, `-y` - Auto-accept all suggestions (requires `--confirm`)
 - `--check`, `-c` - Run specific check: similar, cooccurrence, orphans
 - `--threshold`, `-t` - Similarity threshold for tag matching (0-1) (default: 0.8)
 - `--min-overlap` - Minimum co-occurrence count to report (default: 3)
@@ -534,7 +534,7 @@ kai tags                        # Show issues (read-only)
 kai tags --confirm              # Interactive fixes
 kai tags --confirm --yes        # Auto-fix all
 kai tags --plan > plan.json     # Generate plan
-kai tags --apply plan.json      # Apply plan
+kai tags --apply plan.json --confirm # Apply plan with confirmation
 kai tags --check similar        # Run only similar tag check
 ```
 

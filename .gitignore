@@ -15,3 +15,6 @@ cc.json
 #docs/roadmap-2026.md
 docs/decisions.md
 .gitnexus
+
+# Local tag-hygiene output
+/plan.json
