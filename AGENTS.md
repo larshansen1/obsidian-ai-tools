@@ -1,3 +1,26 @@
+## Quality Checks
+
+**Always run `pre-commit run --all-files` as the final gate — not `make check`.**
+
+`make check` runs lint + typecheck + radon + bandit + tests, but misses the `ruff format` hook that pre-commit enforces. When `ruff format` auto-fixes files and returns non-zero, the commit is blocked. Running `make check` alone gives a false green.
+
+### Correct workflow
+
+```
+# After making code changes:
+uv run pre-commit run --all-files
+
+# If ruff-format modified files, stage them and re-run:
+git add -u
+uv run pre-commit run --all-files   # must pass clean (no files modified)
+```
+
+### Why this matters for refactors touching test files
+
+When renaming mock patch paths (e.g. `obsidian_ai_tools.cli.X` → `obsidian_ai_tools.commands.Y.X`), the new strings are often longer and may push lines past the 100-char limit. `ruff format` will auto-fix them, but `make check` / `ruff check` (lint) will not catch formatting-only violations in all configurations. Always verify with pre-commit.
+
+---
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
