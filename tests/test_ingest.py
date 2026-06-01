@@ -546,7 +546,7 @@ class TestCLIIngestCommand:
 
     def test_ingest_command_unknown_source_type(self, temp_vault: Path) -> None:
         """Test error handling for unknown source type."""
-        with patch("obsidian_ai_tools.cli.get_settings") as mock_settings:
+        with patch("obsidian_ai_tools.commands.ingest.get_settings") as mock_settings:
             mock_settings.return_value.obsidian_vault_path = temp_vault
             mock_settings.return_value.llm_model = "test-model"
             mock_settings.return_value.openrouter_api_key = "test-key"

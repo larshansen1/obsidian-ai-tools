@@ -379,7 +379,10 @@ def test_reading_list_list_renders_saved_entries(tmp_path: Path) -> None:
     )
 
     with (
-        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch(
+            "obsidian_ai_tools.commands.preview.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
         patch("obsidian_ai_tools.preview.load_reading_list", return_value=[entry]),
     ):
         result = runner.invoke(app, ["reading-list", "list", "--vault", str(vault_path)])
@@ -397,7 +400,10 @@ def test_reading_list_ingest_handles_no_pending_entries(tmp_path: Path) -> None:
     entry = MagicMock(status="ingested")
 
     with (
-        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch(
+            "obsidian_ai_tools.commands.preview.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
         patch("obsidian_ai_tools.preview.load_reading_list", return_value=[entry]),
     ):
         result = runner.invoke(app, ["reading-list", "ingest", "--vault", str(vault_path)])
@@ -418,7 +424,10 @@ def test_reading_list_ingest_all_marks_successful_entries(tmp_path: Path) -> Non
     nested_runner.invoke.return_value.exit_code = 0
 
     with (
-        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch(
+            "obsidian_ai_tools.commands.preview.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
         patch("obsidian_ai_tools.preview.load_reading_list", return_value=entries),
         patch("obsidian_ai_tools.preview.update_reading_list_status") as update_status,
         patch("typer.testing.CliRunner", return_value=nested_runner),
@@ -447,7 +456,10 @@ def test_reading_list_clear_confirm_yes_removes_matching_entries(tmp_path: Path)
         encoding="utf-8",
     )
 
-    with patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)):
+    with patch(
+        "obsidian_ai_tools.commands.preview.get_settings",
+        return_value=_make_dummy_settings(vault_path),
+    ):
         result = runner.invoke(
             app,
             ["reading-list", "clear", "--confirm", "--yes", "--vault", str(vault_path)],
@@ -507,7 +519,10 @@ def test_tags_apply_requires_confirm(tmp_path: Path) -> None:
     )
 
     with (
-        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch(
+            "obsidian_ai_tools.commands.tags.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
         patch("obsidian_ai_tools.tag_hygiene.apply_plan") as apply_plan,
     ):
         result = runner.invoke(
@@ -544,7 +559,10 @@ def test_tags_apply_confirm_yes_applies_reviewed_plan(tmp_path: Path) -> None:
     )
 
     with (
-        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch(
+            "obsidian_ai_tools.commands.tags.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
         patch("obsidian_ai_tools.tag_hygiene.apply_plan", return_value=(1, 0)) as apply_plan,
     ):
         result = runner.invoke(
@@ -687,7 +705,10 @@ def test_connect_folder_auto_link_dry_run_lists_links(tmp_path: Path) -> None:
     }
 
     with (
-        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch(
+            "obsidian_ai_tools.commands.vault.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
         patch("obsidian_ai_tools.indexer.scan_vault", return_value=[indexed_note]),
         patch("obsidian_ai_tools.concept_linking.ConceptLinker", return_value=linker),
     ):
@@ -733,7 +754,10 @@ def test_connect_folder_auto_link_confirm_yes_inserts_links(tmp_path: Path) -> N
     }
 
     with (
-        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch(
+            "obsidian_ai_tools.commands.vault.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
         patch("obsidian_ai_tools.indexer.scan_vault", return_value=[indexed_note]),
         patch("obsidian_ai_tools.concept_linking.ConceptLinker", return_value=linker),
     ):
@@ -772,7 +796,7 @@ def test_refresh_requires_confirm(tmp_path: Path) -> None:
 
     with (
         patch(
-            "obsidian_ai_tools.cli.get_settings",
+            "obsidian_ai_tools.commands.vault.get_settings",
             return_value=dummy_settings,
         ),
         patch(
@@ -804,7 +828,10 @@ def test_refresh_confirm_prompts_before_execution(tmp_path: Path) -> None:
     candidate.target_prompt_version = "youtube_v2"
 
     with (
-        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch(
+            "obsidian_ai_tools.commands.vault.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
         patch("obsidian_ai_tools.refresh.find_refresh_candidates", return_value=[candidate]),
         patch("obsidian_ai_tools.refresh.estimate_refresh_cost", return_value=1.23),
         patch("obsidian_ai_tools.refresh.refresh_batch") as refresh_batch,
@@ -833,7 +860,10 @@ def test_refresh_confirm_yes_executes_batch(tmp_path: Path) -> None:
     summary = MagicMock(refreshed=1, total_candidates=1, skipped=0, total_cost_usd=0.02, errors=[])
 
     with (
-        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch(
+            "obsidian_ai_tools.commands.vault.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
         patch("obsidian_ai_tools.refresh.find_refresh_candidates", return_value=[candidate]),
         patch("obsidian_ai_tools.refresh.estimate_refresh_cost", return_value=0.02),
         patch("obsidian_ai_tools.refresh.refresh_batch", return_value=summary) as refresh_batch,
@@ -860,7 +890,10 @@ def test_refresh_dry_run_lists_candidates_without_execution(tmp_path: Path) -> N
     candidate.target_prompt_version = "youtube_v2"
 
     with (
-        patch("obsidian_ai_tools.cli.get_settings", return_value=_make_dummy_settings(vault_path)),
+        patch(
+            "obsidian_ai_tools.commands.vault.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
         patch("obsidian_ai_tools.refresh.find_refresh_candidates", return_value=[candidate]),
         patch("obsidian_ai_tools.refresh.estimate_refresh_cost", return_value=0.02),
         patch("obsidian_ai_tools.refresh.refresh_batch") as refresh_batch,
@@ -904,7 +937,7 @@ tags: [python, programming]
     )
 
     with patch(
-        "obsidian_ai_tools.cli.get_settings",
+        "obsidian_ai_tools.commands.vault.get_settings",
         return_value=_make_dummy_settings(vault_path),
     ):
         result = runner.invoke(
@@ -938,7 +971,7 @@ tags: [python]
     )
 
     with patch(
-        "obsidian_ai_tools.cli.get_settings",
+        "obsidian_ai_tools.commands.vault.get_settings",
         return_value=_make_dummy_settings(vault_path),
     ):
         result = runner.invoke(
@@ -978,7 +1011,7 @@ tags: [python]
     )
 
     with patch(
-        "obsidian_ai_tools.cli.get_settings",
+        "obsidian_ai_tools.commands.vault.get_settings",
         return_value=_make_dummy_settings(vault_path),
     ):
         result = runner.invoke(app, ["update-rules", "--vault", str(vault_path)])
@@ -993,7 +1026,7 @@ def test_search_requires_criteria(tmp_path: Path) -> None:
     vault_path.mkdir()
 
     with patch(
-        "obsidian_ai_tools.cli.get_settings",
+        "obsidian_ai_tools.commands.search.get_settings",
         return_value=_make_dummy_settings(vault_path),
     ):
         result = runner.invoke(app, ["search", "--vault", str(vault_path)])
@@ -1008,7 +1041,7 @@ def test_search_invalid_after_date(tmp_path: Path) -> None:
     vault_path.mkdir()
 
     with patch(
-        "obsidian_ai_tools.cli.get_settings",
+        "obsidian_ai_tools.commands.search.get_settings",
         return_value=_make_dummy_settings(vault_path),
     ):
         result = runner.invoke(
@@ -1035,7 +1068,7 @@ def test_search_no_results(tmp_path: Path) -> None:
 
     with (
         patch(
-            "obsidian_ai_tools.cli.get_settings",
+            "obsidian_ai_tools.commands.search.get_settings",
             return_value=dummy_settings,
         ),
         patch("obsidian_ai_tools.indexer.build_index", return_value=MagicMock()),
@@ -1086,7 +1119,7 @@ def test_search_with_results(tmp_path: Path) -> None:
 
     with (
         patch(
-            "obsidian_ai_tools.cli.get_settings",
+            "obsidian_ai_tools.commands.search.get_settings",
             return_value=dummy_settings,
         ),
         patch("obsidian_ai_tools.indexer.build_index", return_value=MagicMock()),
@@ -1123,7 +1156,7 @@ def test_stats_recent_no_records(tmp_path: Path) -> None:
 
     with (
         patch(
-            "obsidian_ai_tools.cli.get_settings",
+            "obsidian_ai_tools.commands.vault.get_settings",
             return_value=dummy_settings,
         ),
         patch("obsidian_ai_tools.observability.ObservabilityDB") as mock_db_cls,
@@ -1157,7 +1190,7 @@ def test_stats_summary_with_data(tmp_path: Path) -> None:
 
     with (
         patch(
-            "obsidian_ai_tools.cli.get_settings",
+            "obsidian_ai_tools.commands.vault.get_settings",
             return_value=dummy_settings,
         ),
         patch("obsidian_ai_tools.observability.ObservabilityDB") as mock_db_cls,
@@ -1204,7 +1237,7 @@ def test_quality_summary_with_data(tmp_path: Path) -> None:
 
     with (
         patch(
-            "obsidian_ai_tools.cli.get_settings",
+            "obsidian_ai_tools.commands.vault.get_settings",
             return_value=dummy_settings,
         ),
         patch("obsidian_ai_tools.observability.ObservabilityDB") as mock_db_cls,
@@ -1224,8 +1257,8 @@ def test_quality_summary_with_data(tmp_path: Path) -> None:
 def test_serve_background_starts_detached_process(tmp_path: Path) -> None:
     """Test serve --background starts a detached child and records its PID."""
     with (
-        patch("obsidian_ai_tools.cli.Path.home", return_value=tmp_path),
-        patch("obsidian_ai_tools.cli.subprocess.Popen") as mock_popen,
+        patch("obsidian_ai_tools.commands.serve.Path.home", return_value=tmp_path),
+        patch("obsidian_ai_tools.commands.serve.subprocess.Popen") as mock_popen,
     ):
         mock_popen.return_value.pid = 4321
 
@@ -1247,8 +1280,8 @@ def test_serve_status_reports_running_background_process(tmp_path: Path) -> None
     (state_dir / "server.pid").write_text("4321\n", encoding="utf-8")
 
     with (
-        patch("obsidian_ai_tools.cli.Path.home", return_value=tmp_path),
-        patch("obsidian_ai_tools.cli.os.kill") as mock_kill,
+        patch("obsidian_ai_tools.commands.serve.Path.home", return_value=tmp_path),
+        patch("obsidian_ai_tools.commands.serve.os.kill") as mock_kill,
     ):
         result = runner.invoke(app, ["serve", "--status"])
 
@@ -1266,7 +1299,7 @@ def test_serve_status_log_shows_recent_background_output(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    with patch("obsidian_ai_tools.cli.Path.home", return_value=tmp_path):
+    with patch("obsidian_ai_tools.commands.serve.Path.home", return_value=tmp_path):
         result = runner.invoke(app, ["serve", "--status", "--log"])
 
     assert result.exit_code == 0
@@ -1293,8 +1326,8 @@ def test_serve_stop_terminates_background_process(tmp_path: Path) -> None:
     pid_path.write_text("4321\n", encoding="utf-8")
 
     with (
-        patch("obsidian_ai_tools.cli.Path.home", return_value=tmp_path),
-        patch("obsidian_ai_tools.cli.os.kill") as mock_kill,
+        patch("obsidian_ai_tools.commands.serve.Path.home", return_value=tmp_path),
+        patch("obsidian_ai_tools.commands.serve.os.kill") as mock_kill,
     ):
         result = runner.invoke(app, ["serve", "--stop"])
 
