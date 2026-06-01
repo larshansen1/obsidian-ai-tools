@@ -319,12 +319,33 @@ def refresh_note(
         except Exception as e:
             raise SourceUnavailableError(f"Cannot fetch source: {e}") from e
 
-        # Step 3: Generate new note with target prompt version
-        note = generate_note(
+        # Step 3: Discover existing tags, then generate new note
+        existing_tags = None
+        if "_v2" in candidate.target_prompt_version or candidate.target_prompt_version.startswith(
+            "article"
+        ):
+            try:
+                from .indexer import build_index
+                from .search import list_all_tags
+
+                vault_index = build_index(vault_path, "inbox")
+                tag_counts = list_all_tags(vault_index)
+                if tag_counts:
+                    tag_items = list(tag_counts.items())[:20]
+                    existing_tags = "\n".join(
+                        f"- {tag} ({count} notes)" for tag, count in tag_items
+                    )
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "Failed to discover existing tags; refreshing without them",
+                    exc_info=True,
+                )
+
+        note, cost_info = generate_note(
             metadata=metadata,
             model=model,
             api_key=api_key,
-            vault_path=vault_path,
+            existing_tags=existing_tags,
             prompt_version=candidate.target_prompt_version,
         )
 
@@ -336,8 +357,7 @@ def refresh_note(
         # Write to same location
         write_note(note, vault_path, str(inbox_folder))
 
-        # Get cost from observability (approximate)
-        cost = estimate_refresh_cost([candidate], model)
+        cost = cost_info.total_cost_usd
 
         return RefreshResult(
             file_path=candidate.file_path,

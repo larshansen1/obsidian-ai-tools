@@ -1,13 +1,12 @@
 """LLM integration for note generation via OpenRouter."""
 
 import json
-import logging
 from pathlib import Path
 from typing import Any
 
 from openai import OpenAI
 
-from .models import ArticleMetadata, Note, VideoMetadata
+from .models import ArticleMetadata, CostInfo, Note, VideoMetadata
 
 
 class LLMError(Exception):
@@ -120,28 +119,27 @@ def generate_note(
     metadata: VideoMetadata | ArticleMetadata,
     model: str,
     api_key: str,
-    vault_path: Path | None = None,
+    existing_tags: str | None = None,
     max_content_length: int = 50000,
     prompt_version: str = "youtube_v1",
-) -> Note:
+) -> tuple[Note, CostInfo]:
     """Generate Obsidian note from content using OpenRouter.
 
     Args:
         metadata: Content metadata (video or article)
         model: OpenRouter model identifier
         api_key: OpenRouter API key
-        vault_path: Optional vault path for tag discovery
+        existing_tags: Optional formatted string of existing vault tags for prompt context
         max_content_length: Maximum content length to process
         prompt_version: Prompt template version to use
 
     Returns:
-        Generated Note object
+        Tuple of (generated Note, LLM cost information)
 
     Raises:
         NoteGenerationError: If note generation fails
         PromptTemplateError: If prompt template is invalid
     """
-    # Determine content and length based on type
     if isinstance(metadata, VideoMetadata):
         content = metadata.transcript
         source_type = "youtube"
@@ -151,7 +149,6 @@ def generate_note(
         source_type = "web"
         author = metadata.author if metadata.author else "Unknown"
 
-    # Check content length (MVP constraint)
     if len(content) > max_content_length:
         raise NoteGenerationError(
             f"Content too long ({len(content)} chars). "
@@ -159,105 +156,53 @@ def generate_note(
             "This will be supported in future versions."
         )
 
-    # Load prompt template
     template = load_prompt_template(prompt_version)
+    prompt = build_prompt(metadata, template, existing_tags)
 
-    # Discover existing tags for v2 prompts
-    existing_tags_str = None
-    if "_v2" in prompt_version or prompt_version.startswith("article"):
-        if vault_path:
-            try:
-                from .indexer import build_index
-                from .search import list_all_tags
-
-                vault_index = build_index(vault_path, "inbox")
-                tag_counts = list_all_tags(vault_index)
-
-                # Format top 20 tags for prompt
-                if tag_counts:
-                    tag_items = list(tag_counts.items())[:20]
-                    existing_tags_str = "\n".join(
-                        f"- {tag} ({count} notes)" for tag, count in tag_items
-                    )
-            except Exception:
-                logging.getLogger(__name__).warning(
-                    "Failed to discover existing tags; generating note without them",
-                    exc_info=True,
-                )
-
-    # Build prompt
-    prompt = build_prompt(metadata, template, existing_tags_str)
-
-    # Initialize OpenAI client with OpenRouter base URL
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=api_key,
     )
 
     try:
-        # Call OpenRouter API with usage tracking enabled
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
-            extra_body={"usage": {"include": True}},  # Enable usage accounting
+            extra_body={"usage": {"include": True}},
         )
 
-        # Extract cost information from OpenRouter response
-        # OpenRouter includes usage and cost data when usage accounting is enabled
-        try:
-            from .config import get_settings
-            from .observability import ObservabilityDB
+        usage = response.usage
+        input_tokens = usage.prompt_tokens if usage else 0
+        output_tokens = usage.completion_tokens if usage else 0
+        total_cost = 0.0
+        if usage and hasattr(usage, "cost"):
+            total_cost = float(usage.cost)
 
-            settings = get_settings()
-            # Store observability data in the vault (vault-specific)
-            db_path = settings.obsidian_vault_path / ".kai" / "observability.duckdb"
-            obs_db = ObservabilityDB(db_path)
+        cost_info = CostInfo(
+            model=model,
+            source_type=source_type,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            total_cost_usd=total_cost,
+            source_url=metadata.url,
+        )
 
-            # Extract token usage and cost from usage object
-            usage = response.usage
-            input_tokens = usage.prompt_tokens if usage else 0
-            output_tokens = usage.completion_tokens if usage else 0
-
-            # Extract cost from usage object (OpenRouter includes this)
-            total_cost = 0.0
-            if usage and hasattr(usage, "cost"):
-                total_cost = float(usage.cost)
-
-            # Record cost
-            obs_db.record_cost(
-                operation="generate_note",
-                model=model,
-                source_type=source_type,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_cost_usd=total_cost,
-                source_url=metadata.url,
-            )
-        except Exception as e:
-            # Never fail note generation due to observability issues
-            logging.getLogger(__name__).debug(f"Failed to record cost: {e}")
-
-        # Extract response text
         response_text = response.choices[0].message.content
         if not response_text:
             raise NoteGenerationError("LLM returned empty response")
 
-        # Parse JSON response
         note_data = parse_llm_response(response_text)
 
-        # Validate required fields
         required_fields = ["title", "summary", "key_points", "tags"]
         missing_fields = [f for f in required_fields if f not in note_data]
         if missing_fields:
             raise NoteGenerationError(f"LLM response missing required fields: {missing_fields}")
 
-        # Validate tags are a list
         if not isinstance(note_data["tags"], list):
             raise NoteGenerationError(f"Tags must be a list, got {type(note_data['tags'])}")
 
-        # Create Note object
-        return Note(
+        note = Note(
             title=note_data["title"],
             summary=note_data["summary"],
             key_points=note_data["key_points"],
@@ -270,6 +215,8 @@ def generate_note(
             model=model,
             prompt_version=prompt_version,
         )
+
+        return note, cost_info
 
     except Exception as e:
         if isinstance(e, (NoteGenerationError, PromptTemplateError)):

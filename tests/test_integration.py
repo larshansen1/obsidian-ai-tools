@@ -73,11 +73,10 @@ class TestYouTubeIngestEndToEnd:
             mock_openai.return_value = mock_client
 
             # Generate note
-            note = generate_note(
+            note, _ = generate_note(
                 metadata=metadata,
                 model="openai/gpt-4o-mini",
                 api_key="test_key",
-                vault_path=temp_vault,
                 prompt_version="youtube_v1",
             )
 
@@ -134,11 +133,10 @@ tags: [machine-learning, python]
             mock_client.chat.completions.create.return_value = mock_response
             mock_openai.return_value = mock_client
 
-            note = generate_note(
+            note, _ = generate_note(
                 metadata=metadata,
                 model="openai/gpt-4o-mini",
                 api_key="test_key",
-                vault_path=temp_vault,
                 prompt_version="youtube_v2",
             )
 

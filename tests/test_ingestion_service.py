@@ -18,7 +18,7 @@ from obsidian_ai_tools.ingestion import (
     VaultWriteError,
     ingest_content,
 )
-from obsidian_ai_tools.models import ArticleMetadata, Note
+from obsidian_ai_tools.models import ArticleMetadata, CostInfo, Note
 from obsidian_ai_tools.server.app import create_app
 
 runner = CliRunner()
@@ -54,6 +54,17 @@ def _note() -> Note:
     )
 
 
+def _cost_info() -> CostInfo:
+    return CostInfo(
+        model="test-model",
+        source_type="web",
+        input_tokens=100,
+        output_tokens=50,
+        total_cost_usd=0.001,
+        source_url="https://example.com/article",
+    )
+
+
 def test_ingest_content_runs_shared_pipeline_and_emits_progress(tmp_path: Path) -> None:
     """Test the service coordinates provider, LLM, and vault persistence."""
     metadata = _metadata()
@@ -67,7 +78,9 @@ def test_ingest_content_runs_shared_pipeline_and_emits_progress(tmp_path: Path) 
             "obsidian_ai_tools.ingestion.ProviderFactory.get_provider",
             return_value=provider,
         ),
-        patch("obsidian_ai_tools.ingestion.generate_note", return_value=note) as mock_generate,
+        patch(
+            "obsidian_ai_tools.ingestion.generate_note", return_value=(note, _cost_info())
+        ) as mock_generate,
         patch("obsidian_ai_tools.ingestion.write_note", return_value=note_path) as mock_write,
     ):
         result = ingest_content(
@@ -88,7 +101,7 @@ def test_ingest_content_runs_shared_pipeline_and_emits_progress(tmp_path: Path) 
         metadata=metadata,
         model="test-model",
         api_key="test-key",
-        vault_path=tmp_path,
+        existing_tags=None,
         max_content_length=1234,
         prompt_version="article_v1",
     )
@@ -145,7 +158,7 @@ def test_ingest_content_forwards_provider_specific_options(
             "obsidian_ai_tools.ingestion.ProviderFactory.get_provider",
             return_value=provider,
         ),
-        patch("obsidian_ai_tools.ingestion.generate_note", return_value=_note()),
+        patch("obsidian_ai_tools.ingestion.generate_note", return_value=(_note(), _cost_info())),
         patch("obsidian_ai_tools.ingestion.write_note", return_value=tmp_path / "note.md"),
     ):
         ingest_content(ingestion_request, _settings(tmp_path))  # type: ignore[arg-type]
@@ -180,7 +193,7 @@ def test_ingest_content_wraps_stage_failures(
     metadata = _metadata()
     note = _note()
     provider = SimpleNamespace(name="web", ingest=MagicMock(return_value=metadata))
-    generate = MagicMock(return_value=note)
+    generate = MagicMock(return_value=(note, _cost_info()))
     write = MagicMock(return_value=tmp_path / "note.md")
 
     if target == "provider":
