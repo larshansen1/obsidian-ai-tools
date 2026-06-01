@@ -1,3 +1,5 @@
+import { captureChatPage } from "./capture.js";
+
 const SERVER = "http://127.0.0.1:8765";
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -13,12 +15,12 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-async function ingestUrl(url) {
+async function ingestUrl(url, capture = {}) {
   try {
     const r = await fetch(`${SERVER}/ingest`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, ...capture }),
     });
     if (!r.ok) {
       const data = await r.json().catch(() => ({}));
@@ -30,8 +32,14 @@ async function ingestUrl(url) {
   }
 }
 
-chrome.contextMenus.onClicked.addListener((info) => {
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const url =
     info.menuItemId === "kai-ingest-link" ? info.linkUrl : info.pageUrl;
-  if (url) ingestUrl(url);
+  if (!url) return;
+
+  const capture =
+    info.menuItemId === "kai-ingest-page"
+      ? await captureChatPage(tab?.id, url)
+      : {};
+  ingestUrl(url, capture);
 });

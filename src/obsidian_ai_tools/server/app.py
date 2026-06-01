@@ -33,6 +33,8 @@ class IngestRequest(BaseModel):
     vault_path: str | None = None
     transcript_providers: str | None = None
     max_pages: int | None = None
+    captured_content: str | None = None
+    captured_title: str | None = None
 
 
 class IngestResponse(BaseModel):
@@ -92,6 +94,8 @@ def create_app() -> FastAPI:
                     prompt_version=req.prompt_version,
                     transcript_providers=req.transcript_providers,
                     max_pages=req.max_pages,
+                    captured_content=req.captured_content,
+                    captured_title=req.captured_title,
                 ),
                 settings,
             )

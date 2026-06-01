@@ -59,6 +59,17 @@ class WebProvider(BaseProvider):
         Raises:
             RuntimeError: If fetching fails with all methods
         """
+        captured_content = kwargs.get("captured_content")
+        if isinstance(captured_content, str) and captured_content.strip():
+            return ArticleMetadata(
+                content=captured_content.strip(),
+                title=kwargs.get("captured_title") or "Captured Chat",
+                author="Unknown Author",
+                published_date=None,
+                site_name="Browser Capture",
+                url=source,
+            )
+
         # Enforce rate limit
         _limiter.wait(source)
 

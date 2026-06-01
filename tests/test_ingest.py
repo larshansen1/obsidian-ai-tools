@@ -259,6 +259,24 @@ class TestWebProviderIngest:
                 with pytest.raises(RuntimeError, match="Failed to fetch"):
                     provider._ingest("https://example.com/article")
 
+    def test_web_provider_uses_browser_captured_content(self) -> None:
+        """Authenticated browser captures should bypass server-side fetching."""
+        from obsidian_ai_tools.providers.web import WebProvider
+
+        provider = WebProvider()
+
+        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as fetch_url:
+            result = provider._ingest(
+                "https://chatgpt.com/c/example",
+                captured_content="  User: question\nAssistant: answer  ",
+                captured_title="ChatGPT - Example",
+            )
+
+        assert result.content == "User: question\nAssistant: answer"
+        assert result.title == "ChatGPT - Example"
+        assert result.site_name == "Browser Capture"
+        fetch_url.assert_not_called()
+
     def test_web_provider_ingest_returns_raw_github_content(self) -> None:
         """GitHub blob URLs should be converted to raw content before extraction."""
         from obsidian_ai_tools.providers.web import WebProvider

@@ -53,6 +53,8 @@ class IngestionRequest:
     prompt_version: str | None = None
     transcript_providers: str | None = None
     max_pages: int | None = None
+    captured_content: str | None = None
+    captured_title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +132,10 @@ def ingest_content(
         kwargs["max_pages"] = request.max_pages
     if provider.name == "youtube" and request.transcript_providers is not None:
         kwargs["provider_order"] = request.transcript_providers
+    if provider.name == "web" and request.captured_content is not None:
+        kwargs["captured_content"] = request.captured_content
+        if request.captured_title is not None:
+            kwargs["captured_title"] = request.captured_title
 
     try:
         metadata = provider.ingest(request.url, **kwargs)

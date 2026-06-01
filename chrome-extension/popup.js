@@ -1,3 +1,5 @@
+import { captureChatPage } from "./capture.js";
+
 const SERVER = "http://127.0.0.1:8765";
 
 const dot = document.getElementById("dot");
@@ -12,6 +14,7 @@ const resultDetail = document.getElementById("result-detail");
 const tagsEl = document.getElementById("tags");
 
 let currentUrl = "";
+let currentTabId = null;
 
 // ── Server health check ──────────────────────────────────────────────────────
 
@@ -40,6 +43,7 @@ function isSupportedUrl(url) {
 async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentUrl = tab?.url ?? "";
+  currentTabId = tab?.id ?? null;
   urlEl.textContent = currentUrl || "No URL";
 
   const serverOk = await checkServer();
@@ -79,10 +83,11 @@ btn.addEventListener("click", async () => {
   resultEl.className = "result";
 
   try {
+    const capture = await captureChatPage(currentTabId, currentUrl);
     const r = await fetch(`${SERVER}/ingest`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: currentUrl }),
+      body: JSON.stringify({ url: currentUrl, ...capture }),
     });
 
     const data = await r.json();

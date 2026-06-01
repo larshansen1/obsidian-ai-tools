@@ -116,6 +116,18 @@ def test_ingest_content_runs_shared_pipeline_and_emits_progress(tmp_path: Path) 
             ),
             {"provider_order": "supadata,direct"},
         ),
+        (
+            "web",
+            IngestionRequest(
+                url="https://chatgpt.com/c/example",
+                captured_content="User: question\nAssistant: answer",
+                captured_title="ChatGPT - Example",
+            ),
+            {
+                "captured_content": "User: question\nAssistant: answer",
+                "captured_title": "ChatGPT - Example",
+            },
+        ),
     ],
 )
 def test_ingest_content_forwards_provider_specific_options(
@@ -214,6 +226,8 @@ def test_http_ingest_delegates_to_shared_pipeline(tmp_path: Path) -> None:
                 "vault_path": str(tmp_path),
                 "prompt_version": "article_v1",
                 "max_pages": 12,
+                "captured_content": "User: question\nAssistant: answer",
+                "captured_title": "ChatGPT - Example",
             },
         )
 
@@ -225,6 +239,8 @@ def test_http_ingest_delegates_to_shared_pipeline(tmp_path: Path) -> None:
         vault_path=tmp_path,
         prompt_version="article_v1",
         max_pages=12,
+        captured_content="User: question\nAssistant: answer",
+        captured_title="ChatGPT - Example",
     )
 
 

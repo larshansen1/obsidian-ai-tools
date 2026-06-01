@@ -234,6 +234,9 @@ The server binds to `127.0.0.1:8765` by default and exposes:
 | `GET` | `/docs` | OpenAPI documentation |
 
 To use the browser extension, start the server and load `chrome-extension/` as an unpacked extension in Chrome.
+Reload the unpacked extension after updating it. When ingesting an open ChatGPT or Claude conversation,
+the extension captures the rendered chat text from the authenticated browser tab before sending it to the
+local service.
 
 ## Command Reference
 
