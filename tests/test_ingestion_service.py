@@ -270,9 +270,11 @@ def test_cli_ingest_delegates_to_shared_pipeline(tmp_path: Path) -> None:
     )
 
     with (
-        patch("obsidian_ai_tools.cli.setup_logging"),
-        patch("obsidian_ai_tools.cli.get_settings", return_value=_settings(tmp_path)),
-        patch("obsidian_ai_tools.cli.ingest_content", return_value=result) as mock_ingest,
+        patch("obsidian_ai_tools.commands.ingest.setup_logging"),
+        patch("obsidian_ai_tools.commands.ingest.get_settings", return_value=_settings(tmp_path)),
+        patch(
+            "obsidian_ai_tools.commands.ingest.ingest_content", return_value=result
+        ) as mock_ingest,
     ):
         response = runner.invoke(
             app,
