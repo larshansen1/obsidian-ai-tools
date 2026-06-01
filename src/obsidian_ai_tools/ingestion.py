@@ -81,6 +81,26 @@ class IngestionResult:
     file_path: Path
 
 
+def _discover_existing_tags(vault_path: Path, prompt_version: str) -> str | None:
+    if not ("_v2" in prompt_version or prompt_version.startswith("article")):
+        return None
+    try:
+        from .indexer import build_index
+        from .search import list_all_tags
+
+        vault_index = build_index(vault_path, "inbox")
+        tag_counts = list_all_tags(vault_index)
+        if tag_counts:
+            tag_items = list(tag_counts.items())[:20]
+            return "\n".join(f"- {tag} ({count} notes)" for tag, count in tag_items)
+    except Exception:
+        logging.getLogger("obsidian_ai_tools.ingestion").warning(
+            "Failed to discover existing tags; generating note without them",
+            exc_info=True,
+        )
+    return None
+
+
 def default_prompt_version(provider_name: str) -> str:
     """Return the default prompt template for a provider."""
     return {
@@ -143,18 +163,35 @@ def ingest_content(
         raise ContentFetchError(f"Content fetch failed: {exc}") from exc
 
     emit("content_fetched", metadata=metadata)
+    existing_tags = _discover_existing_tags(vault_path, prompt_version)
     emit("generating")
     try:
-        note = generate_note(
+        note, cost_info = generate_note(
             metadata=metadata,
             model=settings.llm_model,
             api_key=settings.openrouter_api_key,
-            vault_path=vault_path,
+            existing_tags=existing_tags,
             max_content_length=settings.max_transcript_length,
             prompt_version=prompt_version,
         )
     except Exception as exc:
         raise NoteGenerationStageError(f"Note generation failed: {exc}") from exc
+
+    try:
+        from .observability import ObservabilityDB
+
+        obs_db = ObservabilityDB(vault_path / ".kai" / "observability.duckdb")
+        obs_db.record_cost(
+            operation="ingest",
+            model=cost_info.model,
+            source_type=cost_info.source_type,
+            input_tokens=cost_info.input_tokens,
+            output_tokens=cost_info.output_tokens,
+            total_cost_usd=cost_info.total_cost_usd,
+            source_url=cost_info.source_url,
+        )
+    except Exception as exc:
+        logging.getLogger("obsidian_ai_tools.ingestion").debug(f"Failed to record cost: {exc}")
 
     emit("note_generated", note=note)
     emit("writing", note=note)

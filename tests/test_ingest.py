@@ -95,11 +95,10 @@ More content here. Bullet points:
 
             from obsidian_ai_tools.llm import generate_note
 
-            note = generate_note(
+            note, _ = generate_note(
                 metadata=metadata,
                 model="openai/gpt-4o-mini",
                 api_key="test_key",
-                vault_path=temp_vault,
                 prompt_version="markdown_v1",
             )
 
@@ -186,11 +185,10 @@ class TestWebProviderIngest:
 
             from obsidian_ai_tools.llm import generate_note
 
-            note = generate_note(
+            note, _ = generate_note(
                 metadata=metadata,
                 model="openai/gpt-4o-mini",
                 api_key="test_key",
-                vault_path=temp_vault,
                 prompt_version="article_v1",
             )
 
@@ -386,11 +384,10 @@ class TestPDFProviderIngest:
 
             from obsidian_ai_tools.llm import generate_note
 
-            note = generate_note(
+            note, _ = generate_note(
                 metadata=metadata,
                 model="openai/gpt-4o-mini",
                 api_key="test_key",
-                vault_path=temp_vault,
                 prompt_version="pdf_v1",
             )
 
@@ -456,11 +453,10 @@ class TestYouTubeIngestEnhanced:
 
             from obsidian_ai_tools.llm import generate_note
 
-            note = generate_note(
+            note, _ = generate_note(
                 metadata=metadata,
                 model="openai/gpt-4o-mini",
                 api_key="test_key",
-                vault_path=temp_vault,
                 prompt_version="youtube_v2",
             )
 
@@ -510,11 +506,10 @@ class TestYouTubeIngestEnhanced:
 
             from obsidian_ai_tools.llm import generate_note
 
-            note = generate_note(
+            note, _ = generate_note(
                 metadata=metadata,
                 model="openai/gpt-4o-mini",
                 api_key="test_key",
-                vault_path=temp_vault,
                 prompt_version="youtube_v2",
             )
 
@@ -605,11 +600,10 @@ class TestIngestNoteGeneration:
 
             from obsidian_ai_tools.llm import generate_note
 
-            note = generate_note(
+            note, _ = generate_note(
                 metadata=metadata,
                 model="openai/gpt-4o-mini",
                 api_key="test_key",
-                vault_path=temp_vault,
                 prompt_version="youtube_v2",
             )
 
@@ -650,11 +644,10 @@ class TestIngestNoteGeneration:
 
             from obsidian_ai_tools.llm import generate_note
 
-            note = generate_note(
+            note, _ = generate_note(
                 metadata=metadata,
                 model="openai/gpt-4o-mini",
                 api_key="test_key",
-                vault_path=temp_vault,
                 prompt_version="youtube_v2",
             )
 
@@ -708,11 +701,10 @@ class TestIngestEdgeCases:
 
             from obsidian_ai_tools.llm import generate_note
 
-            note = generate_note(
+            note, _ = generate_note(
                 metadata=metadata,
                 model="openai/gpt-4o-mini",
                 api_key="test_key",
-                vault_path=temp_vault,
                 prompt_version="article_v1",
             )
 
@@ -756,11 +748,10 @@ class TestIngestEdgeCases:
 
             from obsidian_ai_tools.llm import generate_note
 
-            note = generate_note(
+            note, _ = generate_note(
                 metadata=metadata,
                 model="openai/gpt-4o-mini",
                 api_key="test_key",
-                vault_path=temp_vault,
                 prompt_version="article_v1",
             )
 

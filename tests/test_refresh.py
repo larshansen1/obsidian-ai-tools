@@ -3,6 +3,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from obsidian_ai_tools.models import CostInfo
 from obsidian_ai_tools.refresh import (
     RefreshCandidate,
     RefreshResult,
@@ -481,12 +482,20 @@ class TestRefreshNote:
         provider.ingest.return_value = MagicMock()
         generated_note = MagicMock()
 
+        cost_info = CostInfo(
+            model="model",
+            source_type="youtube",
+            input_tokens=10,
+            output_tokens=5,
+            total_cost_usd=0.02,
+            source_url="https://youtube.com/watch?v=abc",
+        )
         with (
             patch(
                 "obsidian_ai_tools.providers.factory.ProviderFactory.get_provider",
                 return_value=provider,
             ),
-            patch("obsidian_ai_tools.llm.generate_note", return_value=generated_note),
+            patch("obsidian_ai_tools.llm.generate_note", return_value=(generated_note, cost_info)),
             patch("obsidian_ai_tools.obsidian.write_note") as write_note,
         ):
             result = refresh_note(candidate, tmp_path, "model", "key")
@@ -544,7 +553,10 @@ class TestRefreshNote:
                 "obsidian_ai_tools.providers.factory.ProviderFactory.get_provider",
                 return_value=provider,
             ),
-            patch("obsidian_ai_tools.llm.generate_note", return_value=MagicMock()),
+            patch(
+                "obsidian_ai_tools.llm.generate_note",
+                return_value=(MagicMock(), MagicMock(total_cost_usd=0.0)),
+            ),
             patch("obsidian_ai_tools.obsidian.write_note", side_effect=OSError("disk full")),
         ):
             result = refresh_note(candidate, tmp_path, "model", "key", create_backup_file=False)

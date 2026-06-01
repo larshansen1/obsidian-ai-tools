@@ -1,8 +1,21 @@
 """Data models for the ingestion pipeline."""
 
+from dataclasses import dataclass
 from datetime import datetime
 
 from pydantic import BaseModel, Field
+
+
+@dataclass(frozen=True)
+class CostInfo:
+    """LLM cost data returned by generate_note to its caller."""
+
+    model: str
+    source_type: str
+    input_tokens: int
+    output_tokens: int
+    total_cost_usd: float
+    source_url: str
 
 
 class VideoMetadata(BaseModel):
