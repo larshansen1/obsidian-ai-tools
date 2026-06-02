@@ -5,8 +5,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import typer
 
-from obsidian_ai_tools.observability import ObservabilityDB, _set_db_for_test, get_db
+from obsidian_ai_tools.observability import (
+    ObservabilityDB,
+    _set_db_for_test,
+    get_db,
+    track_command,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -89,3 +95,102 @@ def test_observability_write_failures_do_not_break_main_operation(tmp_path: Path
     ):
         db.record_cost("ingest", "model", 1, 1, 0.01)
         db.record_metric("web", "failure", 1.0, error_type="network")
+
+
+def test_invocation_records_round_trip_into_summary(tmp_path: Path) -> None:
+    """record_invocation rows appear in get_invocation_summary."""
+    db = ObservabilityDB(tmp_path / "obs.duckdb")
+
+    db.record_invocation("ingest", "success", 1.2)
+    db.record_invocation("ingest", "success", 0.8)
+    db.record_invocation("ingest", "error", 0.5, error_type="ContentFetchError")
+    db.record_invocation("search", "success", 0.3)
+
+    rows = db.get_invocation_summary(days=30)
+    by_command = {r["command"]: r for r in rows}
+
+    assert by_command["ingest"]["calls"] == 3
+    assert by_command["ingest"]["success_pct"] == pytest.approx(66.7, abs=0.1)
+    assert by_command["search"]["calls"] == 1
+    assert by_command["search"]["success_pct"] == 100.0
+
+
+def test_invocation_summary_empty_when_no_data(tmp_path: Path) -> None:
+    """get_invocation_summary returns an empty list when the table is empty."""
+    db = ObservabilityDB(tmp_path / "obs.duckdb")
+    assert db.get_invocation_summary() == []
+
+
+def test_track_command_records_success(tmp_path: Path) -> None:
+    """track_command decorator writes a success row on normal return."""
+    db = ObservabilityDB(tmp_path / "obs.duckdb")
+    _set_db_for_test(db)
+
+    @track_command("test-cmd")
+    def my_cmd() -> str:
+        return "ok"
+
+    my_cmd()
+
+    rows = db.get_invocation_summary(days=1)
+    assert len(rows) == 1
+    assert rows[0]["command"] == "test-cmd"
+    assert rows[0]["calls"] == 1
+    assert rows[0]["success_pct"] == 100.0
+
+
+def test_track_command_records_error_on_exception(tmp_path: Path) -> None:
+    """track_command decorator writes an error row when the command raises."""
+    db = ObservabilityDB(tmp_path / "obs.duckdb")
+    _set_db_for_test(db)
+
+    @track_command("failing-cmd")
+    def bad_cmd() -> None:
+        raise ValueError("boom")
+
+    with pytest.raises(ValueError):
+        bad_cmd()
+
+    import duckdb as _duckdb
+
+    with _duckdb.connect(str(tmp_path / "obs.duckdb")) as conn:
+        rows = conn.execute("SELECT outcome, error_type FROM command_invocations").fetchall()
+
+    assert len(rows) == 1
+    assert rows[0][0] == "error"
+    assert rows[0][1] == "ValueError"
+
+
+def test_track_command_records_user_abort(tmp_path: Path) -> None:
+    """track_command decorator writes user_abort when typer.Abort is raised."""
+    db = ObservabilityDB(tmp_path / "obs.duckdb")
+    _set_db_for_test(db)
+
+    @track_command("aborted-cmd")
+    def aborting_cmd() -> None:
+        raise typer.Abort()
+
+    with pytest.raises(typer.Abort):
+        aborting_cmd()
+
+    import duckdb as _duckdb
+
+    with _duckdb.connect(str(tmp_path / "obs.duckdb")) as conn:
+        rows = conn.execute("SELECT outcome FROM command_invocations").fetchall()
+
+    assert rows[0][0] == "user_abort"
+
+
+def test_track_command_swallows_observability_errors(tmp_path: Path) -> None:
+    """track_command never blocks the command when recording fails."""
+    db = ObservabilityDB(tmp_path / "obs.duckdb")
+    _set_db_for_test(db)
+
+    @track_command("cmd")
+    def working_cmd() -> str:
+        return "result"
+
+    with patch.object(db, "record_invocation", side_effect=RuntimeError("db gone")):
+        result = working_cmd()
+
+    assert result == "result"

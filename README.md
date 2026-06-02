@@ -241,6 +241,9 @@ kai stats --days 7
 kai stats --recent
 kai quality
 kai quality --days 90
+kai usage
+kai usage --days 7
+kai usage --all
 ```
 
 ## Local HTTP Service
@@ -294,6 +297,7 @@ Run `kai COMMAND --help` for all options.
 | `kai tags` | Analyze and fix tag hygiene issues |
 | `kai stats` | Show LLM API cost statistics |
 | `kai quality` | Show ingestion success rates and common errors |
+| `kai usage` | Show command invocation counts and success rates |
 | `kai serve` | Run the local ingestion service |
 | `kai version` | Print the installed version |
 
