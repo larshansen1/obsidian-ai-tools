@@ -64,7 +64,7 @@ def preview(
         pbpaste | kai preview --batch
         kai preview URL --interactive
     """
-    from ..observability import ObservabilityDB
+    from ..observability import get_db
     from ..preview import (
         PreviewError,
         PreviewInfo,
@@ -106,7 +106,6 @@ def preview(
         raise typer.Exit(1)
 
     previews: list[PreviewInfo] = []
-    db_path = settings.obsidian_vault_path / ".kai" / "observability.duckdb"
 
     for target_url in urls:
         start_time = time.time()
@@ -117,8 +116,7 @@ def preview(
             duration = time.time() - start_time
 
             try:
-                obs_db = ObservabilityDB(db_path)
-                obs_db.record_metric(
+                get_db().record_metric(
                     source_type=preview_info.source_type,
                     outcome="success",
                     duration_seconds=duration,
@@ -159,8 +157,7 @@ def preview(
             typer.echo(f"⚠️  Unsupported URL type: {e}", err=True)
             duration = time.time() - start_time
             try:
-                obs_db = ObservabilityDB(db_path)
-                obs_db.record_metric(
+                get_db().record_metric(
                     source_type="unknown",
                     outcome="failure",
                     duration_seconds=duration,
@@ -175,8 +172,7 @@ def preview(
             typer.echo(f"⚠️  Preview failed: {e}", err=True)
             duration = time.time() - start_time
             try:
-                obs_db = ObservabilityDB(db_path)
-                obs_db.record_metric(
+                get_db().record_metric(
                     source_type="unknown",
                     outcome="failure",
                     duration_seconds=duration,

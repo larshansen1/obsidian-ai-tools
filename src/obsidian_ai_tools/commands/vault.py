@@ -337,16 +337,15 @@ def stats(
         kai stats --days 7
         kai stats --recent
     """
-    from ..observability import ObservabilityDB
+    from ..observability import get_db
 
     try:
-        settings = get_settings()
+        get_settings()
     except Exception as e:
         typer.echo(f"❌ Configuration error: {e}", err=True)
         raise typer.Exit(1) from e
 
-    db_path = settings.obsidian_vault_path / ".kai" / "observability.duckdb"
-    obs_db = ObservabilityDB(db_path)
+    obs_db = get_db()
 
     if recent:
         typer.echo("📝 Recent Requests")
@@ -416,17 +415,15 @@ def quality(
         kai quality --days 7
         kai quality --days 90
     """
-    from ..observability import ObservabilityDB
+    from ..observability import get_db
 
     try:
-        settings = get_settings()
+        get_settings()
     except Exception as e:
         typer.echo(f"❌ Configuration error: {e}", err=True)
         raise typer.Exit(1) from e
 
-    db_path = settings.obsidian_vault_path / ".kai" / "observability.duckdb"
-    obs_db = ObservabilityDB(db_path)
-    summary = obs_db.get_quality_summary(days=days)
+    summary = get_db().get_quality_summary(days=days)
 
     typer.echo(f"📊 Quality Metrics (Last {days} days)")
     typer.echo("━" * 40)
