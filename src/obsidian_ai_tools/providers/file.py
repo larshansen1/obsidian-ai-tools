@@ -1,10 +1,12 @@
 """Local file ingestion provider."""
 
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
 from ..models import ArticleMetadata
+from ..observability import get_db
 from .base import BaseProvider
 
 logger = logging.getLogger(__name__)
@@ -41,11 +43,30 @@ class FileProvider(BaseProvider):
         if not path.is_file():
             raise IsADirectoryError(f"Path is a directory: {path}")
 
+        _t0 = time.monotonic()
         try:
             content = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             logger.error(f"Failed to decode file {path} as UTF-8")
+            try:
+                get_db().record_provider_attempt(
+                    "file",
+                    "primary",
+                    "failure",
+                    time.monotonic() - _t0,
+                    "UnicodeDecodeError",
+                    source,
+                )
+            except Exception:  # nosec B110
+                pass
             raise
+
+        try:
+            get_db().record_provider_attempt(
+                "file", "primary", "success", time.monotonic() - _t0, url=source
+            )
+        except Exception:  # nosec B110
+            pass
 
         return ArticleMetadata(
             title=path.stem.replace("_", " ").title(),
