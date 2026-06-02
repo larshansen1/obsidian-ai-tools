@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from ..config import get_settings
+from ..observability import track_command
 
 if TYPE_CHECKING:
     from ..tag_hygiene import TagHygienePlan
@@ -16,6 +17,7 @@ def register(app: typer.Typer) -> None:
     app.command("tags")(tags_command)
 
 
+@track_command("list-tags")
 def list_tags(
     vault: Annotated[
         Path | None,
@@ -67,6 +69,7 @@ def list_tags(
             typer.echo(f"   {tag}: {count} note(s)")
 
 
+@track_command("tags")
 def tags_command(
     confirm: Annotated[
         bool,

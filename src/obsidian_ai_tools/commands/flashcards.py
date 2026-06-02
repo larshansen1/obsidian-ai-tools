@@ -6,12 +6,14 @@ from typing import Annotated
 import typer
 
 from ..config import get_settings
+from ..observability import track_command
 
 
 def register(app: typer.Typer) -> None:
     app.command()(flashcards)
 
 
+@track_command("flashcards")
 def flashcards(
     note_path: Annotated[
         str | None,

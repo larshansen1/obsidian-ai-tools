@@ -9,6 +9,7 @@ from typing import Annotated
 import typer
 
 from ..config import get_settings
+from ..observability import track_command
 
 # Stored by register() so interactive mode can re-invoke the main app.
 _app: typer.Typer | None = None
@@ -30,6 +31,7 @@ def register(app: typer.Typer) -> None:
     app.command()(preview)
 
 
+@track_command("preview")
 def preview(
     url: Annotated[
         str | None,
@@ -191,6 +193,7 @@ def preview(
             typer.echo(f"   Total estimated cost: ${total_cost:.4f}")
 
 
+@track_command("reading-list list")
 def reading_list_list(
     vault: Annotated[
         Path | None,
@@ -239,6 +242,7 @@ def reading_list_list(
         typer.echo()
 
 
+@track_command("reading-list ingest")
 def reading_list_ingest(
     vault: Annotated[
         Path | None,
@@ -297,6 +301,7 @@ def reading_list_ingest(
     typer.echo(f"✅ Ingested {len(to_ingest)} item(s). {remaining} pending remaining.")
 
 
+@track_command("reading-list clear")
 def reading_list_clear(
     vault: Annotated[
         Path | None,

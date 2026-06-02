@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, call, patch
 from typer.testing import CliRunner
 
 from obsidian_ai_tools.cli import app
+from obsidian_ai_tools.observability import _set_db_for_test
 
 runner = CliRunner()
 
@@ -1155,17 +1156,17 @@ def test_stats_recent_no_records(tmp_path: Path) -> None:
 
     dummy_settings = _make_dummy_settings(vault_path)
 
-    with (
-        patch(
+    mock_db = MagicMock()
+    mock_db.get_recent_costs.return_value = []
+    _set_db_for_test(mock_db)
+    try:
+        with patch(
             "obsidian_ai_tools.commands.vault.get_settings",
             return_value=dummy_settings,
-        ),
-        patch("obsidian_ai_tools.observability.get_db") as mock_get_db,
-    ):
-        mock_db = mock_get_db.return_value
-        mock_db.get_recent_costs.return_value = []
-
-        result = runner.invoke(app, ["stats", "--recent"])
+        ):
+            result = runner.invoke(app, ["stats", "--recent"])
+    finally:
+        _set_db_for_test(None)
 
     assert result.exit_code == 0
     assert "No cost records found" in result.output
@@ -1189,17 +1190,17 @@ def test_stats_summary_with_data(tmp_path: Path) -> None:
         "recent_cost_7days": 0.5,
     }
 
-    with (
-        patch(
+    mock_db = MagicMock()
+    mock_db.get_cost_summary.return_value = summary
+    _set_db_for_test(mock_db)
+    try:
+        with patch(
             "obsidian_ai_tools.commands.vault.get_settings",
             return_value=dummy_settings,
-        ),
-        patch("obsidian_ai_tools.observability.get_db") as mock_get_db,
-    ):
-        mock_db = mock_get_db.return_value
-        mock_db.get_cost_summary.return_value = summary
-
-        result = runner.invoke(app, ["stats"])
+        ):
+            result = runner.invoke(app, ["stats"])
+    finally:
+        _set_db_for_test(None)
 
     assert result.exit_code == 0
     assert "Cost Summary" in result.output
@@ -1236,17 +1237,17 @@ def test_quality_summary_with_data(tmp_path: Path) -> None:
         "common_errors": [["TimeoutError", 1]],
     }
 
-    with (
-        patch(
+    mock_db = MagicMock()
+    mock_db.get_quality_summary.return_value = quality_summary
+    _set_db_for_test(mock_db)
+    try:
+        with patch(
             "obsidian_ai_tools.commands.vault.get_settings",
             return_value=dummy_settings,
-        ),
-        patch("obsidian_ai_tools.observability.get_db") as mock_get_db,
-    ):
-        mock_db = mock_get_db.return_value
-        mock_db.get_quality_summary.return_value = quality_summary
-
-        result = runner.invoke(app, ["quality"])
+        ):
+            result = runner.invoke(app, ["quality"])
+    finally:
+        _set_db_for_test(None)
 
     assert result.exit_code == 0
     assert "Quality Metrics" in result.output
