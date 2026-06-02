@@ -325,11 +325,20 @@ The `OPENROUTER_API_KEY` environment variable determines which account (and ther
 
 ## Security
 
-Keep `.env` files and API keys out of version control. The repository includes pre-commit hooks and `scripts/scan_secrets.sh` for local secret scanning:
+Keep `.env` files and API keys out of version control. Security checks run in CI on every push and PR (Bandit for Python vulnerabilities, Gitleaks for secrets). The same checks run locally via pre-commit hooks:
 
 ```bash
 pre-commit run --all-files
-./scripts/scan_secrets.sh
+```
+
+To run them individually:
+
+```bash
+# Python vulnerability scan
+bandit -c pyproject.toml -r src/
+
+# Secret detection
+gitleaks detect --source . --no-git --redact
 ```
 
 ## License

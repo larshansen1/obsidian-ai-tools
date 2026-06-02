@@ -3,6 +3,33 @@ name: CI
 on: [push, pull_request]
 
 jobs:
+  security:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install Bandit
+        run: pip install bandit==1.9.4
+
+      - name: Run Bandit
+        run: bandit -c pyproject.toml -r src/
+
+      - name: Install Gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz \
+            | tar -xz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+
+      - name: Run Gitleaks
+        run: gitleaks detect --source . --no-git --redact -c .gitleaks.toml
+
   build:
     runs-on: ubuntu-latest
 
