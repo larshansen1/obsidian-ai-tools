@@ -2,11 +2,28 @@
 
 import os
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+
+from obsidian_ai_tools.observability import ObservabilityDB, _set_db_for_test
+
+
+@pytest.fixture(autouse=True)
+def _obs_db_tmp(tmp_path: Path) -> Generator[None, None, None]:
+    """Redirect every get_db() call to an isolated per-test DuckDB.
+
+    Without this, track_command / record_provider_attempt write to the
+    real vault database during the test suite, producing bogus counts.
+    Tests that need a specific DB call _set_db_for_test() themselves;
+    this fixture guarantees a clean slate regardless.
+    """
+    db = ObservabilityDB(tmp_path / "obs_test.duckdb")
+    _set_db_for_test(db)
+    yield
+    _set_db_for_test(None)
 
 
 @pytest.fixture(autouse=True)
