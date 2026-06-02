@@ -2,6 +2,7 @@
 
 import logging
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ from pypdf import PdfReader
 
 from ..config import get_settings
 from ..models import ArticleMetadata
+from ..observability import get_db
 from ..utils.rate_limiter import RateLimiter
 from .base import BaseProvider
 
@@ -17,6 +19,19 @@ logger = logging.getLogger(__name__)
 
 # Global rate limiter to share state across instances
 _limiter = RateLimiter(delay=2.0)
+
+
+def _record_attempt(
+    strategy: str,
+    outcome: str,
+    duration: float,
+    error_type: str | None = None,
+    url: str | None = None,
+) -> None:
+    try:
+        get_db().record_provider_attempt("pdf", strategy, outcome, duration, error_type, url)
+    except Exception:  # nosec B110
+        pass
 
 
 class PDFProvider(BaseProvider):
@@ -113,7 +128,16 @@ class PDFProvider(BaseProvider):
 
         logger.info(f"Extracting text from local PDF: {path}")
 
-        return self._extract_text_from_pdf(path, max_pages)
+        _t0 = time.monotonic()
+        try:
+            result = self._extract_text_from_pdf(path, max_pages)
+            _record_attempt("primary", "success", time.monotonic() - _t0, url=file_path)
+            return result
+        except Exception as exc:
+            _record_attempt(
+                "primary", "failure", time.monotonic() - _t0, type(exc).__name__, file_path
+            )
+            raise
 
     def _ingest_remote(self, url: str, max_pages: int) -> ArticleMetadata:
         """Extract text from a remote PDF URL.
@@ -129,6 +153,7 @@ class PDFProvider(BaseProvider):
         _limiter.wait(url)
 
         # Try direct download first
+        _t0 = time.monotonic()
         try:
             logger.info(f"Downloading PDF from URL: {url}")
             response = requests.get(url, timeout=30, stream=True)
@@ -158,6 +183,7 @@ class PDFProvider(BaseProvider):
             try:
                 # Extract text from downloaded PDF
                 result = self._extract_text_from_pdf(tmp_path, max_pages, original_url=url)
+                _record_attempt("primary", "success", time.monotonic() - _t0, url=url)
                 return result
             finally:
                 # Clean up temporary file
@@ -165,10 +191,20 @@ class PDFProvider(BaseProvider):
 
         except Exception as e:
             logger.warning(f"Direct PDF download failed: {e}. Attempting fallback.")
+            _record_attempt("primary", "failure", time.monotonic() - _t0, type(e).__name__, url)
 
             # Fall back to Supadata
             if self.supadata_key:
-                return self._fetch_supadata(url)
+                _t1 = time.monotonic()
+                try:
+                    result = self._fetch_supadata(url)
+                    _record_attempt("fallback", "success", time.monotonic() - _t1, url=url)
+                    return result
+                except Exception as exc:
+                    _record_attempt(
+                        "fallback", "failure", time.monotonic() - _t1, type(exc).__name__, url
+                    )
+                    raise
             else:
                 raise RuntimeError(
                     f"Failed to download PDF from {url} and no fallback configured"

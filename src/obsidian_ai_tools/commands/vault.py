@@ -967,3 +967,30 @@ def usage(
         for cmd in known_commands:
             if cmd not in seen:
                 typer.echo(f"{cmd:<24} {'0':>6}  {'—':>8}  {'never':>12}  <- never used")
+
+    provider_rows = get_db().get_provider_summary(days=days)
+    if provider_rows:
+        typer.echo()
+        typer.echo(f"Provider attempts — last {days} day(s)")
+        typer.echo("━" * 60)
+        p_header = f"{'provider':<10} {'strategy':<10} {'attempts':>8}  {'success':>8}"
+        typer.echo(p_header)
+        typer.echo("-" * 60)
+
+        # Calculate fallback rates per provider
+        by_provider: dict[str, dict[str, int]] = {}
+        for row in provider_rows:
+            prov = row["provider"]
+            by_provider.setdefault(prov, {})
+            by_provider[prov][row["strategy"]] = row["attempts"]
+
+        for row in provider_rows:
+            prov = row["provider"]
+            strat = row["strategy"]
+            success_str = f"{row['success_pct']:.0f}%"
+            line = f"{prov:<10} {strat:<10} {row['attempts']:>8}  {success_str:>8}"
+            if strat == "fallback":
+                total = sum(by_provider[prov].values())
+                fallback_rate = row["attempts"] / total * 100 if total else 0
+                line += f"  ({fallback_rate:.0f}% fallback rate)"
+            typer.echo(line)

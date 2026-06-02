@@ -1,6 +1,7 @@
 """Web content provider implementation using Trafilatura with Supadata fallback."""
 
 import logging
+import time
 from typing import Any
 
 import requests
@@ -9,6 +10,7 @@ from trafilatura.settings import use_config
 
 from ..config import get_settings
 from ..models import ArticleMetadata
+from ..observability import get_db
 from ..utils.rate_limiter import RateLimiter
 from .base import BaseProvider
 
@@ -16,6 +18,20 @@ logger = logging.getLogger(__name__)
 
 # Global rate limiter to share state across instances
 _limiter = RateLimiter(delay=2.0)
+
+
+def _record_attempt(
+    provider: str,
+    strategy: str,
+    outcome: str,
+    duration: float,
+    error_type: str | None = None,
+    url: str | None = None,
+) -> None:
+    try:
+        get_db().record_provider_attempt(provider, strategy, outcome, duration, error_type, url)
+    except Exception:  # nosec B110
+        pass
 
 
 class WebProvider(BaseProvider):
@@ -79,24 +95,37 @@ class WebProvider(BaseProvider):
             return ArticleMetadata(**raw_result)
 
         # 2. Try direct extraction (Trafilatura)
+        _t0 = time.monotonic()
         try:
             result = self._fetch_direct(source)
             if result:
                 logger.info("Successfully fetched article using Trafilatura")
+                _record_attempt("web", "primary", "success", time.monotonic() - _t0, url=source)
                 return ArticleMetadata(**result)
+            _record_attempt("web", "primary", "failure", time.monotonic() - _t0, url=source)
         except Exception as e:
             logger.warning(f"Direct extraction failed: {e}. Attempting fallback.")
+            _record_attempt(
+                "web", "primary", "failure", time.monotonic() - _t0, type(e).__name__, source
+            )
 
         # 3. Fallback to Supadata
         if self.supadata_key:
             logger.info("Falling back to Supadata extraction")
+            _t1 = time.monotonic()
             try:
                 result = self._fetch_supadata(source)
                 if result:
                     logger.info("Successfully fetched article using Supadata")
+                    _record_attempt(
+                        "web", "fallback", "success", time.monotonic() - _t1, url=source
+                    )
                     return ArticleMetadata(**result)
             except Exception as e:
                 logger.error(f"Supadata extraction failed: {e}")
+                _record_attempt(
+                    "web", "fallback", "failure", time.monotonic() - _t1, type(e).__name__, source
+                )
                 raise RuntimeError(f"Failed to fetch article from {source}: {e}") from e
 
         raise RuntimeError(f"Failed to fetch content from {source} and no fallback configured")

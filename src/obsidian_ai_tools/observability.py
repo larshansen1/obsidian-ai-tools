@@ -84,6 +84,24 @@ class ObservabilityDB:
                 ON command_invocations(timestamp DESC)
             """)
 
+            # Provider attempts table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS provider_attempts (
+                    timestamp        TIMESTAMP NOT NULL,
+                    provider         VARCHAR   NOT NULL,
+                    strategy         VARCHAR   NOT NULL,
+                    outcome          VARCHAR   NOT NULL,
+                    duration_seconds DECIMAL(8,3),
+                    error_type       VARCHAR,
+                    url              VARCHAR
+                )
+            """)
+
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_prov_timestamp
+                ON provider_attempts(timestamp DESC)
+            """)
+
     def record_cost(
         self,
         operation: str,
@@ -423,6 +441,84 @@ class ObservabilityDB:
                     "calls": int(row[1]),
                     "success_pct": float(row[2]),
                     "last_used": str(row[3])[:10],
+                }
+                for row in rows
+            ]
+
+    def record_provider_attempt(
+        self,
+        provider: str,
+        strategy: str,
+        outcome: str,
+        duration_seconds: float,
+        error_type: str | None = None,
+        url: str | None = None,
+    ) -> None:
+        """Record a single provider attempt (primary or fallback).
+
+        Args:
+            provider: Provider name ("web", "pdf", "youtube", "file")
+            strategy: "primary" or "fallback"
+            outcome: "success" or "failure"
+            duration_seconds: Wall-clock duration of this attempt
+            error_type: Exception class name on failure
+            url: Source URL
+        """
+        try:
+            with duckdb.connect(str(self.db_path)) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO provider_attempts
+                        (timestamp, provider, strategy, outcome,
+                         duration_seconds, error_type, url)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        datetime.now(),
+                        provider,
+                        strategy,
+                        outcome,
+                        duration_seconds,
+                        error_type,
+                        url,
+                    ],
+                )
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"Failed to record provider attempt: {e}")
+
+    def get_provider_summary(self, days: int = 30) -> list[dict[str, Any]]:
+        """Return per-provider/strategy attempt counts and success rate.
+
+        Args:
+            days: Look-back window in days
+
+        Returns:
+            List of dicts sorted by provider then strategy.
+        """
+        with duckdb.connect(str(self.db_path)) as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    provider,
+                    strategy,
+                    COUNT(*) AS attempts,
+                    ROUND(
+                        SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) * 100.0
+                        / COUNT(*), 1
+                    ) AS success_pct
+                FROM provider_attempts
+                WHERE timestamp > current_timestamp - (? * INTERVAL '1 DAY')
+                GROUP BY provider, strategy
+                ORDER BY provider, strategy
+                """,
+                [days],
+            ).fetchall()
+            return [
+                {
+                    "provider": row[0],
+                    "strategy": row[1],
+                    "attempts": int(row[2]),
+                    "success_pct": float(row[3]),
                 }
                 for row in rows
             ]
