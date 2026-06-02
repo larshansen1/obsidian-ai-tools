@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 from ..config import get_settings
+from ..observability import get_db, track_command
 
 if TYPE_CHECKING:
     from ..folder_organizer import NoteToMove, RuleSuggestion
@@ -17,11 +18,13 @@ def register(app: typer.Typer) -> None:
     app.command()(update_rules)
     app.command()(stats)
     app.command()(quality)
+    app.command()(usage)
     app.command()(follow)
     app.command()(connect)
     app.command()(refresh)
 
 
+@track_command("rebuild-index")
 def rebuild_index(
     vault: Annotated[
         Path | None,
@@ -61,6 +64,7 @@ def rebuild_index(
     typer.echo("✅ Index rebuild complete!")
 
 
+@track_command("process-inbox")
 def process_inbox(
     dry_run: Annotated[
         bool,
@@ -172,6 +176,7 @@ def process_inbox(
         typer.echo(f"\n🔍 Dry run complete - {len(notes)} note(s) would be moved")
 
 
+@track_command("update-rules")
 def update_rules(
     confirm: Annotated[
         bool,
@@ -311,6 +316,7 @@ def _display_rule_suggestions(suggestions: list["RuleSuggestion"]) -> None:
         typer.echo()
 
 
+@track_command("stats")
 def stats(
     days: Annotated[
         int,
@@ -337,8 +343,6 @@ def stats(
         kai stats --days 7
         kai stats --recent
     """
-    from ..observability import get_db
-
     try:
         get_settings()
     except Exception as e:
@@ -397,6 +401,7 @@ def stats(
     typer.echo(f"Recent (Last 7 days): ${summary['recent_cost_7days']:.4f}")
 
 
+@track_command("quality")
 def quality(
     days: Annotated[
         int,
@@ -415,8 +420,6 @@ def quality(
         kai quality --days 7
         kai quality --days 90
     """
-    from ..observability import get_db
-
     try:
         get_settings()
     except Exception as e:
@@ -451,6 +454,7 @@ def quality(
             typer.echo(f"  {count}. {error}")
 
 
+@track_command("follow")
 def follow(
     note_title: Annotated[str, typer.Argument(help="Note title or wikilink target to resolve")],
     vault: Annotated[
@@ -498,6 +502,7 @@ def follow(
     typer.echo(content, nl=False)
 
 
+@track_command("connect")
 def connect(
     note: Annotated[
         str | None,
@@ -713,6 +718,7 @@ def connect(
         typer.echo(f"✅ Inserted {len(links)} wikilink(s)")
 
 
+@track_command("refresh")
 def refresh(
     prompt_version: Annotated[
         str,
@@ -879,3 +885,112 @@ def refresh(
             typer.echo(f"   - {error}")
         if len(summary.errors) > 5:
             typer.echo(f"   ... and {len(summary.errors) - 5} more")
+
+
+@track_command("usage")
+def usage(
+    days: Annotated[
+        int,
+        typer.Option("--days", "-d", help="Look-back window in days"),
+    ] = 30,
+    show_all: Annotated[
+        bool,
+        typer.Option("--all", help="Include commands with zero invocations"),
+    ] = False,
+) -> None:
+    """Show command usage statistics.
+
+    Displays how often each command has been invoked, its success rate,
+    and when it was last used. Commands that have never been run are
+    listed as candidates for removal when --all is passed.
+
+    Examples:
+        kai usage
+        kai usage --days 7
+        kai usage --all
+    """
+    try:
+        get_settings()
+    except Exception as e:
+        typer.echo(f"❌ Configuration error: {e}", err=True)
+        raise typer.Exit(1) from e
+
+    rows = get_db().get_invocation_summary(days=days)
+
+    typer.echo(f"Command usage — last {days} day(s)")
+    typer.echo("━" * 60)
+
+    if not rows:
+        typer.echo("No command invocations recorded yet.")
+        if show_all:
+            typer.echo("(All commands shown below have never been run)")
+        else:
+            typer.echo("Run some commands, then check back — or use --all to see all commands.")
+        typer.echo()
+
+    known_commands = [
+        "ingest",
+        "preview",
+        "reading-list list",
+        "reading-list ingest",
+        "reading-list clear",
+        "rebuild-index",
+        "process-inbox",
+        "update-rules",
+        "stats",
+        "quality",
+        "usage",
+        "follow",
+        "connect",
+        "refresh",
+        "digest",
+        "overview",
+        "search",
+        "list-tags",
+        "tags",
+        "flashcards",
+    ]
+
+    seen = {r["command"] for r in rows}
+
+    header = f"{'command':<24} {'calls':>6}  {'success':>8}  {'last used':>12}"
+    typer.echo(header)
+    typer.echo("-" * 60)
+
+    for row in rows:
+        success_str = f"{row['success_pct']:.0f}%"
+        typer.echo(
+            f"{row['command']:<24} {row['calls']:>6}  {success_str:>8}  {row['last_used']:>12}"
+        )
+
+    if show_all:
+        for cmd in known_commands:
+            if cmd not in seen:
+                typer.echo(f"{cmd:<24} {'0':>6}  {'—':>8}  {'never':>12}  <- never used")
+
+    provider_rows = get_db().get_provider_summary(days=days)
+    if provider_rows:
+        typer.echo()
+        typer.echo(f"Provider attempts — last {days} day(s)")
+        typer.echo("━" * 60)
+        p_header = f"{'provider':<10} {'strategy':<10} {'attempts':>8}  {'success':>8}"
+        typer.echo(p_header)
+        typer.echo("-" * 60)
+
+        # Calculate fallback rates per provider
+        by_provider: dict[str, dict[str, int]] = {}
+        for row in provider_rows:
+            prov = row["provider"]
+            by_provider.setdefault(prov, {})
+            by_provider[prov][row["strategy"]] = row["attempts"]
+
+        for row in provider_rows:
+            prov = row["provider"]
+            strat = row["strategy"]
+            success_str = f"{row['success_pct']:.0f}%"
+            line = f"{prov:<10} {strat:<10} {row['attempts']:>8}  {success_str:>8}"
+            if strat == "fallback":
+                total = sum(by_provider[prov].values())
+                fallback_rate = row["attempts"] / total * 100 if total else 0
+                line += f"  ({fallback_rate:.0f}% fallback rate)"
+            typer.echo(line)

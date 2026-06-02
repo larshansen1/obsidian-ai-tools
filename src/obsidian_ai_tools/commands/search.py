@@ -6,12 +6,14 @@ from typing import Annotated
 import typer
 
 from ..config import get_settings
+from ..observability import track_command
 
 
 def register(app: typer.Typer) -> None:
     app.command()(search)
 
 
+@track_command("search")
 def search(
     keyword: Annotated[
         str | None, typer.Option("--keyword", "-k", help="Search for keyword in content")
