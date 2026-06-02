@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 
 from ..config import get_settings
+from ..observability import track_command
 
 
 def register(app: typer.Typer) -> None:
@@ -13,6 +14,7 @@ def register(app: typer.Typer) -> None:
     app.command()(overview)
 
 
+@track_command("digest")
 def digest(
     days: Annotated[
         int,
@@ -88,6 +90,7 @@ def digest(
         typer.echo(formatted)
 
 
+@track_command("overview")
 def overview(
     format_type: Annotated[
         str,

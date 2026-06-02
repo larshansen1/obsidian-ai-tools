@@ -17,6 +17,7 @@ from ..ingestion import (
 )
 from ..logging import setup_logging
 from ..models import ArticleMetadata, VideoMetadata
+from ..observability import track_command
 from ..youtube import (
     InvalidYouTubeURLError,
     TranscriptUnavailableError,
@@ -27,6 +28,7 @@ def register(app: typer.Typer) -> None:
     app.command()(ingest)
 
 
+@track_command("ingest")
 def ingest(
     url: Annotated[str, typer.Argument(help="URL or file path to ingest")],
     vault: Annotated[
