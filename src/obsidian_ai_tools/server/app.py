@@ -4,6 +4,7 @@ Intended as a local-only daemon (127.0.0.1) consumed by the Chrome extension.
 Start with: kai serve
 """
 
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -85,7 +86,12 @@ def create_app() -> FastAPI:
 
     @app.post("/ingest", response_model=IngestResponse)
     def ingest(req: IngestRequest) -> IngestResponse:
+        from ..observability import get_db
+
         settings = get_settings()
+        _start = time.monotonic()
+        _outcome = "success"
+        _error_type: str | None = None
         try:
             result = ingest_content(
                 ServiceIngestionRequest(
@@ -100,11 +106,21 @@ def create_app() -> FastAPI:
                 settings,
             )
         except ProviderSelectionError as exc:
+            _outcome, _error_type = "error", "ProviderSelectionError"
             raise HTTPException(status_code=400, detail=f"No provider for URL: {req.url}") from exc
         except ContentFetchError as exc:
+            _outcome, _error_type = "error", "ContentFetchError"
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except (NoteGenerationStageError, VaultWriteError) as exc:
+            _outcome, _error_type = "error", type(exc).__name__
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+        finally:
+            try:
+                get_db().record_invocation(
+                    "serve:ingest", _outcome, time.monotonic() - _start, _error_type
+                )
+            except Exception:  # nosec B110
+                pass
 
         return IngestResponse(
             title=result.note.title,

@@ -949,6 +949,7 @@ def usage(
         "list-tags",
         "tags",
         "flashcards",
+        "serve:ingest",
     ]
 
     seen = {r["command"] for r in rows}
