@@ -1160,9 +1160,9 @@ def test_stats_recent_no_records(tmp_path: Path) -> None:
             "obsidian_ai_tools.commands.vault.get_settings",
             return_value=dummy_settings,
         ),
-        patch("obsidian_ai_tools.observability.ObservabilityDB") as mock_db_cls,
+        patch("obsidian_ai_tools.observability.get_db") as mock_get_db,
     ):
-        mock_db = mock_db_cls.return_value
+        mock_db = mock_get_db.return_value
         mock_db.get_recent_costs.return_value = []
 
         result = runner.invoke(app, ["stats", "--recent"])
@@ -1194,9 +1194,9 @@ def test_stats_summary_with_data(tmp_path: Path) -> None:
             "obsidian_ai_tools.commands.vault.get_settings",
             return_value=dummy_settings,
         ),
-        patch("obsidian_ai_tools.observability.ObservabilityDB") as mock_db_cls,
+        patch("obsidian_ai_tools.observability.get_db") as mock_get_db,
     ):
-        mock_db = mock_db_cls.return_value
+        mock_db = mock_get_db.return_value
         mock_db.get_cost_summary.return_value = summary
 
         result = runner.invoke(app, ["stats"])
@@ -1241,9 +1241,9 @@ def test_quality_summary_with_data(tmp_path: Path) -> None:
             "obsidian_ai_tools.commands.vault.get_settings",
             return_value=dummy_settings,
         ),
-        patch("obsidian_ai_tools.observability.ObservabilityDB") as mock_db_cls,
+        patch("obsidian_ai_tools.observability.get_db") as mock_get_db,
     ):
-        mock_db = mock_db_cls.return_value
+        mock_db = mock_get_db.return_value
         mock_db.get_quality_summary.return_value = quality_summary
 
         result = runner.invoke(app, ["quality"])

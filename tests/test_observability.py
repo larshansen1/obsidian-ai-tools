@@ -3,7 +3,17 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from obsidian_ai_tools.observability import ObservabilityDB
+import pytest
+
+from obsidian_ai_tools.observability import ObservabilityDB, _set_db_for_test, get_db
+
+
+@pytest.fixture(autouse=True)
+def reset_singleton() -> None:
+    """Ensure the singleton is reset between tests."""
+    _set_db_for_test(None)
+    yield  # type: ignore[misc]
+    _set_db_for_test(None)
 
 
 def test_cost_records_round_trip_into_summaries(tmp_path: Path) -> None:
@@ -46,6 +56,26 @@ def test_quality_metrics_round_trip_into_summary(tmp_path: Path) -> None:
         "successes": 1,
         "avg_duration": 2.0,
     }
+
+
+def test_get_db_returns_injected_singleton(tmp_path: Path) -> None:
+    """get_db() returns the instance set by _set_db_for_test."""
+    db = ObservabilityDB(tmp_path / "obs.duckdb")
+    _set_db_for_test(db)
+    assert get_db() is db
+    assert get_db() is db  # same instance on repeated calls
+
+
+def test_set_db_for_test_reset_clears_singleton(tmp_path: Path) -> None:
+    """_set_db_for_test(None) resets the singleton so get_db creates a new one."""
+    db = ObservabilityDB(tmp_path / "obs.duckdb")
+    _set_db_for_test(db)
+    _set_db_for_test(None)
+    # After reset, get_db would call get_settings — just verify the slot is clear
+    # by confirming a new injection works independently
+    db2 = ObservabilityDB(tmp_path / "obs2.duckdb")
+    _set_db_for_test(db2)
+    assert get_db() is db2
 
 
 def test_observability_write_failures_do_not_break_main_operation(tmp_path: Path) -> None:

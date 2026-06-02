@@ -509,10 +509,10 @@ class TestPreviewCommand:
         assert "Unsupported" in result.output or "Cannot determine" in result.output
 
     @patch("obsidian_ai_tools.preview.generate_preview")
-    @patch("obsidian_ai_tools.observability.ObservabilityDB")
+    @patch("obsidian_ai_tools.observability.get_db")
     def test_preview_command_batch_reports_summary(
         self,
-        mock_db: MagicMock,
+        mock_get_db: MagicMock,
         mock_generate: MagicMock,
         tmp_path: Path,
         sample_preview: PreviewInfo,
@@ -538,14 +538,14 @@ class TestPreviewCommand:
         assert "Processing 2 URL(s)" in result.output
         assert "Previewed 2/2 URL(s)" in result.output
         assert "Total estimated cost" in result.output
-        assert mock_db.return_value.record_metric.call_count == 2
+        assert mock_get_db.return_value.record_metric.call_count == 2
 
     @patch("obsidian_ai_tools.preview.generate_preview")
     @patch("obsidian_ai_tools.preview.save_to_reading_list")
-    @patch("obsidian_ai_tools.observability.ObservabilityDB")
+    @patch("obsidian_ai_tools.observability.get_db")
     def test_preview_command_interactive_save(
         self,
-        mock_db: MagicMock,
+        mock_get_db: MagicMock,
         mock_save: MagicMock,
         mock_generate: MagicMock,
         tmp_path: Path,

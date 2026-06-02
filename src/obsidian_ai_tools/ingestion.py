@@ -178,10 +178,9 @@ def ingest_content(
         raise NoteGenerationStageError(f"Note generation failed: {exc}") from exc
 
     try:
-        from .observability import ObservabilityDB
+        from .observability import get_db
 
-        obs_db = ObservabilityDB(vault_path / ".kai" / "observability.duckdb")
-        obs_db.record_cost(
+        get_db().record_cost(
             operation="ingest",
             model=cost_info.model,
             source_type=cost_info.source_type,

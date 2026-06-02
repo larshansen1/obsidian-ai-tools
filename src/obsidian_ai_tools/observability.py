@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import duckdb
 
@@ -339,3 +340,23 @@ class ObservabilityDB:
                 ],
                 "common_errors": [(error, int(count)) for error, count in errors],
             }
+
+
+_db: Optional["ObservabilityDB"] = None
+
+
+def get_db() -> "ObservabilityDB":
+    """Return the shared ObservabilityDB singleton, creating it on first call."""
+    global _db
+    if _db is None:
+        from .config import get_settings
+
+        settings = get_settings()
+        _db = ObservabilityDB(settings.obsidian_vault_path / ".kai" / "observability.duckdb")
+    return _db
+
+
+def _set_db_for_test(db: Optional["ObservabilityDB"]) -> None:
+    """Inject or reset the singleton. Test use only."""
+    global _db
+    _db = db
