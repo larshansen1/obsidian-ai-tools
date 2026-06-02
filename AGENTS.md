@@ -15,6 +15,24 @@ git add -u
 uv run pre-commit run --all-files   # must pass clean (no files modified)
 ```
 
+### Hook stages — what runs when
+
+| Hook | Stage | Command to run manually |
+|------|-------|------------------------|
+| ruff lint + format | pre-commit | `uv run pre-commit run --all-files` |
+| bandit, gitleaks, README check, radon, pytest-fast | pre-commit | same |
+| **mypy** | **pre-push** | `uv run mypy src --config-file mypy.ini` |
+| **pytest full coverage** | **pre-push** | `COVERAGE=1 ./scripts/test.sh -q` |
+
+mypy and coverage only run on `git push`, not `git commit`. Always run both manually before pushing:
+
+```bash
+uv run mypy src --config-file mypy.ini
+COVERAGE=1 ./scripts/test.sh -q   # must be ≥ 80%
+```
+
+Coverage floor is 80% (`fail_under = 80` in `pyproject.toml`). New modules must include tests for all non-trivial paths — especially LLM-calling functions, which need a mocked client test (patch `OpenAI` at `obsidian_ai_tools.<module>.OpenAI`).
+
 ### Common E501 (line > 100 chars) patterns to watch for
 
 These patterns routinely blow the 100-char limit — keep them short or split them:

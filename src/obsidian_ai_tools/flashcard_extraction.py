@@ -160,10 +160,13 @@ def find_flashcard_candidates(
         metadata = _parse_frontmatter(content)
 
         if tag:
-            tags = metadata.get("tags", [])
-            if isinstance(tags, str):
-                tags = [tags]
-            if tag not in tags:
+            raw = metadata.get("tags", [])
+            tags_list: list[str] = (
+                [str(t) for t in raw]
+                if isinstance(raw, list)
+                else ([raw] if isinstance(raw, str) else [])
+            )
+            if tag not in tags_list:
                 continue
 
         created_at: datetime | None = None
@@ -191,8 +194,10 @@ def find_flashcard_candidates(
 
         title = str(metadata.get("title", md_file.stem))
         raw_tags = metadata.get("tags", [])
-        note_tags_list = (
-            raw_tags if isinstance(raw_tags, list) else ([raw_tags] if raw_tags else [])
+        note_tags_list: list[str] = (
+            [str(t) for t in raw_tags]
+            if isinstance(raw_tags, list)
+            else ([raw_tags] if isinstance(raw_tags, str) else [])
         )
         candidates.append(
             FlashcardCandidate(

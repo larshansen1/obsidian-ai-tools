@@ -2,14 +2,19 @@
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from obsidian_ai_tools.flashcard_extraction import (
     FlashcardCandidate,
+    FlashcardError,
+    _parse_frontmatter,
+    _strip_frontmatter,
     compute_deck,
     estimate_flashcard_cost,
     find_flashcard_candidates,
+    generate_flashcards,
     note_tags,
     write_flashcard_file,
 )
@@ -349,3 +354,146 @@ class TestEstimateFlashcardCost:
     def test_positive_for_nonempty_input(self, tmp_path: Path) -> None:
         candidates = [FlashcardCandidate(file_path=tmp_path / "a.md", title="A")]
         assert estimate_flashcard_cost(candidates, count=5) > 0
+
+
+# ── _parse_frontmatter / _strip_frontmatter helpers ───────────────────────────
+
+
+class TestParseFrontmatterHelpers:
+    def test_no_frontmatter_returns_empty(self) -> None:
+        assert _parse_frontmatter("# Just a heading\n\nBody.") == {}
+
+    def test_unclosed_frontmatter_returns_empty(self) -> None:
+        assert _parse_frontmatter("---\ntitle: No closing\n") == {}
+
+    def test_inline_list_tags(self) -> None:
+        content = "---\ntags: [ai, llm]\n---\n"
+        result = _parse_frontmatter(content)
+        assert result["tags"] == ["ai", "llm"]
+
+    def test_comment_and_blank_lines_ignored(self) -> None:
+        content = "---\n# comment\n\ntitle: Test\n---\n"
+        result = _parse_frontmatter(content)
+        assert result["title"] == "Test"
+        assert "#" not in result
+
+    def test_strip_frontmatter_no_frontmatter(self) -> None:
+        body = "# Heading\n\nContent."
+        assert _strip_frontmatter(body) == body
+
+    def test_strip_frontmatter_unclosed(self) -> None:
+        content = "---\ntitle: Unclosed\n"
+        assert _strip_frontmatter(content) == content
+
+    def test_strip_frontmatter_returns_body_only(self) -> None:
+        content = "---\ntitle: T\n---\n\n# Body\n"
+        assert _strip_frontmatter(content) == "# Body\n"
+
+
+# ── generate_flashcards ───────────────────────────────────────────────────────
+
+
+def _make_openai_response(content: str, cost: float = 0.005) -> MagicMock:
+    response = MagicMock()
+    response.choices[0].message.content = content
+    usage = MagicMock()
+    usage.cost = cost
+    response.usage = usage
+    return response
+
+
+class TestGenerateFlashcards:
+    _CARDS_JSON = '[{"question": "What is X?", "answer": "X is Y."}]'
+
+    def _note(self, tmp_path: Path) -> Path:
+        note = tmp_path / "note.md"
+        note.write_text("---\ntitle: Test\n---\n\nBody content.", encoding="utf-8")
+        return note
+
+    def test_returns_cards_and_cost(self, tmp_path: Path) -> None:
+        with (
+            patch("obsidian_ai_tools.flashcard_extraction.OpenAI") as mock_openai,
+            patch(
+                "obsidian_ai_tools.llm.load_prompt_template",
+                return_value="prompt {title} {content} {count}",
+            ),
+        ):
+            mock_openai.return_value.chat.completions.create.return_value = _make_openai_response(
+                self._CARDS_JSON, cost=0.01
+            )
+            cards, cost = generate_flashcards(self._note(tmp_path), count=5, model="m", api_key="k")
+
+        assert cards == [{"question": "What is X?", "answer": "X is Y."}]
+        assert cost == pytest.approx(0.01)
+
+    def test_extracts_json_from_json_code_block(self, tmp_path: Path) -> None:
+        wrapped = f"```json\n{self._CARDS_JSON}\n```"
+        with (
+            patch("obsidian_ai_tools.flashcard_extraction.OpenAI") as mock_openai,
+            patch(
+                "obsidian_ai_tools.llm.load_prompt_template",
+                return_value="p {title} {content} {count}",
+            ),
+        ):
+            mock_openai.return_value.chat.completions.create.return_value = _make_openai_response(
+                wrapped
+            )
+            cards, _ = generate_flashcards(self._note(tmp_path), count=5, model="m", api_key="k")
+
+        assert cards[0]["question"] == "What is X?"
+
+    def test_extracts_json_from_plain_code_block(self, tmp_path: Path) -> None:
+        wrapped = f"```\n{self._CARDS_JSON}\n```"
+        with (
+            patch("obsidian_ai_tools.flashcard_extraction.OpenAI") as mock_openai,
+            patch(
+                "obsidian_ai_tools.llm.load_prompt_template",
+                return_value="p {title} {content} {count}",
+            ),
+        ):
+            mock_openai.return_value.chat.completions.create.return_value = _make_openai_response(
+                wrapped
+            )
+            cards, _ = generate_flashcards(self._note(tmp_path), count=5, model="m", api_key="k")
+
+        assert len(cards) == 1
+
+    def test_llm_call_failure_raises_flashcard_error(self, tmp_path: Path) -> None:
+        with (
+            patch("obsidian_ai_tools.flashcard_extraction.OpenAI") as mock_openai,
+            patch(
+                "obsidian_ai_tools.llm.load_prompt_template",
+                return_value="p {title} {content} {count}",
+            ),
+        ):
+            mock_openai.return_value.chat.completions.create.side_effect = RuntimeError("timeout")
+            with pytest.raises(FlashcardError, match="LLM call failed"):
+                generate_flashcards(self._note(tmp_path), count=5, model="m", api_key="k")
+
+    def test_bad_json_raises_flashcard_error(self, tmp_path: Path) -> None:
+        with (
+            patch("obsidian_ai_tools.flashcard_extraction.OpenAI") as mock_openai,
+            patch(
+                "obsidian_ai_tools.llm.load_prompt_template",
+                return_value="p {title} {content} {count}",
+            ),
+        ):
+            mock_openai.return_value.chat.completions.create.return_value = _make_openai_response(
+                "not valid json"
+            )
+            with pytest.raises(FlashcardError, match="Failed to parse"):
+                generate_flashcards(self._note(tmp_path), count=5, model="m", api_key="k")
+
+    def test_non_list_json_raises_flashcard_error(self, tmp_path: Path) -> None:
+        with (
+            patch("obsidian_ai_tools.flashcard_extraction.OpenAI") as mock_openai,
+            patch(
+                "obsidian_ai_tools.llm.load_prompt_template",
+                return_value="p {title} {content} {count}",
+            ),
+        ):
+            mock_openai.return_value.chat.completions.create.return_value = _make_openai_response(
+                '{"question": "Q", "answer": "A"}'
+            )
+            with pytest.raises(FlashcardError, match="Expected JSON array"):
+                generate_flashcards(self._note(tmp_path), count=5, model="m", api_key="k")
