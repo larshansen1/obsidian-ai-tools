@@ -1,5 +1,6 @@
 """Tests for DuckDB-backed observability storage."""
 
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,10 +10,10 @@ from obsidian_ai_tools.observability import ObservabilityDB, _set_db_for_test, g
 
 
 @pytest.fixture(autouse=True)
-def reset_singleton() -> None:
+def reset_singleton() -> Generator[None, None, None]:
     """Ensure the singleton is reset between tests."""
     _set_db_for_test(None)
-    yield  # type: ignore[misc]
+    yield
     _set_db_for_test(None)
 
 
