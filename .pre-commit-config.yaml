@@ -37,7 +37,7 @@ repos:
     hooks:
       - id: readme-command-reference
         name: README command reference
-        entry: python scripts/check_readme_commands.py
+        entry: uv run python3 scripts/check_readme_commands.py
         language: system
         pass_filenames: false
         stages: [pre-commit]

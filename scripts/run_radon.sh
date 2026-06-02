@@ -2,7 +2,7 @@
 set -e
 
 # Compute CC and fail on CC > 10 for worker handlers or > 5 for tool wrappers
-python3 -m radon cc src -s -j > cc.json
+uv run python3 -m radon cc src -s -j > cc.json
 
 # Fail if handlers too complex
 python3 - << 'EOF'

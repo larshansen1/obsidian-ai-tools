@@ -257,6 +257,7 @@ Run `kai COMMAND --help` for all options.
 | `kai digest` | Summarize recent vault activity |
 | `kai connect` | Suggest or insert TF-IDF-based wikilinks |
 | `kai refresh` | Regenerate older notes with a target prompt version |
+| `kai flashcards` | Generate Obsidian Spaced Repetition flashcards from notes |
 | `kai tags` | Analyze and fix tag hygiene issues |
 | `kai stats` | Show LLM API cost statistics |
 | `kai quality` | Show ingestion success rates and common errors |

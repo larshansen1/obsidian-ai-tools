@@ -15,6 +15,21 @@ git add -u
 uv run pre-commit run --all-files   # must pass clean (no files modified)
 ```
 
+### Common E501 (line > 100 chars) patterns to watch for
+
+These patterns routinely blow the 100-char limit — keep them short or split them:
+
+- `typer.echo()` with f-strings that embed a path or long message
+- `logger.warning("... %s", long_variable)` — wrap the string across two lines
+- Test assertions: `assert "long literal string" in content` — extract into a variable first
+- Patch target strings in tests: `"obsidian_ai_tools.commands.module.function_name"`
+
+### Import hygiene for new files
+
+- **Sort order**: stdlib → third-party → first-party, alphabetical within each group. Ruff enforces this (I001).
+- **No speculative imports**: only import what you actually use in the file. Unused imports fail F401.
+- When scaffolding a new module, add imports as you write the code that needs them, not all at once up front.
+
 ### Why this matters for refactors touching test files
 
 When renaming mock patch paths (e.g. `obsidian_ai_tools.cli.X` → `obsidian_ai_tools.commands.Y.X`), the new strings are often longer and may push lines past the 100-char limit. `ruff format` will auto-fix them, but `make check` / `ruff check` (lint) will not catch formatting-only violations in all configurations. Always verify with pre-commit.
@@ -24,7 +39,7 @@ When renaming mock patch paths (e.g. `obsidian_ai_tools.cli.X` → `obsidian_ai_
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **obsidian-ai-tools** (3228 symbols, 5231 relationships, 117 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **obsidian-ai-tools** (3287 symbols, 5309 relationships, 117 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
