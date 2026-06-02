@@ -913,6 +913,7 @@ def _make_dummy_settings(vault_path: Path) -> MagicMock:
     settings = MagicMock()
     settings.obsidian_vault_path = vault_path
     settings.obsidian_inbox_folder = "inbox"
+    settings.obsidian_flashcards_folder = "Flashcards"
     settings.llm_model = "test-model"
     settings.openrouter_api_key = "test-key"
     return settings
@@ -1335,3 +1336,293 @@ def test_serve_stop_terminates_background_process(tmp_path: Path) -> None:
     assert "kai server stopped (PID 4321)" in result.output
     assert not pid_path.exists()
     assert mock_kill.call_args_list == [call(4321, 0), call(4321, 15)]
+
+
+# ── flashcards command ────────────────────────────────────────────────────────
+
+
+def test_flashcards_single_note_generates_and_writes(tmp_path: Path) -> None:
+    """Single-note invocation generates cards and reports the output path."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    note = vault_path / "AI" / "attention.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("---\ntitle: Attention\n---\nContent.", encoding="utf-8")
+
+    flashcard_path = vault_path / "Flashcards" / "AI" / "attention.md"
+    cards = [{"question": "What?", "answer": "This."}]
+
+    with (
+        patch(
+            "obsidian_ai_tools.commands.flashcards.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.generate_flashcards",
+            return_value=(cards, 0.001),
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.write_flashcard_file",
+            return_value=flashcard_path,
+        ) as mock_write,
+    ):
+        result = runner.invoke(app, ["flashcards", "AI/attention.md", "--vault", str(vault_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "Flashcard file written" in result.output
+    assert "1 card(s)" in result.output
+    mock_write.assert_called_once()
+
+
+def test_flashcards_single_note_skips_when_exists_without_force(tmp_path: Path) -> None:
+    """Single-note mode exits without generating when flashcard already exists."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    note = vault_path / "note.md"
+    note.write_text("---\ntitle: Note\n---\nContent.", encoding="utf-8")
+    existing = vault_path / "Flashcards" / "note.md"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("old flashcard", encoding="utf-8")
+
+    with patch(
+        "obsidian_ai_tools.commands.flashcards.get_settings",
+        return_value=_make_dummy_settings(vault_path),
+    ):
+        result = runner.invoke(app, ["flashcards", "note.md", "--vault", str(vault_path)])
+
+    assert result.exit_code == 0
+    assert "already exists" in result.output
+    assert "Use --force" in result.output
+
+
+def test_flashcards_batch_dry_run_shows_plan_without_generating(tmp_path: Path) -> None:
+    """Batch mode without --confirm prints plan and exits without making LLM calls."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    candidate = MagicMock()
+    candidate.file_path = vault_path / "note.md"
+    candidate.title = "Test Note"
+
+    with (
+        patch(
+            "obsidian_ai_tools.commands.flashcards.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.find_flashcard_candidates",
+            return_value=[candidate],
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.estimate_flashcard_cost",
+            return_value=0.005,
+        ),
+        patch("obsidian_ai_tools.flashcard_extraction.generate_flashcards") as mock_gen,
+    ):
+        result = runner.invoke(app, ["flashcards", "--tag", "ai", "--vault", str(vault_path)])
+
+    assert result.exit_code == 0
+    assert "Add --confirm" in result.output
+    assert "Estimated cost" in result.output
+    mock_gen.assert_not_called()
+
+
+def test_flashcards_batch_confirm_runs_generation(tmp_path: Path) -> None:
+    """Batch mode with --confirm calls generate and write for each candidate."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    note = vault_path / "note.md"
+    note.write_text("---\ntitle: Note\n---\nContent.", encoding="utf-8")
+
+    candidate = MagicMock()
+    candidate.file_path = note
+    candidate.title = "Note"
+
+    flashcard_path = vault_path / "Flashcards" / "note.md"
+    cards = [{"question": "Q?", "answer": "A."}]
+
+    with (
+        patch(
+            "obsidian_ai_tools.commands.flashcards.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.find_flashcard_candidates",
+            return_value=[candidate],
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.estimate_flashcard_cost",
+            return_value=0.005,
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.generate_flashcards",
+            return_value=(cards, 0.005),
+        ) as mock_gen,
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.write_flashcard_file",
+            return_value=flashcard_path,
+        ) as mock_write,
+    ):
+        result = runner.invoke(
+            app,
+            ["flashcards", "--tag", "ai", "--confirm", "--vault", str(vault_path)],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert "Flashcard generation complete" in result.output
+    assert "Generated: 1/1" in result.output
+    mock_gen.assert_called_once()
+    mock_write.assert_called_once()
+
+
+def test_flashcards_no_args_shows_error(tmp_path: Path) -> None:
+    """Running kai flashcards with no note path and no batch flags exits with error."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    with patch(
+        "obsidian_ai_tools.commands.flashcards.get_settings",
+        return_value=_make_dummy_settings(vault_path),
+    ):
+        result = runner.invoke(app, ["flashcards", "--vault", str(vault_path)])
+
+    assert result.exit_code == 1
+    assert "Specify a note path" in result.output
+
+
+def test_flashcards_single_note_force_warns_about_history_reset(tmp_path: Path) -> None:
+    """--force on an existing flashcard file prints a SR history warning."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    note = vault_path / "note.md"
+    note.write_text("---\ntitle: Note\n---\nContent.", encoding="utf-8")
+    existing = vault_path / "Flashcards" / "note.md"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("old flashcard", encoding="utf-8")
+
+    cards = [{"question": "Q?", "answer": "A."}]
+    with (
+        patch(
+            "obsidian_ai_tools.commands.flashcards.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.generate_flashcards",
+            return_value=(cards, 0.001),
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.write_flashcard_file",
+            return_value=existing,
+        ),
+    ):
+        result = runner.invoke(
+            app, ["flashcards", "note.md", "--force", "--vault", str(vault_path)]
+        )
+
+    assert result.exit_code == 0
+    assert "SR review history" in result.output
+
+
+def test_flashcards_single_note_generation_error_exits(tmp_path: Path) -> None:
+    """FlashcardError during single-note generation exits with code 1."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+    note = vault_path / "note.md"
+    note.write_text("---\ntitle: Note\n---\nContent.", encoding="utf-8")
+
+    with (
+        patch(
+            "obsidian_ai_tools.commands.flashcards.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.generate_flashcards",
+            side_effect=__import__(
+                "obsidian_ai_tools.flashcard_extraction", fromlist=["FlashcardError"]
+            ).FlashcardError("LLM failed"),
+        ),
+    ):
+        result = runner.invoke(app, ["flashcards", "note.md", "--vault", str(vault_path)])
+
+    assert result.exit_code == 1
+    assert "Failed to generate flashcards" in result.output
+
+
+def test_flashcards_batch_generation_error_reported(tmp_path: Path) -> None:
+    """FlashcardError during batch generation is reported but does not abort the run."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    from obsidian_ai_tools.flashcard_extraction import FlashcardError
+
+    candidate = MagicMock()
+    candidate.file_path = vault_path / "note.md"
+    candidate.title = "Note"
+    candidate.tags = ["ai"]
+
+    with (
+        patch(
+            "obsidian_ai_tools.commands.flashcards.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.find_flashcard_candidates",
+            return_value=[candidate],
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.estimate_flashcard_cost",
+            return_value=0.001,
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.generate_flashcards",
+            side_effect=FlashcardError("timeout"),
+        ),
+    ):
+        result = runner.invoke(
+            app,
+            ["flashcards", "--tag", "ai", "--confirm", "--vault", str(vault_path)],
+        )
+
+    assert result.exit_code == 0
+    assert "Generated: 0/1" in result.output
+
+
+def test_flashcards_batch_write_returns_none_counts_as_skipped(tmp_path: Path) -> None:
+    """When write_flashcard_file returns None the note counts as skipped."""
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    candidate = MagicMock()
+    candidate.file_path = vault_path / "note.md"
+    candidate.title = "Note"
+    candidate.tags = ["ai"]
+    cards = [{"question": "Q?", "answer": "A."}]
+
+    with (
+        patch(
+            "obsidian_ai_tools.commands.flashcards.get_settings",
+            return_value=_make_dummy_settings(vault_path),
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.find_flashcard_candidates",
+            return_value=[candidate],
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.estimate_flashcard_cost",
+            return_value=0.001,
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.generate_flashcards",
+            return_value=(cards, 0.001),
+        ),
+        patch(
+            "obsidian_ai_tools.flashcard_extraction.write_flashcard_file",
+            return_value=None,
+        ),
+    ):
+        result = runner.invoke(
+            app,
+            ["flashcards", "--tag", "ai", "--confirm", "--vault", str(vault_path)],
+        )
+
+    assert result.exit_code == 0
+    assert "Skipped:   1" in result.output

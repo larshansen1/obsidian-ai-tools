@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     obsidian_inbox_folder: str = Field(
         default="inbox", description="Folder within vault for new notes"
     )
+    obsidian_flashcards_folder: str = Field(
+        default="Flashcards", description="Folder within vault for generated flashcard files"
+    )
 
     # LLM Configuration
     llm_model: str = Field(
