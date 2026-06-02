@@ -76,7 +76,7 @@ def test_golden_ingest_local_markdown(tmp_path: Path) -> None:
     )
 
     with (
-        patch("obsidian_ai_tools.cli.get_settings") as mock_settings,
+        patch("obsidian_ai_tools.commands.ingest.get_settings") as mock_settings,
         patch("obsidian_ai_tools.llm.OpenAI") as mock_openai,
     ):
         mock_settings.return_value.obsidian_vault_path = vault
