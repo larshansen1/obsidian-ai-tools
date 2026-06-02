@@ -42,6 +42,10 @@ These patterns routinely blow the 100-char limit — keep them short or split th
 - Test assertions: `assert "long literal string" in content` — extract into a variable first
 - Patch target strings in tests: `"obsidian_ai_tools.commands.module.function_name"`
 
+### Never modify scripts/run_radon.sh or .pre-commit-config.yaml
+
+These files must use plain `python`/`python3` — not `uv run` — because they run both locally (where the venv is active) and in CI (which has no `uv`). Changing them to use `uv run` will break CI with "uv: command not found".
+
 ### Import hygiene for new files
 
 - **Sort order**: stdlib → third-party → first-party, alphabetical within each group. Ruff enforces this (I001).
