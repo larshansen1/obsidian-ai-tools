@@ -2,10 +2,13 @@
 set -e
 
 # Compute CC and fail on CC > 10 for worker handlers or > 5 for tool wrappers
-.venv/bin/python -m radon cc src -s -j > cc.json
+PYTHON=".venv/bin/python"
+[ -f "$PYTHON" ] || PYTHON="python"
+
+$PYTHON -m radon cc src -s -j > cc.json
 
 # Fail if handlers too complex
-.venv/bin/python - << 'EOF'
+$PYTHON - << 'EOF'
 import json, sys
 from pathlib import Path
 data = json.load(open("cc.json"))
