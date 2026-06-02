@@ -376,8 +376,7 @@ class YouTubeFetcher:
 ### Current (MVP)
 
 - **Unit tests**: Pure functions (youtube, llm, obsidian helpers)
-- **Coverage**: 46% (cli.py and config.py excluded)
-- **MVP threshold**: 45%
+- **Enforced floor**: 80% (`fail_under = 80` in `pyproject.toml`)
 - **Production target**: 85%+
 
 ### Enterprise

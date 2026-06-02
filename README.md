@@ -304,7 +304,24 @@ make bandit
 make quality
 ```
 
-The coverage threshold is currently `45%`, as configured in `pyproject.toml`.
+The coverage threshold is currently `80%`, as configured in `pyproject.toml` (`fail_under = 80`).
+
+## Data & Privacy
+
+Several `kai` commands send note content to external LLM APIs:
+
+| Command | Data sent externally |
+|---------|---------------------|
+| `kai ingest` | Source content (URL transcript, file text) |
+| `kai flashcards` | Note body |
+| `kai tags` | Note body |
+| `kai refresh` | Note body (re-processed) |
+
+**Provider chain:** Requests go to [OpenRouter](https://openrouter.ai) (`https://openrouter.ai/api/v1`), which forwards to the configured model provider (e.g. Anthropic, OpenAI). This tool does not store vault data server-side.
+
+Data retention and training opt-out are governed by your OpenRouter account settings and the upstream model provider's privacy policy. By default, OpenRouter does not use submitted data for training — check [OpenRouter's privacy policy](https://openrouter.ai/privacy) and your chosen model provider's policy for the current terms.
+
+The `OPENROUTER_API_KEY` environment variable determines which account (and therefore which data policy) applies.
 
 ## Security
 
