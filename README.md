@@ -14,6 +14,39 @@
 - Optional local HTTP service and Chrome extension for browser-based ingestion
 - Cache, circuit-breaker, retry, and rate-limiting support
 
+## Quick Start
+
+Get from zero to your first ingested note in under 10 minutes.
+
+**Prerequisites:** Python 3.11+, git, an [OpenRouter](https://openrouter.ai/) API key, an existing Obsidian vault directory.
+
+```bash
+# 1. Clone and install
+git clone https://github.com/larshansen1/obsidian-ai-tools.git
+cd obsidian-ai-tools
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+
+# 2. Configure
+cp .env.example .env
+# Edit .env — set at minimum:
+#   OPENROUTER_API_KEY=your_key_here
+#   OBSIDIAN_VAULT_PATH=/path/to/your/vault
+
+# 3. Ingest your first URL
+kai ingest "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+```
+
+Expected output:
+
+```
+✓ Fetched transcript (3421 tokens)
+✓ Generated note via anthropic/claude-sonnet-4
+✓ Written to /path/to/your/vault/inbox/Never Gonna Give You Up.md
+```
+
+The note lands in your vault's inbox folder with frontmatter (`title`, `tags`, `source_url`, `model`, `prompt_version`). Run `kai --help` to explore all commands.
+
 ## Requirements
 
 - Python 3.11 or newer
@@ -322,6 +355,8 @@ Several `kai` commands send note content to external LLM APIs:
 Data retention and training opt-out are governed by your OpenRouter account settings and the upstream model provider's privacy policy. By default, OpenRouter does not use submitted data for training — check [OpenRouter's privacy policy](https://openrouter.ai/privacy) and your chosen model provider's policy for the current terms.
 
 The `OPENROUTER_API_KEY` environment variable determines which account (and therefore which data policy) applies.
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for a detailed account of the AI-assisted development workflow, prompting strategy, and key lessons learned.
 
 ## Security
 
