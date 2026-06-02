@@ -1,0 +1,6 @@
+[allowlist]
+  description = "Ignore test fixtures and placeholder values — these contain fake/mock keys, not real secrets"
+  paths = [
+    '''(^|/)tests/''',
+    '''\.env\.example$''',
+  ]

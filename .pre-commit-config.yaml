@@ -32,6 +32,7 @@ repos:
     hooks:
       - id: gitleaks
         stages: [pre-commit]
+        args: ["-c", ".gitleaks.toml"]
 
   - repo: local
     hooks:

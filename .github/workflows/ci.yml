@@ -28,7 +28,7 @@ jobs:
           sudo mv gitleaks /usr/local/bin/gitleaks
 
       - name: Run Gitleaks
-        run: gitleaks detect --source . --no-git --redact
+        run: gitleaks detect --source . --no-git --redact -c .gitleaks.toml
 
   build:
     runs-on: ubuntu-latest
