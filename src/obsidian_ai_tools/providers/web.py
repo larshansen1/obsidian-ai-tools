@@ -77,6 +77,8 @@ class WebProvider(BaseProvider):
         """
         captured_content = kwargs.get("captured_content")
         if isinstance(captured_content, str) and captured_content.strip():
+            _t0 = time.monotonic()
+            _record_attempt("web", "captured", "success", time.monotonic() - _t0, url=source)
             return ArticleMetadata(
                 content=captured_content.strip(),
                 title=kwargs.get("captured_title") or "Captured Chat",
@@ -90,8 +92,10 @@ class WebProvider(BaseProvider):
         _limiter.wait(source)
 
         # 1. Check for raw content (GitHub, etc.)
+        _t0 = time.monotonic()
         raw_result = self._check_raw_content(source)
         if raw_result:
+            _record_attempt("web", "raw", "success", time.monotonic() - _t0, url=source)
             return ArticleMetadata(**raw_result)
 
         # 2. Try direct extraction (Trafilatura)

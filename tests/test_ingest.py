@@ -275,6 +275,25 @@ class TestWebProviderIngest:
         assert result.site_name == "Browser Capture"
         fetch_url.assert_not_called()
 
+    def test_web_provider_browser_capture_logs_provider_attempt(self, tmp_path: Path) -> None:
+        """Browser-captured content must log a provider attempt so kai usage shows it."""
+        from obsidian_ai_tools.observability import ObservabilityDB
+        from obsidian_ai_tools.providers.web import WebProvider
+
+        db = ObservabilityDB(tmp_path / "obs.db")
+        with patch("obsidian_ai_tools.providers.web.get_db", return_value=db):
+            provider = WebProvider()
+            provider._ingest(
+                "https://chatgpt.com/c/example",
+                captured_content="User: question\nAssistant: answer",
+                captured_title="ChatGPT - Example",
+            )
+
+        summary = db.get_provider_summary(days=1)
+        assert any(row["provider"] == "web" and row["strategy"] == "captured" for row in summary), (
+            "Expected a 'web/captured' provider attempt to be recorded"
+        )
+
     def test_web_provider_ingest_returns_raw_github_content(self) -> None:
         """GitHub blob URLs should be converted to raw content before extraction."""
         from obsidian_ai_tools.providers.web import WebProvider
