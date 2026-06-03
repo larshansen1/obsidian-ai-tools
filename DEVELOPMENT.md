@@ -73,6 +73,19 @@ Without `kai stats` and `kai quality`, there was no way to know whether the inge
 
 Build observability before you build the next feature.
 
+**Keep development-time and runtime data strictly separated.** When the test suite invokes instrumented code — CLI commands, providers, the HTTP endpoint — it will write to the observability database unless explicitly isolated. This happened here: ~500 test invocations landed in the production DuckDB, making `kai usage` show 81 flashcard "calls" that never happened. The fix was a single autouse fixture in `conftest.py` that redirects `get_db()` to a per-test throwaway file. The lesson: any observability write path that activates during tests will corrupt production metrics unless isolation is built in from day one, not retrofitted after noticing the noise.
+
+### 5. Documentation rots fast — prune it deliberately
+
+AI assistants produce documentation readily and at volume. This is a trap: it is easy to end up with a README, an ARCHITECTURE doc, a DEVELOPMENT doc, a CHANGELOG, a QUICK_START, and several inline docstrings that all describe the same thing at slightly different points in time. The AI will not notice the drift. It will confidently generate a new section that contradicts an older one, or leave a "Week 1 MVP" heading in a document that describes a shipped tool.
+
+Two rules that helped here:
+
+- **Delete documentation that has become false rather than update it in place.** A stale document is worse than no document — it actively misleads. If a section no longer reflects reality, remove it unless there is a clear owner and timeline for fixing it.
+- **Cross-reference, don't duplicate.** When `ARCHITECTURE.md` and `DEVELOPMENT.md` both try to explain the module structure, one of them will fall behind. Decide which document owns each fact and have the other point to it.
+
+The architecture review document (`docs/architecture-review-20260601.html`) is an example of getting this right eventually: five improvement candidates identified, work tracked in issues, document removed once it had served its purpose rather than left to age.
+
 ### Smaller, evergreen lessons
 
 - **Prompt templates as first-class artifacts.** Treating `prompts/` as versioned source (not generated output) made it possible to iterate on note quality independently of the Python code.

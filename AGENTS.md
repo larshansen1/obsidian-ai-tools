@@ -61,7 +61,7 @@ When renaming mock patch paths (e.g. `obsidian_ai_tools.cli.X` → `obsidian_ai_
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **obsidian-ai-tools** (3620 symbols, 5940 relationships, 128 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **obsidian-ai-tools** (3584 symbols, 5904 relationships, 128 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
