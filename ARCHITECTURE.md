@@ -1,410 +1,170 @@
-# Architecture Documentation
+# Architecture
 
-## Overview
+`obsidian-ai-tools` is a personal knowledge ingestion tool. It fetches content from URLs or files, generates structured Obsidian notes via an LLM, and writes them to a vault. It has three entry points: a CLI (`kai`), a local HTTP server consumed by a Chrome extension, and a Python API (`ingest_content()`).
 
-This document describes the current pragmatic architecture and provides a clear path for migrating to an enterprise-grade hexagonal architecture when needed.
+---
 
-## Current Architecture (Pragmatic - Week 1 MVP)
-
-### Design Philosophy
-
-The current architecture prioritizes:
-- **Speed to ship**: Minimal abstraction layers
-- **Pure functions**: Core logic is MCP-ready
-- **Clear modules**: Each module has a single responsibility
-- **Quality gates**: All code passes ruff, mypy, pytest
-- **No over-engineering**: YAGNI principle applied rigorously
-
-### Module Structure
+## Module map
 
 ```
 src/obsidian_ai_tools/
-├── __init__.py           # Package exports
-├── __main__.py           # Entry point for python -m
-├── config.py             # Pydantic settings (env loading)
-├── models.py             # Data classes (VideoMetadata, Note)
-├── youtube.py            # Pure functions: fetch transcripts
-├── llm.py                # Pure functions: generate notes via OpenRouter
-├── obsidian.py           # Pure functions: write to vault
-├── indexer.py            # Vault scanning (NoteMetadata, VaultIndex, build_index)
-├── search.py             # BM25F search + backlink boost (Whoosh)
-├── wikilinks.py          # Shared wikilink utilities (extract, resolve, backlinks)
-├── overview.py           # Vault terrain map (per-folder TF-IDF keywords + tags)
-├── concept_linking.py    # TF-IDF similarity for kai connect
-├── folder_organizer.py   # Rule-based inbox organisation
-├── digest.py             # Vault activity digest generation
-├── preview.py            # URL preview without full ingestion
-├── refresh.py            # Re-process notes with updated prompts
-├── tag_hygiene.py        # Tag deduplication and consolidation
-└── cli.py                # Typer CLI (thin orchestration layer)
+│
+├── cli.py                    # Typer app + command registration (30 lines — pure router)
+├── __main__.py               # python -m entry point
+│
+├── commands/                 # One module per command group
+│   ├── ingest.py             # kai ingest
+│   ├── notes.py              # kai digest, kai overview
+│   ├── preview.py            # kai preview, kai reading-list *
+│   ├── search.py             # kai search
+│   ├── serve.py              # kai serve, kai version
+│   ├── tags.py               # kai list-tags, kai tags
+│   ├── vault.py              # kai rebuild-index, process-inbox, update-rules,
+│   │                         #   stats, quality, usage, follow, connect, refresh
+│   └── flashcards.py         # kai flashcards
+│
+├── providers/                # Content fetching, one provider per source type
+│   ├── base.py               # BaseProvider (abstract: name, validate, _ingest)
+│   ├── factory.py            # ProviderFactory — selects provider by URL/path
+│   ├── web.py                # WebProvider: Trafilatura → Supadata fallback
+│   ├── pdf.py                # PDFProvider: local pypdf → remote download → Supadata fallback
+│   ├── youtube.py            # YouTubeProvider: delegates to YouTubeClient
+│   └── file.py               # FileProvider: local markdown/text files
+│
+├── server/
+│   └── app.py                # FastAPI app: GET /status, POST /ingest
+│                             #   consumed by Chrome extension via kai serve
+│
+├── utils/
+│   └── rate_limiter.py       # Shared rate limiter (delay between HTTP requests)
+│
+├── ingestion.py              # Central orchestration: ProviderFactory → LLM → vault write
+├── llm.py                    # generate_note(metadata, existing_tags) → (Note, CostInfo)
+├── obsidian.py               # write_note(), parse_frontmatter()
+├── observability.py          # DuckDB storage + get_db() singleton + @track_command
+├── config.py                 # Pydantic Settings, get_settings() (lru_cached)
+├── models.py                 # VideoMetadata, ArticleMetadata, Note, CostInfo, …
+├── indexer.py                # VaultIndex, build_index() — scans vault markdown
+├── search.py                 # BM25F search via Whoosh + backlink boosting
+├── wikilinks.py              # extract_wikilinks(), resolve_wikilink(), count_backlinks()
+├── concept_linking.py        # TF-IDF cosine similarity for kai connect
+├── overview.py               # Per-folder TF-IDF keyword map for kai overview
+├── digest.py                 # Vault activity digest for kai digest
+├── preview.py                # URL preview without full ingestion
+├── refresh.py                # Re-process notes with updated prompt versions
+├── tag_hygiene.py            # Tag deduplication and consolidation for kai tags
+├── folder_organizer.py       # Rule-based inbox routing for kai process-inbox
+├── flashcard_extraction.py   # Spaced-repetition flashcard generation
+├── youtube.py                # YouTubeClient — transcript fetching coordination
+├── youtube_providers.py      # Transcript providers: direct, Supadata, Decodo
+├── youtube_exceptions.py     # InvalidYouTubeURLError, TranscriptUnavailableError
+├── transcript_validation.py  # Sanity checks on raw transcript data
+├── cache.py                  # File-backed cache for provider responses
+├── circuit_breaker.py        # Circuit breaker for external service calls
+├── api_contracts.py          # Pydantic schemas for external API responses
+│                             #   ⚠ currently 0 callers — see issue #32
+└── logging.py                # Structured logging setup
 
-prompts/
-├── youtube_v1.md         # YouTube transcript prompt
-├── youtube_v2.md
-├── article_v1.md
-├── pdf_v1.md
-└── markdown_v1.md
-```
-
-### Data Flow
-
-```
-User: kai ingest <youtube-url>
-  ↓
-cli.py: ingest() command
-  ↓
-config.py: load Settings from .env
-  ↓
-youtube.py: get_video_metadata(url) → VideoMetadata
-  ↓
-llm.py: generate_note(metadata, ...) → Note
-  ↓
-obsidian.py: write_note(note, ...) → Path
-  ↓
-Success message
-```
-
-### Key Design Decisions
-
-1. **Flat function-based modules** instead of classes
-   - Easier to test
-   - Lower cognitive overhead
-   - Pure functions are MCP-ready
-
-2. **Single source of truth** for configuration (pydantic-settings)
-   - Type-safe validation
-   - Environment variable support
-   - No boilerplate
-
-3. **Explicit error types** for each module
-   - `youtube.py`: `InvalidYouTubeURLError`, `TranscriptUnavailableError`
-   - `llm.py`: `NoteGenerationError`, `PromptTemplateError`
-   - `obsidian.py`: `FileWriteError`, `PathTraversalError`
-
-4. **Prompt templates as files** (not hardcoded strings)
-   - Version control
-   - Easy iteration
-   - Clear separation of code and prompts
-
-### MCP Conversion (Future)
-
-The current pure functions can be wrapped for MCP with zero changes:
-
-```python
-# Current CLI (cli.py)
-def ingest(url: str):
-    metadata = get_video_metadata(url)
-    note = generate_note(metadata, ...)
-    write_note(note, ...)
-
-# Future MCP server (mcp/server.py)
-@mcp_tool()
-def ingest_youtube(url: str) -> dict:
-    metadata = get_video_metadata(url)  # Same function!
-    note = generate_note(metadata, ...)   # Same function!
-    path = write_note(note, ...)          # Same function!
-    return {"status": "success", "path": str(path)}
+prompts/                      # Versioned LLM prompt templates (Markdown)
+    youtube_v1.md, youtube_v2.md, article_v1.md, pdf_v1.md,
+    markdown_v1.md, flashcard_v1.md
 ```
 
 ---
 
-## Enterprise Migration Path
+## Entry points
 
-### When to Migrate
+| Entry point | How | Lands in |
+|-------------|-----|----------|
+| `kai <command>` | CLI (Typer) | `commands/<module>.py` |
+| `POST /ingest` | HTTP (Chrome extension → `kai serve`) | `server/app.py` |
+| `ingest_content(request, settings)` | Python API | `ingestion.py` directly |
 
-Consider migrating to hexagonal architecture when you encounter:
-
-1. **Multiple source types** (articles, PDFs, podcasts) with similar workflows
-2. **Team growth** (3+ developers) requiring clearer boundaries
-3. **Complex workflows** (multi-step ingestion, human-in-the-loop approval)
-4. **Testing challenges** (need more granular mocking)
-5. **Shared logic** across CLI and MCP server
-
-### Hexagonal Architecture Overview
-
-```
-┌─────────────────────────────────────────────┐
-│            Application Core                 │
-│   ┌─────────────────────────────────┐      │
-│   │     Domain Layer                 │      │
-│   │  (entities, value objects,       │      │
-│   │   pure business logic)           │      │
-│   └─────────────────────────────────┘      │
-│                  ↑                          │
-│   ┌─────────────────────────────────┐      │
-│   │     Ports (Interfaces)           │      │
-│   │  - TranscriptFetcher             │      │
-│   │  - LLMClient                     │      │
-│   │  - NoteWriter                    │      │
-│   └─────────────────────────────────┘      │
-│                  ↑                          │
-│   ┌─────────────────────────────────┐      │
-│   │  Application Layer (Use Cases)   │      │
-│   │  IngestContentUseCase            │      │
-│   └─────────────────────────────────┘      │
-└─────────────────────────────────────────────┘
-                   ↑
-        ┌──────────┴──────────┐
-        │                     │
-┌───────────────┐   ┌──────────────────┐
-│   Adapters    │   │    Adapters      │
-│               │   │                  │
-│ - CLI         │   │ - MCP Server     │
-│ - YouTube API │   │ - OpenRouter API │
-│ - Filesystem  │   │ - Article API    │
-└───────────────┘   └──────────────────┘
-```
-
-### Migration Steps (Incremental)
-
-#### Phase 1: Extract Domain Entities (Low Risk)
-
-**Current:**
-```python
-# models.py
-class VideoMetadata(BaseModel): ...
-class Note(BaseModel): ...
-```
-
-**Hexagonal:**
-```python
-# domain/entities.py
-@dataclass(frozen=True)
-class Content:  # More generic than VideoMetadata
-    source_url: str
-    title: str
-    body: str
-    source_type: str
-
-@dataclass(frozen=True)
-class Note:  # Same concept, immutable
-    title: str
-    content: str
-    tags: list[str]
-```
-
-**Migration steps:**
-1. Create `src/obsidian_ai_tools/domain/entities.py`
-2. Copy current models, make them immutable dataclasses
-3. Update imports gradually
-4. Remove old `models.py`
+All three converge on `ingestion.py: ingest_content()` for the actual work.
 
 ---
 
-#### Phase 2: Define Ports (Interfaces)
+## Ingestion pipeline
 
-**Current:**
-```python
-# youtube.py
-def get_video_metadata(url: str) -> VideoMetadata: ...
-
-# llm.py
-def generate_note(metadata, model, api_key) -> Note: ...
+```
+Entry point
+  (CLI command / HTTP POST / Python call)
+        │
+        ▼
+  ingestion.py: ingest_content()
+        │
+        ├─ ProviderFactory.get_provider(url)
+        │         │
+        │         ▼
+        │   providers/{web,pdf,youtube,file}.py
+        │   → primary attempt
+        │   → fallback attempt (web: Supadata, pdf: Supadata)
+        │   → record_provider_attempt() ──────────────────────┐
+        │                                                      │
+        ├─ llm.py: generate_note(metadata, existing_tags)      │
+        │         → (Note, CostInfo)                          │
+        │                                                      │
+        ├─ ingestion.py: record_cost() ──────────────────────┤
+        │                                                      │
+        ├─ obsidian.py: write_note()                          │
+        │                                                      ▼
+        └─ @track_command / serve:ingest ──────► observability.py (DuckDB)
 ```
 
-**Hexagonal:**
-```python
-# ports/content_fetcher.py
-from typing import Protocol
-
-class ContentFetcher(Protocol):
-    def fetch(self, url: str) -> Content:
-        """Fetch content from URL."""
-        ...
-
-# ports/note_generator.py
-class NoteGenerator(Protocol):
-    def generate(self, content: Content) -> Note:
-        """Generate note from content."""
-        ...
-```
-
-**Migration steps:**
-1. Create `src/obsidian_ai_tools/ports/` directory
-2. Define Protocol classes for each integration point
-3. Current functions become adapter implementations
-4. No breaking changes yet (Protocols are duck-typed)
+`generate_note()` is pure: it accepts `existing_tags` as a parameter and returns `(Note, CostInfo)` with no I/O side-effects. The caller (`ingestion.py`) is responsible for tag discovery and cost recording.
 
 ---
 
-#### Phase 3: Create Adapters
+## Observability
 
-**Current:**
-```python
-# youtube.py (functions)
-def get_video_metadata(url): ...
-```
+All writes are best-effort — a DB failure never blocks the operation. The singleton `get_db()` in `observability.py` lazily initialises one `ObservabilityDB` instance per process.
 
-**Hexagonal:**
-```python
-# adapters/youtube_fetcher.py
-class YouTubeFetcher:
-    """Adapter implementing ContentFetcher for YouTube."""
+**DuckDB file:** `{vault_path}/.kai/observability.duckdb`
 
-    def fetch(self, url: str) -> Content:
-        video_id = extract_video_id(url)
-        transcript = fetch_transcript(video_id)
-        # Transform YouTube-specific data → domain Content
-        return Content(...)
-```
+| Table | What it records |
+|-------|----------------|
+| `costs` | LLM token usage and USD cost per ingest |
+| `metrics` | Ingestion outcome (success/failure) per source type |
+| `command_invocations` | Every CLI command or `serve:ingest` call: outcome, duration |
+| `provider_attempts` | Every provider attempt: primary vs fallback, outcome, duration |
 
-**Migration steps:**
-1. Create `src/obsidian_ai_tools/adapters/` directory
-2. Wrap existing functions in classes
-3. Keep pure function implementations (extract as helpers)
-4. Adapters handle external API calls, pure functions handle logic
+**`@track_command(name)`** — decorator on all user-facing CLI functions. Records outcome (`success` / `error` / `user_abort`) and wall-clock duration in a swallowed `finally` block.
+
+**`kai usage [--days N] [--all]`** — surfaces `command_invocations` and `provider_attempts` as a terminal report.
 
 ---
 
-#### Phase 4: Add Use Cases (Application Layer)
+## Key design decisions
 
-**Current:**
-```python
-# cli.py
-def ingest(url: str):
-    metadata = get_video_metadata(url)
-    note = generate_note(metadata, ...)
-    write_note(note, ...)
-```
+**Single config source.** `config.py: get_settings()` is `@lru_cache`; all modules import it. Settings are validated by Pydantic at startup with explicit error messages.
 
-**Hexagonal:**
-```python
-# application/ingest_content.py
-class IngestContentUseCase:
-    def __init__(
-        self,
-        fetcher: ContentFetcher,
-        generator: NoteGenerator,
-        writer: NoteWriter,
-    ):
-        self._fetcher = fetcher
-        self._generator = generator
-        self._writer = writer
+**Explicit error types.** Each module raises its own typed exceptions (`ContentFetchError`, `NoteGenerationStageError`, `VaultWriteError`, …). The CLI catches these and maps them to user-facing messages; the HTTP server maps them to HTTP status codes.
 
-    def execute(self, url: str) -> Path:
-        content = self._fetcher.fetch(url)
-        note = self._generator.generate(content)
-        return self._writer.write(note)
-```
+**Prompt templates as versioned files.** `prompts/*.md` are loaded at runtime. Iterating on note quality is a file edit, not a code change. `refresh.py` re-processes older notes when a new prompt version ships.
 
-**Migration steps:**
-1. Create `src/obsidian_ai_tools/application/` directory
-2. Extract orchestration logic from CLI into use cases
-3. Use cases depend on ports (not concrete implementations)
-4. CLI becomes thin adapter calling use cases
+**Providers are pluggable via the factory.** `ProviderFactory.get_provider(source)` calls `validate()` on each registered provider in priority order. Adding a new source type means implementing `BaseProvider` and registering it — no changes to `ingestion.py` or the CLI.
+
+**Observability never blocks.** Every `record_*()` call is wrapped in `try/except` that logs a warning and continues. The `@track_command` decorator's `finally` block swallows all errors.
 
 ---
 
-#### Phase 5: Dependency Injection
+## Testing conventions
 
-**Current:**
-```python
-# cli.py
-settings = get_settings()
-note = generate_note(metadata, settings.llm_model, settings.api_key)
-```
+- **Real DuckDB in `tmp_path`** for observability tests; never the production DB.
+- **`_set_db_for_test(db)`** injects a per-test DB; the global autouse fixture in `conftest.py` ensures isolation automatically.
+- **80% coverage floor** (`fail_under = 80`); branch coverage enabled.
+- **Pre-commit gates:** ruff, bandit, gitleaks, radon complexity, readme reference check, pytest fast subset.
+- **Pre-push gates:** mypy (strict), full pytest + coverage.
 
-**Hexagonal:**
-```python
-# infrastructure/di_container.py
-def build_ingest_use_case(settings: Settings) -> IngestContentUseCase:
-    fetcher = YouTubeFetcher()
-    generator = OpenRouterGenerator(
-        api_key=settings.openrouter_api_key,
-        model=settings.llm_model,
-    )
-    writer = ObsidianWriter(vault_path=settings.vault_path)
-
-    return IngestContentUseCase(
-        fetcher=fetcher,
-        generator=generator,
-        writer=writer,
-    )
-
-# cli.py
-@app.command()
-def ingest(url: str):
-    use_case = build_ingest_use_case(get_settings())
-    path = use_case.execute(url)
-```
-
-**Migration steps:**
-1. Create `src/obsidian_ai_tools/infrastructure/di_container.py`
-2. Define factory functions for each use case
-3. Update CLI to call factories
-4. Update tests to inject mocks
+See `DEVELOPMENT.md` for the full quality gate reference and `CLI_COMMANDS.md` for command signatures.
 
 ---
 
-### Migration Comparison
+## Open architecture work
 
-| Aspect | Current (Pragmatic) | Hexagonal (Enterprise) |
-|--------|---------------------|------------------------|
-| **Files** | ~16 modules | 15-20 files across layers |
-| **Complexity** | Low | Medium |
-| **Testability** | Good (pure functions) | Excellent (ports enable easy mocking) |
-| **MCP conversion** | Manual wrapping | Swap CLI adapter for MCP adapter |
-| **Multi-source** | Add functions to modules | Implement new adapter |
-| **Team size** | 1-2 developers | 3+ developers |
-| **Time to implement** | 3-4 hours | 1-2 days |
-
----
-
-### Code Reuse During Migration
-
-The good news: **pure functions stay pure!**
-
-```python
-# Current youtube.py (stays the same)
-def extract_video_id(url: str) -> str: ...
-def fetch_transcript(video_id: str) -> str: ...
-
-# Hexagonal wrapper (new)
-class YouTubeFetcher:
-    def fetch(self, url: str) -> Content:
-        video_id = extract_video_id(url)  # Reuse!
-        transcript = fetch_transcript(video_id)  # Reuse!
-        return Content(...)  # New: transform to domain model
-```
-
-**Estimated reuse: 70-80% of current code**
-
----
-
-## Testing Strategy
-
-### Current (MVP)
-
-- **Unit tests**: Pure functions (youtube, llm, obsidian helpers)
-- **Enforced floor**: 80% (`fail_under = 80` in `pyproject.toml`)
-- **Production target**: 85%+
-
-### Enterprise
-
-- **Domain layer**: 100% coverage (pure logic, no I/O)
-- **Use cases**: Integration tests with mocked ports
-- **Adapters**: Contract tests ensuring port compliance
-- **E2E**: Full workflow tests
-
----
-
-## Summary
-
-### Current State
-✅ Working CLI tool (16 commands)
-✅ Pure functions (MCP-ready)
-✅ Quality gates passing
-✅ BM25F search with backlink boosting
-✅ Vault terrain map (kai overview)
-✅ Wikilink traversal (kai follow)
-
-### Future State (When Needed)
-🎯 Hexagonal architecture
-🎯 Clear adapter boundaries
-🎯 Easy multi-source support
-🎯 Shared use cases across CLI/MCP
-🎯 Enterprise-grade testing
-
-### Key Takeaway
-
-**Start pragmatic, migrate incrementally.** The current architecture is designed to evolve, not be thrown away. Each migration phase is independent and low-risk.
+| Issue | Topic |
+|-------|-------|
+| [#31](https://github.com/larshansen1/obsidian-ai-tools/issues/31) | Consolidate duplicate rate-limiter and fallback pattern across `web.py` / `pdf.py` |
+| [#32](https://github.com/larshansen1/obsidian-ai-tools/issues/32) | Delete `api_contracts.py` (0 callers) or wire its validators at call sites |
+| [#14](https://github.com/larshansen1/obsidian-ai-tools/issues/14) | Provider plugin/adapter structure — blocked on usage review [#29](https://github.com/larshansen1/obsidian-ai-tools/issues/29) |
+| [#30](https://github.com/larshansen1/obsidian-ai-tools/issues/30) | This document update (closes on merge of this commit) |
