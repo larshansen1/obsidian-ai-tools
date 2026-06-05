@@ -1,6 +1,8 @@
 # Obsidian AI Tools
 
-`kai` is a local-first CLI for turning research sources into structured Obsidian notes and maintaining the resulting vault. It supports YouTube videos, web articles, PDFs, and local Markdown files, with OpenRouter-backed note generation and provenance metadata.
+The goal is simple: make capturing valuable inputs into durable, well-structured knowledge feel satisfying enough that you actually do it.
+
+`kai` is a local-first CLI that handles the friction between encountering something worth keeping and having it live usefully in your vault. Point it at a YouTube video, article, PDF, or local file — it fetches the content, generates a structured note through OpenRouter, and writes it to your inbox with tags, source metadata, and a summary you can actually use. The rest of the tool (search, organization, linking, refresh) exists to keep the vault healthy enough that ingesting into it stays rewarding.
 
 ## Features
 
