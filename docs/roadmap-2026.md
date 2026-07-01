@@ -25,7 +25,7 @@
 ### 📊 Implementation Metrics
 
 - **Source Lines**: ~1,758 (excluding tests)
-- **CLI Commands**: 8 commands (`ingest`, `search`, `list-tags`, `rebuild-index`, `process-inbox`, `stats`, `quality`, `version`)
+- **CLI Commands**: 5 commands (`ingest`, `search`, `rebuild-index`, `process-inbox`, `version`)
 - **Provider Types**: 4 (YouTube, Web, PDF, File)
 - **Quality Gates**: All passing (ruff strict linting, mypy type checking, pytest)
 
@@ -73,44 +73,6 @@ When to build MCP tools:
 
 **Goal**: Transform captured knowledge into actionable insights through review loops and connection discovery.
 
-### 6.1: Daily/Weekly Digests 🎯 High Priority
-
-**Problem**: Notes accumulate without review; patterns go unnoticed
-
-**Solution**: `kai digest` command
-
-```bash
-# Generate weekly summary
-kai digest --days 7 --output ~/Desktop/weekly-review.md
-
-# Example output
-→ Weekly Knowledge Digest (Dec 28 - Jan 4)
-  📊 9 new notes ingested (3 YouTube, 4 web, 2 PDFs)
-  🏷️  Top tags: #ai (4), #programming (3), #productivity (2)
-  🔗 Most referenced: [[Attention Mechanisms]] (3 links)
-  💡 Suggested actions:
-    - Create folder for "productivity" notes (3+ unorganized)
-    - Review "AI/LLMs" folder (growing fast)
-```
-
-**Technical Approach**:
-- Pure function: `generate_digest(since_days: int, vault_path: Path) -> DigestReport`
-- Leverages existing indexer and search infrastructure
-- Output formats: Markdown, JSON, terminal-friendly
-- Integration: cron job for Monday morning automation
-
-**Deliverables**:
-- [x] `digest.py` module with digest generation logic
-- [x] `kai digest` CLI command with `--days`, `--output`, `--format` options
-- [x] Pydantic `DigestReport` model with metrics
-- [x] Tests for digest generation and formatting
-- [x] Documentation and example cron setup
-
-**Effort**: Low (2-3 days)
-**Value**: High (builds review habit, surfaces patterns)
-
----
-
 ### 6.2: Inbox Triage Preview 🎯 High Priority
 
 **Problem**: Not all URLs warrant full ingestion; need quick preview to decide
@@ -129,7 +91,6 @@ kai preview https://youtube.com/watch?v=...
 
   Actions:
     [i] Ingest now
-    [s] Save to reading list
     [x] Skip
 
 # Batch preview from clipboard
@@ -140,183 +101,18 @@ pbpaste | kai preview --batch
 - Reuse provider infrastructure (fetch metadata only, no LLM call)
 - Cost estimation from transcript/content length
 - Topic extraction via simple keyword analysis (no LLM needed)
-- Reading list stored in `.kai/reading_list.jsonl`
 
 **Deliverables**:
 - [x] `preview.py` module with metadata extraction
 - [x] `kai preview` CLI command with interactive mode
-- [x] Reading list persistence and management (`kai reading-list` subcommands)
 - [x] Batch mode for clipboard URLs
 - [x] Tests for preview generation
 
 > [!NOTE] 
-> **Completed Jan 2026**: Added full `kai reading-list` management (list, ingest, clear) and `preview` command.
+> **Completed Jan 2026**: Added the `preview` command.
 
 **Effort**: Low (2-3 days)
 **Value**: Medium-High (reduces noise, intentional vault building)
-
----
-
-### 6.3: Concept Linking & Connection Discovery 🎯 Medium Priority
-
-**Problem**: Notes exist in isolation; manual linking is tedious
-
-**Solution**: `kai connect` command
-
-```bash
-# Find related notes for a specific file
-kai connect --note "AI/LLMs/Attention Mechanisms.md"
-
-→ Found 3 potential connections:
-  - AI/Transformers/Self-Attention.md (similarity: 0.87)
-  - AI/Neural Nets/Backprop.md (mentions: attention gradient)
-  - Reading/Deep Learning Book.md (chapter 10)
-
-# Batch-generate suggestions for orphan notes
-kai connect --orphans --dry-run
-
-# Auto-insert links (confirmation required)
-kai connect --note "AI/LLMs/Attention.md" --auto-link --confirm
-```
-
-**Technical Approach**:
-- **Phase 1**: TF-IDF similarity (no embeddings needed)
-- **Phase 2**: Keyword co-occurrence analysis
-- **Phase 3** (optional): Sentence embeddings if needed
-- Respect existing `[[wikilinks]]` in Obsidian format
-- Dry-run mode for preview before modification
-
-**Deliverables**:
-- [x] `concept_linking.py` module with similarity algorithms
-- [x] `kai connect` CLI command with folder scanning & auto-link
-- [x] Wikilink insertion with confirmation flow (sanitized & aliased)
-- [x] Orphan note detection
-- [x] Tests for similarity scoring and link insertion
-
-> [!NOTE]
-> **Completed Jan 2026**: Implemented `kai connect` with TF-IDF. Added folder scanning mode (`--folder`), aliased wikilinks (`[[path|Title]]`), and configurable similarity thresholds.
-
-**Effort**: Medium (5-7 days)
-**Value**: High (builds knowledge graph organically, surfaces forgotten notes)
-
----
-
-### 6.4: Smart Re-Processing ✅ Completed
-
-**Problem**: Prompt templates improve, but old notes use outdated prompts
-
-**Solution**: `kai refresh` command
-
-```bash
-# Re-run LLM on old notes with new prompt version
-kai refresh --tag ai --prompt-version youtube_v2 --since 30d --dry-run
-
-→ Found 12 notes eligible for refresh:
-  - AI/Attention.md (v1 → v2)
-  - AI/Transformers.md (v1 → v2)
-
-# Preview changes before applying
-kai refresh --show-diff "AI/Attention.md" --prompt-version youtube_v2
-
-# Execute refresh (creates backups)
-kai refresh --tag ai --prompt-version youtube_v2 --confirm
-```
-
-**Technical Approach**:
-- Detect prompt version from note frontmatter
-- Fetch original source (URL stored in metadata)
-- Re-generate note with new prompt
-- Safety: Create `.backup.md` before overwriting
-- Cost tracking for re-processing operations
-
-**Deliverables**:
-- [x] `refresh.py` module with re-processing logic
-- [x] `kai refresh` CLI command with filtering options
-- [x] Version tracking in frontmatter
-- [x] Backup/versioning strategy (`{filename}.backup.md`)
-- [x] Cost estimation and confirmation prompts
-- [x] Tests for version detection and re-generation
-
-> [!NOTE]
-> **Completed Jan 2026**: Implemented `kai refresh` with dry-run, show-diff, and confirm modes. Supports all source types with graceful degradation for unavailable sources.
-
-**Effort**: Low-Medium (3-5 days)
-**Value**: Medium (continuous improvement without manual effort)
-
----
-
-### 6.5: Flashcard Extraction (Optional) ⏸️ Postponed
-
-**Problem**: Notes are passive; insights get buried
-
-**Solution**: `kai extract-flashcards` command
-
-```bash
-# Extract Q&A pairs from a note
-kai extract-flashcards "AI/LLMs/Attention.md" --output-format anki
-
-→ Generated 7 flashcards:
-  Q: What problem does self-attention solve in sequence models?
-  A: Captures long-range dependencies without RNN bottleneck
-
-# Batch mode for recent notes
-kai extract-flashcards --since 7d --tag ai --output ~/flashcards/
-```
-
-**Technical Approach**:
-- New LLM prompt template: `flashcard_extraction_v1.md`
-- Output formats: Anki deck, CSV, Markdown
-- Integration with Anki via AnkiConnect API (optional)
-- Append to dedicated `Flashcards/` folder in vault
-
-**Deliverables**:
-- [ ] `flashcard_extraction.py` module
-- [ ] Flashcard extraction prompt template
-- [ ] `kai extract-flashcards` CLI command
-- [ ] Multiple output format support
-- [ ] Tests for extraction and formatting
-
-**Effort**: Medium (4-6 days)
-**Value**: Medium (only if user practices spaced repetition)
-
----
-
-### 6.6: Tag Hygiene & Consolidation ✅ Completed
-
-**Problem**: Tags fragment over time (e.g., `neurodivergent` vs `neurodivergence` vs `neurodiversity`)
-
-**Solution**: `kai tags` command with hybrid automation
-
-```bash
-# Analyze tag hygiene (read-only)
-kai tags
-
-# Interactive fixes with confirmation
-kai tags --fix
-
-# Plan workflow for automation
-kai tags --plan > fixes.json
-kai tags --apply fixes.json
-
-# Auto-accept all (brave mode)
-kai tags --fix --yes
-```
-
-**Features**:
-- Similar tag detection (Levenshtein distance)
-- Co-occurrence analysis (Jaccard similarity)
-- Orphan tag detection (single-use tags)
-- Interactive confirmation or plan-file workflow
-- Automatic frontmatter updates
-
-**Deliverables**:
-- [ ] `tag_hygiene.py` module with analysis and apply functions
-- [ ] `kai tags` CLI command with `--fix`, `--plan`, `--apply`, `--yes` options
-- [ ] Tests for detection, consolidation logic, and edge cases
-- [ ] Backup creation before modifying notes
-
-**Effort**: Medium (5-7 days)
-**Value**: High (immediately actionable for vaults of any size)
 
 ---
 
@@ -405,14 +201,7 @@ kai tags --fix --yes
 
 | Week | Feature | Effort | Value | Status |
 |------|---------|--------|-------|--------|
-| **Week 1-2** | Daily/Weekly Digest | Low | High | ✅ Complete |
 | **Week 2-3** | Inbox Triage Preview | Low | High | ✅ Complete |
-| **Week 4-5** | Smart Re-Processing | Low-Med | Medium | ✅ Complete |
-| **Week 6-8** | Concept Linking | Medium | High | ✅ Complete |
-| **Week 9-10** | Flashcard Extraction | Medium | Medium | ⏸️ Postponed |
-| **Week 9-10** | Tag Hygiene & Consolidation | Medium | High | ✅ Complete |
-| **Week 10-11** | Vault Overview (`kai overview`) | Low | High | ✅ Complete |
-| **Week 10-11** | Wikilink Traversal (`kai follow`) | Low | Medium | ✅ Complete |
 | **Week 10-11** | Backlink-Boosted BM25 | Low | High | ✅ Complete |
 | **Week 11-13** | MCP Server Foundation | Medium | Medium-High | 🔄 Planned |
 
@@ -424,7 +213,7 @@ kai tags --fix --yes
 - Semantic search (embeddings + vectors) — **removed**: Annoy and sentence-transformers dependencies dropped in favour of BM25F + backlink boost, which outperforms hybrid search on personal vault benchmarks
 - Podcast/audio ingestion (Whisper) - not prioritized
 - Tag taxonomy enforcement - manual management works fine
-- Observability dashboard UI - CLI stats output adequate
+- Observability dashboard UI - CLI output adequate
 
 **New backlog items:**
 - Topic drift detection / taxonomy analysis
@@ -437,10 +226,7 @@ kai tags --fix --yes
 ## Success Metrics
 
 **Cycle 6 (Knowledge Utilization):**
-- [ ] Weekly digest automation running via cron
 - [ ] Preview command reduces low-quality ingestion by 20%+
-- [ ] Concept linking generates 10+ useful connections per week
-- [ ] Smart re-processing improves 50+ old notes with new prompts
 
 **Cycle 7 (MCP Integration):**
 - [ ] MCP server successfully integrated with Open WebUI
@@ -471,7 +257,7 @@ Robustness continues to be built incrementally:
 |-------|------------------|
 | 1-4 ✅ | Circuit breaker, caching, fallback, rate limiting, path security |
 | 5 ✅ | Cost tracking, quality metrics, error resilience |
-| 6 🔄 | Preview cost estimation, link validation, refresh safety |
+| 6 🔄 | Preview cost estimation |
 | 7 🔄 | MCP timeouts, partial failure recovery, confirmation gates |
 
 ---

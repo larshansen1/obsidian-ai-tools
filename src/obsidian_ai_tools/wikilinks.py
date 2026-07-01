@@ -2,7 +2,7 @@
 
 import re
 
-from .indexer import NoteMetadata, VaultIndex
+from .indexer import VaultIndex
 
 # Regex to match [[wikilinks]] including optional |alias
 WIKILINK_PATTERN = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]")
@@ -53,25 +53,3 @@ def count_backlinks(vault_index: VaultIndex) -> dict[str, int]:
                 backlink_counts[link_target] = backlink_counts.get(link_target, 0) + 1
 
     return backlink_counts
-
-
-def resolve_wikilink(target: str, vault_index: VaultIndex) -> NoteMetadata | None:
-    """Resolve a wikilink target to a note.
-
-    Matches by title first (case-insensitive), then by filename stem.
-
-    Args:
-        target: Wikilink target string (without [[ ]] brackets)
-        vault_index: VaultIndex to search
-
-    Returns:
-        Matching NoteMetadata or None if not found
-    """
-    normalized = target.strip().lower()
-    for note in vault_index.notes:
-        if note.title.lower() == normalized:
-            return note
-    for note in vault_index.notes:
-        if note.file_path.stem.lower() == normalized:
-            return note
-    return None

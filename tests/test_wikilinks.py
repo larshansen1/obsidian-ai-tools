@@ -8,7 +8,6 @@ from obsidian_ai_tools.wikilinks import (
     count_backlinks,
     extract_top_wikilinks,
     extract_wikilinks,
-    resolve_wikilink,
 )
 
 
@@ -102,48 +101,3 @@ class TestCountBacklinks:
         notes = [_make_note(Path("/v/a.md"), "Note A", "Plain text, no links.")]
         index = VaultIndex(notes=notes, index_path=Path("/v/.kai/index.json"))
         assert count_backlinks(index) == {}
-
-
-class TestResolveWikilink:
-    def _make_vault(self) -> VaultIndex:
-        notes = [
-            _make_note(Path("/vault/attention-mechanisms.md"), "Attention Mechanisms"),
-            _make_note(Path("/vault/python-basics.md"), "Python Basics"),
-            _make_note(Path("/vault/ml-intro.md"), "Introduction to ML"),
-        ]
-        return VaultIndex(notes=notes, index_path=Path("/vault/.kai/index.json"))
-
-    def test_exact_title_match(self) -> None:
-        index = self._make_vault()
-        note = resolve_wikilink("Attention Mechanisms", index)
-        assert note is not None
-        assert note.title == "Attention Mechanisms"
-
-    def test_case_insensitive_title_match(self) -> None:
-        index = self._make_vault()
-        note = resolve_wikilink("attention mechanisms", index)
-        assert note is not None
-        assert note.title == "Attention Mechanisms"
-
-    def test_stem_fallback(self) -> None:
-        """Matches by filename stem when title doesn't match."""
-        index = self._make_vault()
-        note = resolve_wikilink("ml-intro", index)
-        assert note is not None
-        assert note.title == "Introduction to ML"
-
-    def test_title_takes_priority_over_stem(self) -> None:
-        """Title match wins over stem match."""
-        notes = [
-            _make_note(Path("/vault/python-basics.md"), "Python Basics"),
-            _make_note(Path("/vault/other.md"), "python-basics"),  # title == stem of first note
-        ]
-        index = VaultIndex(notes=notes, index_path=Path("/vault/.kai/index.json"))
-        note = resolve_wikilink("python-basics", index)
-        # Title "python-basics" exact match wins
-        assert note is not None
-        assert note.title == "python-basics"
-
-    def test_not_found_returns_none(self) -> None:
-        index = self._make_vault()
-        assert resolve_wikilink("Nonexistent Note", index) is None

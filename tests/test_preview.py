@@ -16,9 +16,6 @@ from obsidian_ai_tools.preview import (
     format_preview_json,
     format_preview_terminal,
     generate_preview,
-    load_reading_list,
-    save_to_reading_list,
-    update_reading_list_status,
 )
 
 # =============================================================================
@@ -201,58 +198,6 @@ class TestDetectSourceType:
         """Test that unsupported URLs raise error."""
         with pytest.raises(UnsupportedURLError):
             detect_source_type("ftp://example.com/file")
-
-
-# =============================================================================
-# Tests for Reading List Persistence
-# =============================================================================
-
-
-class TestReadingListPersistence:
-    """Tests for reading list save/load functions."""
-
-    def test_save_and_load_reading_list(
-        self, tmp_path: Path, sample_reading_list_entry: ReadingListEntry
-    ) -> None:
-        """Test saving and loading reading list."""
-        save_to_reading_list(sample_reading_list_entry, tmp_path)
-
-        entries = load_reading_list(tmp_path)
-        assert len(entries) == 1
-        assert entries[0].url == sample_reading_list_entry.url
-
-    def test_load_empty_reading_list(self, tmp_path: Path) -> None:
-        """Test loading non-existent reading list."""
-        entries = load_reading_list(tmp_path)
-        assert entries == []
-
-    def test_append_to_reading_list(self, tmp_path: Path, sample_preview: PreviewInfo) -> None:
-        """Test appending multiple entries."""
-        entry1 = ReadingListEntry(url="https://example.com/1", preview=sample_preview)
-        entry2 = ReadingListEntry(url="https://example.com/2", preview=sample_preview)
-
-        save_to_reading_list(entry1, tmp_path)
-        save_to_reading_list(entry2, tmp_path)
-
-        entries = load_reading_list(tmp_path)
-        assert len(entries) == 2
-
-    def test_update_reading_list_status(
-        self, tmp_path: Path, sample_reading_list_entry: ReadingListEntry
-    ) -> None:
-        """Test updating entry status."""
-        save_to_reading_list(sample_reading_list_entry, tmp_path)
-
-        updated = update_reading_list_status(sample_reading_list_entry.url, "ingested", tmp_path)
-        assert updated is True
-
-        entries = load_reading_list(tmp_path)
-        assert entries[0].status == "ingested"
-
-    def test_update_nonexistent_entry(self, tmp_path: Path) -> None:
-        """Test updating non-existent entry returns False."""
-        updated = update_reading_list_status("https://nonexistent.com", "ingested", tmp_path)
-        assert updated is False
 
 
 # =============================================================================

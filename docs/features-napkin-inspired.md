@@ -4,12 +4,11 @@ Inspired by [@badlogicgames napkin](https://twitter.com/micLivs/status/...) — 
 
 ## Overview
 
-Four changes, implemented in sequence:
+Three changes, implemented in sequence:
 
 1. **Remove embeddings** — delete Annoy + sentence-transformers pipeline
-2. **`kai overview`** — vault terrain map: per-folder TF-IDF keywords + tags for agent context
-3. **Wikilink traversal** — `kai follow <title>` + outgoing links in `kai search` output
-4. **Backlink-boosted BM25** — structural graph signal in search ranking (default on, `--no-boost` to opt out)
+2. **Wikilink traversal** — outgoing links in `kai search` output
+3. **Backlink-boosted BM25** — structural graph signal in search ranking (default on, `--no-boost` to opt out)
 
 ---
 
@@ -87,87 +86,11 @@ Migration:
 
 ---
 
-## Feature 2: `kai overview`
+## Feature 2: Wikilink Traversal
 
-**Goal**: Vault terrain map. Produces per-folder keyword extraction (inter-folder TF-IDF) + note counts + top tags. Primarily designed to inject into an agent's system prompt before searching.
+**Goal**: Surface each note's outgoing `[[wikilinks]]` in search output so an agent can navigate the vault's link graph.
 
-### New file: `src/obsidian_ai_tools/overview.py`
-
-**Data models**:
-```python
-class FolderSummary(BaseModel):
-    folder: str                         # relative path from vault root; "(root)" for top-level
-    note_count: int
-    top_keywords: list[str]             # top N TF-IDF terms; inter-folder IDF suppresses common terms
-    top_tags: list[tuple[str, int]]     # (tag, count) sorted by count desc
-
-class VaultOverview(BaseModel):
-    vault_path: Path
-    total_notes: int
-    total_folders: int
-    folders: list[FolderSummary]        # sorted alphabetically
-    generated_at: datetime = Field(default_factory=datetime.now)
-```
-
-**Functions**:
-```python
-def generate_overview(vault_path: Path, top_n: int = 8) -> VaultOverview
-def format_overview_terminal(overview: VaultOverview) -> str
-def format_overview_markdown(overview: VaultOverview) -> str
-def format_overview_json(overview: VaultOverview) -> str
-def format_overview_compact(overview: VaultOverview) -> str   # for agent injection
-```
-
-**TF-IDF approach**: One document per folder (all note content concatenated). This makes IDF inter-folder: terms appearing across many folders get low weight; folder-specific vocabulary scores high. Uses `TfidfVectorizer(stop_words="english")` from scikit-learn (already a dependency). Guard: if only one folder exists, fall back to per-note TF-IDF within that folder.
-
-**Compact format** (agent injection):
-```
-vault: 247 notes, 12 folders
----
-AI/ (43 notes) | keywords: transformer attention llm rag retrieval | tags: ai(31) llm(18)
-Development/ (28 notes) | keywords: python async docker kubernetes | tags: python(20) backend(15)
-```
-One line per folder, pipe-delimited, no extra whitespace.
-
-### CLI command
-
-```
-kai overview [--format terminal|markdown|json|compact] [--top-n N] [--vault PATH]
-```
-
-- Default format: `terminal`
-- Default `--top-n`: 8
-- Added to `cli.py` after the `digest` command block
-- Follows the exact `digest` command pattern: lazy imports, `get_settings()` with `typer.Exit(1)`, `vault_path = vault or settings.obsidian_vault_path`
-
-### New test files
-
-- `tests/test_overview.py` — unit tests for `generate_overview` and all 4 formatters
-- Tests in `tests/test_cli.py` for `kai overview` terminal/compact/json formats + config error handling
-
----
-
-## Feature 3: Wikilink Traversal
-
-**Goal**: Let an agent resolve `[[wikilinks]]` by title and navigate the vault's link graph.
-
-### Part A: `kai follow <note-title>`
-
-New CLI command. Resolves a wikilink target to a note and prints the raw file content (frontmatter + body) to stdout.
-
-```
-kai follow "Attention Mechanisms"
-kai follow "attention-mechanisms"
-```
-
-Resolution order:
-1. Case-insensitive `note.title` match
-2. Case-insensitive `note.file_path.stem` match
-3. Exit 1 with error message if not found
-
-Implementation: Lives in `cli.py` using `resolve_wikilink()` from `wikilinks.py`. Reads raw file (not `note.content` which has frontmatter stripped) via `note.file_path.read_text()`.
-
-### Part B: Outgoing links in `kai search` output
+### Outgoing links in `kai search` output
 
 `SearchResult` gets a new field:
 ```python
@@ -186,11 +109,11 @@ No changes to `_combine_rrf` — the field propagates naturally since results ar
 ### Test additions
 
 - `tests/test_wikilinks.py` — unit tests for all 5 functions in `wikilinks.py`
-- `tests/test_cli.py` — tests for `kai follow` (title match, stem match, not found), wikilink display in `kai search`
+- `tests/test_cli.py` — tests for wikilink display in `kai search`
 
 ---
 
-## Feature 4: Backlink-Boosted BM25
+## Feature 3: Backlink-Boosted BM25
 
 **Goal**: Notes linked to by many other notes are ranked higher. Default on; `--no-boost` to disable.
 
@@ -278,9 +201,8 @@ New class `TestBacklinkBoost`:
 ```
 Step 0: wikilinks.py (shared foundation, pure refactor — must be green before proceeding)
 Step 1: Embeddings removal
-Step 2: kai overview
-Step 3: Wikilink traversal (kai follow + outgoing links in search)
-Step 4: Backlink-boosted BM25
+Step 2: Wikilink traversal (outgoing links in search)
+Step 3: Backlink-boosted BM25
 ```
 
 ## Files Summary
@@ -288,17 +210,15 @@ Step 4: Backlink-boosted BM25
 | File | Action |
 |------|--------|
 | `src/obsidian_ai_tools/wikilinks.py` | CREATE |
-| `src/obsidian_ai_tools/overview.py` | CREATE |
 | `src/obsidian_ai_tools/embeddings.py` | DELETE |
 | `tests/test_embeddings.py` | DELETE |
 | `src/obsidian_ai_tools/search.py` | MODIFY (remove semantic, add boost) |
-| `src/obsidian_ai_tools/cli.py` | MODIFY (remove semantic, add overview/follow/no-boost) |
+| `src/obsidian_ai_tools/cli.py` | MODIFY (remove semantic, add no-boost) |
 | `src/obsidian_ai_tools/config.py` | MODIFY (remove embedding_model) |
 | `src/obsidian_ai_tools/digest.py` | MODIFY (import from wikilinks) |
 | `src/obsidian_ai_tools/concept_linking.py` | MODIFY (import from wikilinks) |
 | `pyproject.toml` | MODIFY (remove annoy + sentence-transformers) |
 | `requirements.txt` | MODIFY (remove annoy + sentence-transformers) |
 | `tests/test_wikilinks.py` | CREATE |
-| `tests/test_overview.py` | CREATE |
 | `tests/test_search.py` | MODIFY (remove semantic tests, add boost tests) |
-| `tests/test_cli.py` | MODIFY (remove embedding patch, add overview/follow tests) |
+| `tests/test_cli.py` | MODIFY (remove embedding patch) |

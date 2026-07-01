@@ -148,15 +148,6 @@ def load_folder_rules(vault_path: Path) -> dict[str, str]:
         raise InvalidRulesError(f"Invalid JSON in folder_rules.json: {e}") from e
 
 
-def load_folder_rules_or_empty(vault_path: Path) -> dict[str, str]:
-    """Load folder rules, returning an empty mapping when the file is missing."""
-    rules_path = vault_path / "folder_rules.json"
-    if not rules_path.exists():
-        return {}
-
-    return load_folder_rules(vault_path)
-
-
 def normalize_tags(tags_value: str | list[str] | None) -> list[str]:
     """Normalize tags to always be a list.
 
@@ -407,100 +398,6 @@ def suggest_folder_for_tag(tag: str, existing_folders: list[str] | None = None) 
         if segment and segment not in {".", ".."}
     ]
     return "/".join(segments) if segments else "Uncategorized"
-
-
-def suggest_folder_rules(
-    vault_path: Path,
-    inbox_folder: str,
-    rules: dict[str, str],
-    min_notes: int = 2,
-    max_suggestions: int = 10,
-) -> tuple[list[RuleSuggestion], list[str]]:
-    """Suggest missing folder rules from inbox notes that do not match any rule.
-
-    Args:
-        vault_path: Path to Obsidian vault
-        inbox_folder: Inbox folder name
-        rules: Existing tag-to-folder mapping
-        min_notes: Minimum unprocessed inbox notes a tag must appear in
-        max_suggestions: Maximum number of suggestions to return
-
-    Returns:
-        Tuple of (suggestions, failed_files) where failed_files are filenames
-        that couldn't be parsed
-    """
-    inbox_path = vault_path / inbox_folder
-    if not inbox_path.exists():
-        return [], []
-
-    tag_counts: dict[str, int] = {}
-    examples_by_tag: dict[str, list[str]] = {}
-    failed_files: list[str] = []
-
-    for note_file in inbox_path.glob("*.md"):
-        try:
-            parsed = parse_frontmatter(note_file)
-            frontmatter = parsed["frontmatter"]
-
-            title = str(frontmatter.get("title", note_file.stem))
-            tags = sorted(set(normalize_tags(frontmatter.get("tags"))))
-
-            best_folder, _matched_tags, _score = find_best_folder(tags, rules)
-            if best_folder:
-                continue
-
-            for tag in tags:
-                if tag in rules:
-                    continue
-
-                tag_counts[tag] = tag_counts.get(tag, 0) + 1
-                examples = examples_by_tag.setdefault(tag, [])
-                if len(examples) < 3:
-                    examples.append(title)
-
-        except Exception:
-            failed_files.append(note_file.name)
-            continue
-
-    existing_folders = _collect_existing_folders(vault_path, rules)
-    suggestions: list[RuleSuggestion] = []
-    for tag, count in tag_counts.items():
-        if count < min_notes:
-            continue
-
-        folder = suggest_folder_for_tag(tag, existing_folders)
-        validate_folder_path(folder, vault_path)
-        suggestions.append(
-            RuleSuggestion(
-                tag=tag,
-                folder=folder,
-                note_count=count,
-                example_notes=examples_by_tag[tag],
-                existing_folder_match=folder in existing_folders,
-            )
-        )
-
-    suggestions.sort(key=lambda suggestion: (-suggestion.note_count, suggestion.tag))
-    return suggestions[:max_suggestions], failed_files
-
-
-def update_folder_rules(vault_path: Path, suggestions: list[RuleSuggestion]) -> dict[str, str]:
-    """Merge rule suggestions into folder_rules.json.
-
-    Existing rules are preserved. Suggested rules for tags already present in the
-    file are ignored.
-    """
-    rules = load_folder_rules_or_empty(vault_path)
-
-    for suggestion in suggestions:
-        if suggestion.tag in rules:
-            continue
-        validate_folder_path(suggestion.folder, vault_path)
-        rules[suggestion.tag] = suggestion.folder
-
-    rules_path = vault_path / "folder_rules.json"
-    rules_path.write_text(json.dumps(rules, indent=2) + "\n", encoding="utf-8")
-    return rules
 
 
 def _create_move_result(

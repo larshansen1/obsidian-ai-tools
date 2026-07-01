@@ -4,7 +4,6 @@ Provides metadata-only extraction, cost estimation, and reading list management
 without full content extraction or LLM calls.
 """
 
-import json
 import logging
 import re
 from collections import Counter
@@ -269,65 +268,6 @@ def save_to_reading_list(entry: ReadingListEntry, vault_path: Path) -> None:
     except Exception as e:
         logger.error(f"Failed to save to reading list: {e}")
         raise PreviewError(f"Failed to save to reading list: {e}") from e
-
-
-def load_reading_list(vault_path: Path) -> list[ReadingListEntry]:
-    """Load reading list from vault.
-
-    Args:
-        vault_path: Path to Obsidian vault
-
-    Returns:
-        List of reading list entries
-    """
-    list_path = _get_reading_list_path(vault_path)
-
-    if not list_path.exists():
-        return []
-
-    entries = []
-    try:
-        with open(list_path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    data = json.loads(line)
-                    entries.append(ReadingListEntry.model_validate(data))
-    except Exception as e:
-        logger.warning(f"Error loading reading list: {e}")
-
-    return entries
-
-
-def update_reading_list_status(url: str, status: str, vault_path: Path) -> bool:
-    """Update status of an entry in reading list.
-
-    Rewrites the entire file with updated status.
-
-    Args:
-        url: URL to update
-        status: New status (pending, ingested, skipped)
-        vault_path: Path to Obsidian vault
-
-    Returns:
-        True if entry was found and updated
-    """
-    entries = load_reading_list(vault_path)
-    updated = False
-
-    for entry in entries:
-        if entry.url == url:
-            entry.status = status
-            updated = True
-            break
-
-    if updated:
-        list_path = _get_reading_list_path(vault_path)
-        with open(list_path, "w", encoding="utf-8") as f:
-            for entry in entries:
-                f.write(entry.model_dump_json() + "\n")
-
-    return updated
 
 
 # =============================================================================

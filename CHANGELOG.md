@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Pruned 13 unused CLI commands flagged by `kai usage` (zero invocations over the
+  30-day window — see #29): `reading-list` (list/ingest/clear), `digest`,
+  `overview`, `stats`, `quality`, `follow`, `connect`, `flashcards`, `list-tags`,
+  `tags`, `update-rules`, `refresh`. Their implementation modules, tests, and
+  documentation were removed. Observability is still available via `kai usage`.
+
 ## [1.0.0] - 2026-06-02
 
 ### Added

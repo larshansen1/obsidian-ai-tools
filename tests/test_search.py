@@ -12,7 +12,6 @@ from obsidian_ai_tools.search import (
     SearchResult,
     _apply_backlink_boost,
     list_all_tags,
-    list_tags_by_folder,
     search_notes,
 )
 
@@ -75,84 +74,6 @@ class TestListAllTags:
         tag_list = list(tags.keys())
 
         assert tag_list[0] == "popular"
-
-
-class TestListTagsByFolder:
-    """Tests for list_tags_by_folder function."""
-
-    def test_list_tags_by_folder_empty_vault(self) -> None:
-        """Test listing tags by folder from empty vault."""
-        index = VaultIndex(notes=[], index_path=Path("/tmp/index.json"))
-        vault_path = Path("/vault")
-
-        result = list_tags_by_folder(index, vault_path)
-
-        assert result == {}
-
-    def test_list_tags_by_folder_groups_correctly(self) -> None:
-        """Test that notes are correctly grouped by folder."""
-        vault_path = Path("/vault")
-        notes = [
-            _make_note(vault_path / "inbox" / "note1.md", "Note 1", ["ai"]),
-            _make_note(vault_path / "projects" / "note2.md", "Note 2", ["python"]),
-        ]
-        index = VaultIndex(notes=notes, index_path=Path("/tmp/index.json"))
-
-        result = list_tags_by_folder(index, vault_path)
-
-        assert "inbox" in result
-        assert "projects" in result
-        assert result["inbox"]["ai"] == 1
-        assert result["projects"]["python"] == 1
-
-    def test_list_tags_by_folder_sorted_alphabetically(self) -> None:
-        """Test that folders are sorted alphabetically."""
-        vault_path = Path("/vault")
-        notes = [
-            _make_note(vault_path / "zebra" / "n.md", "N", ["t"]),
-            _make_note(vault_path / "alpha" / "n.md", "N", ["t"]),
-            _make_note(vault_path / "beta" / "n.md", "N", ["t"]),
-        ]
-        index = VaultIndex(notes=notes, index_path=Path("/tmp/index.json"))
-
-        result = list_tags_by_folder(index, vault_path)
-        folder_list = list(result.keys())
-
-        assert folder_list == ["alpha", "beta", "zebra"]
-
-    def test_list_tags_by_folder_tags_sorted_by_count(self) -> None:
-        """Test that tags within each folder are sorted by count descending."""
-        vault_path = Path("/vault")
-        notes = [
-            _make_note(
-                vault_path / "inbox" / f"note{i}.md",
-                f"Note {i}",
-                ["popular"] if i < 3 else ["rare"],
-            )
-            for i in range(5)
-        ]
-        index = VaultIndex(notes=notes, index_path=Path("/tmp/index.json"))
-
-        result = list_tags_by_folder(index, vault_path)
-        tag_list = list(result["inbox"].keys())
-
-        assert tag_list[0] == "popular"
-        assert result["inbox"]["popular"] == 3
-        assert result["inbox"]["rare"] == 2
-
-    def test_list_tags_by_folder_notes_without_tags(self) -> None:
-        """Test that notes without tags don't create empty folder entries."""
-        vault_path = Path("/vault")
-        notes = [
-            _make_note(vault_path / "inbox" / "note1.md", "Note with tags", ["ai"]),
-            _make_note(vault_path / "empty" / "note2.md", "Note without tags", []),
-        ]
-        index = VaultIndex(notes=notes, index_path=Path("/tmp/index.json"))
-
-        result = list_tags_by_folder(index, vault_path)
-
-        assert "inbox" in result
-        assert "empty" not in result
 
 
 class TestSearchNotes:
