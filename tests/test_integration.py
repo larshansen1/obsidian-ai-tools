@@ -143,57 +143,6 @@ tags: [machine-learning, python]
             assert note.title == "New Note"
 
 
-class TestRefreshWorkflowEndToEnd:
-    """End-to-end tests for note refresh workflow."""
-
-    @pytest.fixture
-    def vault_with_old_notes(self, tmp_path: Path) -> Path:
-        """Create vault with notes using old prompt versions."""
-        vault = tmp_path / "vault"
-        vault.mkdir()
-        (vault / ".kai").mkdir()
-
-        # Create note with old version
-        (vault / "old_note.md").write_text(
-            """---
-title: Old YouTube Note
-tags: [ai]
-prompt_version: youtube_v1
-source_url: https://youtube.com/watch?v=old123
-source_type: youtube
----
-# Content
-This is old content.
-""",
-            encoding="utf-8",
-        )
-        return vault
-
-    def test_refresh_finds_and_updates_note(self, vault_with_old_notes: Path) -> None:
-        """Find candidates → backup → LLM → update workflow."""
-        from obsidian_ai_tools.refresh import create_backup, find_refresh_candidates
-
-        # Find candidates
-        candidates = find_refresh_candidates(
-            vault_path=vault_with_old_notes,
-            target_version="youtube_v2",
-        )
-
-        assert len(candidates) == 1
-        assert candidates[0].current_prompt_version == "youtube_v1"
-        assert candidates[0].target_prompt_version == "youtube_v2"
-
-        # Create backup
-        backup_path = create_backup(candidates[0].file_path)
-
-        assert backup_path.exists()
-        assert backup_path.name == "old_note.backup.md"
-        assert "Old YouTube Note" in backup_path.read_text()
-
-        # Original still exists
-        assert candidates[0].file_path.exists()
-
-
 class TestErrorPropagation:
     """Tests for error handling across module boundaries."""
 

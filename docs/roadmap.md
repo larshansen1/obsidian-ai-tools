@@ -237,7 +237,6 @@ Built incrementally, not deferred:
 | Search | Full-text keyword search via Whoosh |
 | Tag Search | Tag-based filtering in search |
 | Date Filtering | Created date range queries |
-| Tag Listing | `kai list-tags` command with counts |
 | Index Rebuild | `kai rebuild-index` command for full vault re-indexing |
 | **Robustness** | Recursive vault scanning, cache invalidation, index corruption recovery |
 
@@ -248,7 +247,6 @@ Built incrementally, not deferred:
 | `kai search --keyword "text"` | Full-text keyword search across all notes |
 | `kai search --tag ai` | Filter notes by tag |
 | `kai search --after 2026-01-01` | Filter by creation date |
-| `kai list-tags` | Show all tags with note counts |
 | `kai rebuild-index` | Force rebuild of vault and search indexes |
 
 ### Key Features

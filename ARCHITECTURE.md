@@ -14,14 +14,10 @@ src/obsidian_ai_tools/
 │
 ├── commands/                 # One module per command group
 │   ├── ingest.py             # kai ingest
-│   ├── notes.py              # kai digest, kai overview
-│   ├── preview.py            # kai preview, kai reading-list *
+│   ├── preview.py            # kai preview
 │   ├── search.py             # kai search
 │   ├── serve.py              # kai serve, kai version
-│   ├── tags.py               # kai list-tags, kai tags
-│   ├── vault.py              # kai rebuild-index, process-inbox, update-rules,
-│   │                         #   stats, quality, usage, follow, connect, refresh
-│   └── flashcards.py         # kai flashcards
+│   └── vault.py              # kai rebuild-index, process-inbox, usage
 │
 ├── providers/                # Content fetching, one provider per source type
 │   ├── base.py               # BaseProvider (abstract: name, validate, _ingest)
@@ -47,14 +43,8 @@ src/obsidian_ai_tools/
 ├── indexer.py                # VaultIndex, build_index() — scans vault markdown
 ├── search.py                 # BM25F search via Whoosh + backlink boosting
 ├── wikilinks.py              # extract_wikilinks(), resolve_wikilink(), count_backlinks()
-├── concept_linking.py        # TF-IDF cosine similarity for kai connect
-├── overview.py               # Per-folder TF-IDF keyword map for kai overview
-├── digest.py                 # Vault activity digest for kai digest
 ├── preview.py                # URL preview without full ingestion
-├── refresh.py                # Re-process notes with updated prompt versions
-├── tag_hygiene.py            # Tag deduplication and consolidation for kai tags
 ├── folder_organizer.py       # Rule-based inbox routing for kai process-inbox
-├── flashcard_extraction.py   # Spaced-repetition flashcard generation
 ├── youtube.py                # YouTubeClient — transcript fetching coordination
 ├── youtube_providers.py      # Transcript providers: direct, Supadata, Decodo
 ├── youtube_exceptions.py     # InvalidYouTubeURLError, TranscriptUnavailableError
@@ -140,7 +130,7 @@ All writes are best-effort — a DB failure never blocks the operation. The sing
 
 **Explicit error types.** Each module raises its own typed exceptions (`ContentFetchError`, `NoteGenerationStageError`, `VaultWriteError`, …). The CLI catches these and maps them to user-facing messages; the HTTP server maps them to HTTP status codes.
 
-**Prompt templates as versioned files.** `prompts/*.md` are loaded at runtime. Iterating on note quality is a file edit, not a code change. `refresh.py` re-processes older notes when a new prompt version ships.
+**Prompt templates as versioned files.** `prompts/*.md` are loaded at runtime. Iterating on note quality is a file edit, not a code change.
 
 **Providers are pluggable via the factory.** `ProviderFactory.get_provider(source)` calls `validate()` on each registered provider in priority order. Adding a new source type means implementing `BaseProvider` and registering it — no changes to `ingestion.py` or the CLI.
 

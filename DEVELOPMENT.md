@@ -64,7 +64,7 @@ AI coding assistants will happily implement whatever you ask, which makes it eas
 
 ### 4. Observability is not optional — it is feedback for the AI
 
-Without `kai stats` and `kai quality`, there was no way to know whether the ingestion pipeline was actually working in practice: which providers were failing, which prompts produced low-quality output, what the real cost per note was. Observability here is not just operational hygiene — it is the feedback loop that tells you whether the AI-generated features are delivering value or just passing tests. Concretely:
+Without `kai usage`, there was no way to know whether the ingestion pipeline was actually working in practice: which providers were failing, which prompts produced low-quality output, what the real cost per note was. Observability here is not just operational hygiene — it is the feedback loop that tells you whether the AI-generated features are delivering value or just passing tests. Concretely:
 
 - **Does it work?** Are ingestion success rates high? Are errors clustered around one provider or one content type?
 - **Am I using it?** A command no one runs is a candidate for removal.
