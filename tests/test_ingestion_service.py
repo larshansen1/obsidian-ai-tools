@@ -245,7 +245,11 @@ def test_http_ingest_delegates_to_shared_pipeline(tmp_path: Path) -> None:
         )
 
     assert response.status_code == 200
-    assert response.json()["title"] == note.title
+    body = response.json()
+    assert body["title"] == note.title
+    assert body["obsidian_url"] == (
+        f"obsidian://open?vault={tmp_path.name}&file=inbox%2Fweb-generated-note.md"
+    )
     request = mock_ingest.call_args.args[0]
     assert request == IngestionRequest(
         url=metadata.url,

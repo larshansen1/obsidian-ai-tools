@@ -18,6 +18,7 @@ from ..ingestion import (
 from ..logging import setup_logging
 from ..models import ArticleMetadata, VideoMetadata
 from ..observability import track_command
+from ..obsidian import build_obsidian_url
 from ..youtube import (
     InvalidYouTubeURLError,
     TranscriptUnavailableError,
@@ -141,7 +142,7 @@ def ingest(
         max_pages=max_pages,
     )
     try:
-        ingest_content(request, settings, on_progress=show_progress)
+        result = ingest_content(request, settings, on_progress=show_progress)
     except ProviderSelectionError:
         typer.echo("❌ Unknown source type. Please provide a valid URL or file path.", err=True)
         raise typer.Exit(1) from None
@@ -169,3 +170,8 @@ def ingest(
         raise typer.Exit(1) from e
 
     typer.echo("✅ Ingestion complete!")
+    vault_path = request.vault_path or settings.obsidian_vault_path
+    try:
+        typer.echo(f"   Open: {build_obsidian_url(vault_path, result.file_path)}")
+    except ValueError:
+        pass

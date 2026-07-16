@@ -2,6 +2,7 @@
 
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 from .models import Note
 
@@ -67,6 +68,28 @@ def build_filename(source_type: str, title: str) -> str:
     """
     sanitized_title = sanitize_filename(title)
     return f"{source_type}-{sanitized_title}.md"
+
+
+def build_obsidian_url(vault_path: Path, file_path: Path) -> str:
+    """Build an obsidian://open URI for a note inside a vault.
+
+    Assumes the Obsidian vault name matches the vault directory name
+    (Obsidian's default when opening a folder as a vault).
+
+    Args:
+        vault_path: Path to Obsidian vault root
+        file_path: Path to the note file (must be inside vault_path)
+
+    Returns:
+        Percent-encoded obsidian://open URI
+
+    Raises:
+        ValueError: If file_path is not inside vault_path
+    """
+    rel_path = file_path.relative_to(vault_path)
+    vault_name = quote(vault_path.name, safe="")
+    file_param = quote(str(rel_path), safe="")
+    return f"obsidian://open?vault={vault_name}&file={file_param}"
 
 
 def write_note(note: Note, vault_path: Path, inbox_folder: str = "inbox") -> Path:

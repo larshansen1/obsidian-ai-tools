@@ -12,6 +12,7 @@ const resultEl = document.getElementById("result");
 const resultTitle = document.getElementById("result-title");
 const resultDetail = document.getElementById("result-detail");
 const tagsEl = document.getElementById("tags");
+const openLink = document.getElementById("open-link");
 
 let currentUrl = "";
 let currentTabId = null;
@@ -63,12 +64,20 @@ function renderTags(tags) {
   );
 }
 
-function showResult(type, title, detail, tags = []) {
+function showResult(type, title, detail, tags = [], obsidianUrl = null) {
   resultEl.className = `result visible ${type}`;
   resultTitle.textContent = title;
   resultDetail.textContent = detail;
   renderTags(tags);
+  openLink.className = obsidianUrl ? "open-link visible" : "open-link";
+  openLink.dataset.url = obsidianUrl ?? "";
 }
+
+// Custom-protocol anchors are unreliable inside extension popups, so open
+// obsidian:// via a tab and let the OS protocol handler take over.
+openLink.addEventListener("click", () => {
+  if (openLink.dataset.url) chrome.tabs.create({ url: openLink.dataset.url });
+});
 
 function setLoading(loading) {
   btn.disabled = loading;
@@ -93,7 +102,7 @@ btn.addEventListener("click", async () => {
     const data = await r.json();
 
     if (r.ok) {
-      showResult("success", `✓ ${data.title}`, data.file_path, data.tags);
+      showResult("success", `✓ ${data.title}`, data.file_path, data.tags, data.obsidian_url);
     } else {
       showResult("error", "Ingestion failed", data.detail ?? "Unknown error");
     }

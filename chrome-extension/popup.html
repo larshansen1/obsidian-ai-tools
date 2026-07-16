@@ -92,6 +92,15 @@
       word-break: break-all;
     }
 
+    .open-link {
+      display: none;
+      margin-top: 8px;
+      color: #89b4fa; font-size: 12px; font-weight: 600;
+      text-decoration: none; cursor: pointer;
+    }
+    .open-link.visible { display: inline-block; }
+    .open-link:hover { text-decoration: underline; }
+
     .tags { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
     .tag {
       background: #313244; color: #cba6f7;
@@ -123,6 +132,7 @@
   <div class="result" id="result">
     <div class="result-title" id="result-title"></div>
     <div class="result-detail" id="result-detail"></div>
+    <a class="open-link" id="open-link">Open in Obsidian →</a>
     <div class="tags" id="tags"></div>
   </div>
 

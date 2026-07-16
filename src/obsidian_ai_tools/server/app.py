@@ -22,6 +22,7 @@ from ..ingestion import (
 from ..ingestion import (
     IngestionRequest as ServiceIngestionRequest,
 )
+from ..obsidian import build_obsidian_url
 
 # ---------------------------------------------------------------------------
 # Request / response schemas
@@ -44,6 +45,7 @@ class IngestResponse(BaseModel):
     file_path: str
     tags: list[str]
     source_type: str
+    obsidian_url: str | None = None
 
 
 class StatusResponse(BaseModel):
@@ -122,11 +124,18 @@ def create_app() -> FastAPI:
             except Exception:  # nosec B110
                 pass
 
+        vault_path = Path(req.vault_path) if req.vault_path else settings.obsidian_vault_path
+        try:
+            obsidian_url: str | None = build_obsidian_url(vault_path, result.file_path)
+        except ValueError:
+            obsidian_url = None
+
         return IngestResponse(
             title=result.note.title,
             file_path=str(result.file_path),
             tags=result.note.tags,
             source_type=result.note.source_type,
+            obsidian_url=obsidian_url,
         )
 
     return app
