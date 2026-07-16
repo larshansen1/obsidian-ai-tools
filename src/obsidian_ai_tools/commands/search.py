@@ -7,6 +7,7 @@ import typer
 
 from ..config import get_settings
 from ..observability import track_command
+from ..obsidian import build_obsidian_url
 
 
 def register(app: typer.Typer) -> None:
@@ -120,9 +121,7 @@ def search(
 
     for i, result in enumerate(results, 1):
         note = result.note
-        rel_path = note.file_path.relative_to(vault_path)
-        vault_name = vault_path.name
-        obsidian_url = f"obsidian://open?vault={vault_name}&file={rel_path}"
+        obsidian_url = build_obsidian_url(vault_path, note.file_path)
 
         typer.echo(f"{i}. {note.title}")
         typer.echo(f"   Tags: {', '.join(note.tags) if note.tags else 'none'}")

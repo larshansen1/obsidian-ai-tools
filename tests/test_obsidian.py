@@ -8,6 +8,7 @@ import pytest
 from obsidian_ai_tools.models import Note
 from obsidian_ai_tools.obsidian import (
     build_filename,
+    build_obsidian_url,
     sanitize_filename,
     write_note,
 )
@@ -237,3 +238,22 @@ class TestWriteNote:
             pytest.raises(FileWriteError, match="Failed to write note"),
         ):
             write_note(sample_note, temp_vault)
+
+
+class TestBuildObsidianUrl:
+    """Tests for build_obsidian_url function."""
+
+    def test_basic_url(self) -> None:
+        """Test URL for a simple vault and note path."""
+        url = build_obsidian_url(Path("/vaults/notes"), Path("/vaults/notes/inbox/web-note.md"))
+        assert url == "obsidian://open?vault=notes&file=inbox%2Fweb-note.md"
+
+    def test_encodes_special_characters(self) -> None:
+        """Test spaces and ampersands are percent-encoded."""
+        url = build_obsidian_url(Path("/vaults/My Vault"), Path("/vaults/My Vault/inbox/q & a.md"))
+        assert url == "obsidian://open?vault=My%20Vault&file=inbox%2Fq%20%26%20a.md"
+
+    def test_raises_for_file_outside_vault(self) -> None:
+        """Test files outside the vault are rejected."""
+        with pytest.raises(ValueError):
+            build_obsidian_url(Path("/vaults/notes"), Path("/elsewhere/note.md"))
