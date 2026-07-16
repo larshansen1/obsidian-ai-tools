@@ -73,10 +73,13 @@ function showResult(type, title, detail, tags = [], obsidianUrl = null) {
   openLink.dataset.url = obsidianUrl ?? "";
 }
 
-// Custom-protocol anchors are unreliable inside extension popups, so open
-// obsidian:// via a tab and let the OS protocol handler take over.
+// Custom-protocol anchors are unreliable inside extension popups. Navigating
+// the current tab to obsidian:// triggers the OS protocol handler without
+// actually leaving the page, so no empty tab is left behind.
 openLink.addEventListener("click", () => {
-  if (openLink.dataset.url) chrome.tabs.create({ url: openLink.dataset.url });
+  if (openLink.dataset.url && currentTabId !== null) {
+    chrome.tabs.update(currentTabId, { url: openLink.dataset.url });
+  }
 });
 
 function setLoading(loading) {
