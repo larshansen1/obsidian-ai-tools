@@ -261,6 +261,34 @@ def test_http_ingest_delegates_to_shared_pipeline(tmp_path: Path) -> None:
     )
 
 
+def test_cors_allows_chrome_extension_origin() -> None:
+    """Test preflight from the extension origin passes CORS."""
+    response = TestClient(create_app()).options(
+        "/ingest",
+        headers={
+            "Origin": "chrome-extension://abcdefghijklmnop",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "chrome-extension://abcdefghijklmnop"
+
+
+def test_cors_rejects_web_origins() -> None:
+    """Test preflight from a regular web page is rejected."""
+    response = TestClient(create_app()).options(
+        "/ingest",
+        headers={
+            "Origin": "https://evil.example.com",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
+
+
 def test_cli_ingest_delegates_to_shared_pipeline(tmp_path: Path) -> None:
     """Test the CLI adapter passes options to the shared service."""
     metadata = _metadata()
