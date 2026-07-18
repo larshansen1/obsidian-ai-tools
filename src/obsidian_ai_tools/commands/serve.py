@@ -185,6 +185,13 @@ def serve(
 
     from ..server.app import create_app as _create_app
 
+    if host not in ("127.0.0.1", "localhost"):
+        typer.echo(
+            f"⚠️  Binding to {host} exposes the unauthenticated ingest API "
+            "beyond this machine. Use 127.0.0.1 unless you know what you're doing.",
+            err=True,
+        )
+
     typer.echo(f"🚀 kai server starting on http://{host}:{port}")
     typer.echo("   Chrome extension → load chrome-extension/ as an unpacked extension")
     typer.echo("   Press Ctrl+C to stop\n")

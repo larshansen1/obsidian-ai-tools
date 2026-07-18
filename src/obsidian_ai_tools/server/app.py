@@ -68,11 +68,15 @@ def create_app() -> FastAPI:
         docs_url="/docs",
     )
 
-    # Allow requests from the Chrome extension (and localhost dev tools).
-    # The server only binds to 127.0.0.1, so wildcard origins are safe here.
+    # Only the Chrome extension may call this API from a browser context.
+    # A wildcard would let any web page fire drive-by /ingest requests
+    # (CORS restricts browser pages, not network reachability — binding to
+    # 127.0.0.1 does not protect against JS running in the local browser).
+    # Regex instead of an exact ID because unpacked extension IDs differ
+    # per machine. Non-browser clients (curl, scripts) are unaffected.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origin_regex=r"chrome-extension://.*",
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
