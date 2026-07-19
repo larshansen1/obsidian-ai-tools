@@ -19,6 +19,7 @@ repos:
           - pydantic
           - pydantic-settings
           - types-requests
+          - types-PyYAML
 
   - repo: https://github.com/PyCQA/bandit
     rev: 1.9.4

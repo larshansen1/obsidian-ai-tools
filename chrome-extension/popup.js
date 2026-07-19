@@ -82,10 +82,18 @@ openLink.addEventListener("click", () => {
   }
 });
 
+// When the server reports the source already exists, the button becomes an
+// explicit "update" action so a second click regenerates instead of skipping.
+let updateMode = false;
+
 function setLoading(loading) {
   btn.disabled = loading;
   spinner.style.display = loading ? "block" : "none";
-  btnLabel.textContent = loading ? "Ingesting…" : "Ingest into Obsidian";
+  if (loading) {
+    btnLabel.textContent = "Ingesting…";
+  } else {
+    btnLabel.textContent = updateMode ? "Update existing note" : "Ingest into Obsidian";
+  }
 }
 
 // ── Ingest ───────────────────────────────────────────────────────────────────
@@ -99,12 +107,22 @@ btn.addEventListener("click", async () => {
     const r = await fetch(`${SERVER}/ingest`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: currentUrl, ...capture }),
+      body: JSON.stringify({ url: currentUrl, update: updateMode, ...capture }),
     });
 
     const data = await r.json();
 
-    if (r.ok) {
+    if (r.ok && data.status === "exists") {
+      updateMode = true;
+      showResult(
+        "info",
+        `📄 Already in vault: ${data.title}`,
+        data.file_path,
+        data.tags,
+        data.obsidian_url,
+      );
+    } else if (r.ok) {
+      updateMode = false;
       showResult("success", `✓ ${data.title}`, data.file_path, data.tags, data.obsidian_url);
     } else {
       showResult("error", "Ingestion failed", data.detail ?? "Unknown error");

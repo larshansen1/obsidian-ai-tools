@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 from obsidian_ai_tools.cli import app
+from obsidian_ai_tools.dedup import ExistingNote
 from obsidian_ai_tools.ingestion import (
     ContentFetchError,
     IngestionRequest,
@@ -105,7 +106,9 @@ def test_ingest_content_runs_shared_pipeline_and_emits_progress(tmp_path: Path) 
         max_content_length=1234,
         prompt_version="article_v1",
     )
-    mock_write.assert_called_once_with(note=note, vault_path=tmp_path, inbox_folder="inbox")
+    mock_write.assert_called_once_with(
+        note=note, vault_path=tmp_path, inbox_folder="inbox", target_path=None
+    )
     assert stages == [
         "provider_selected",
         "fetching",
@@ -164,6 +167,86 @@ def test_ingest_content_forwards_provider_specific_options(
         ingest_content(ingestion_request, _settings(tmp_path))  # type: ignore[arg-type]
 
     provider.ingest.assert_called_once_with(ingestion_request.url, **expected_kwargs)
+
+
+def _write_existing_note(vault: Path, source_url: str) -> Path:
+    note_path = vault / "inbox" / "web-existing-note.md"
+    note_path.parent.mkdir(parents=True, exist_ok=True)
+    note_path.write_text(
+        f"""---
+title: Existing Note
+tags:
+  - test
+created: 2026-07-19T10:00:00
+type: source-note
+source_type: web
+source_url: {source_url}
+model: test-model
+prompt_version: article_v1
+---
+
+# Existing Note
+""",
+        encoding="utf-8",
+    )
+    return note_path
+
+
+def test_ingest_content_skips_duplicate_source_before_fetch(tmp_path: Path) -> None:
+    """Test a known source returns the existing note without fetch or LLM."""
+    metadata = _metadata()
+    existing_path = _write_existing_note(tmp_path, metadata.url)
+    provider = SimpleNamespace(name="web", ingest=MagicMock(return_value=metadata))
+
+    with (
+        patch(
+            "obsidian_ai_tools.ingestion.ProviderFactory.get_provider",
+            return_value=provider,
+        ),
+        patch("obsidian_ai_tools.ingestion.generate_note") as mock_generate,
+    ):
+        result = ingest_content(
+            IngestionRequest(url=metadata.url),
+            _settings(tmp_path),  # type: ignore[arg-type]
+        )
+
+    assert result == ExistingNote(
+        file_path=existing_path,
+        title="Existing Note",
+        tags=["test"],
+        source_type="web",
+    )
+    provider.ingest.assert_not_called()
+    mock_generate.assert_not_called()
+
+
+def test_ingest_content_update_overwrites_existing_file(tmp_path: Path) -> None:
+    """Test update=True reruns the pipeline into the existing file path."""
+    metadata = _metadata()
+    existing_path = _write_existing_note(tmp_path, metadata.url)
+    provider = SimpleNamespace(name="web", ingest=MagicMock(return_value=metadata))
+
+    with (
+        patch(
+            "obsidian_ai_tools.ingestion.ProviderFactory.get_provider",
+            return_value=provider,
+        ),
+        patch("obsidian_ai_tools.ingestion.generate_note", return_value=(_note(), _cost_info())),
+        patch("obsidian_ai_tools.ingestion.write_note", return_value=existing_path) as mock_write,
+    ):
+        result = ingest_content(
+            IngestionRequest(url=metadata.url, update=True),
+            _settings(tmp_path),  # type: ignore[arg-type]
+        )
+
+    assert isinstance(result, IngestionResult)
+    assert result.file_path == existing_path
+    mock_write.assert_called_once_with(
+        note=result.note,
+        vault_path=tmp_path,
+        inbox_folder="inbox",
+        target_path=existing_path,
+    )
 
 
 def test_ingest_content_wraps_provider_selection_failure(tmp_path: Path) -> None:
@@ -259,6 +342,55 @@ def test_http_ingest_delegates_to_shared_pipeline(tmp_path: Path) -> None:
         captured_content="User: question\nAssistant: answer",
         captured_title="ChatGPT - Example",
     )
+
+
+def test_http_ingest_reports_existing_source(tmp_path: Path) -> None:
+    """Test the webhook adapter surfaces a duplicate as status=exists."""
+    existing = ExistingNote(
+        file_path=tmp_path / "inbox" / "web-existing-note.md",
+        title="Existing Note",
+        tags=["test"],
+        source_type="web",
+    )
+
+    with (
+        patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+        patch("obsidian_ai_tools.server.app.ingest_content", return_value=existing),
+    ):
+        response = TestClient(create_app()).post(
+            "/ingest",
+            json={"url": "https://example.com/article", "vault_path": str(tmp_path)},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "exists"
+    assert body["title"] == "Existing Note"
+    assert body["obsidian_url"] == (
+        f"obsidian://open?vault={tmp_path.name}&file=inbox%2Fweb-existing-note.md"
+    )
+
+
+def test_cli_ingest_reports_existing_source(tmp_path: Path) -> None:
+    """Test the CLI adapter prints the skip message for duplicates."""
+    existing = ExistingNote(
+        file_path=tmp_path / "inbox" / "web-existing-note.md",
+        title="Existing Note",
+        tags=["test"],
+        source_type="web",
+    )
+
+    with (
+        patch("obsidian_ai_tools.commands.ingest.setup_logging"),
+        patch("obsidian_ai_tools.commands.ingest.get_settings", return_value=_settings(tmp_path)),
+        patch("obsidian_ai_tools.commands.ingest.ingest_content", return_value=existing),
+    ):
+        response = runner.invoke(app, ["ingest", "https://example.com/article"])
+
+    assert response.exit_code == 0
+    assert "Already in vault" in response.output
+    assert "--update" in response.output
+    assert "Ingestion complete" not in response.output
 
 
 def test_cors_allows_chrome_extension_origin() -> None:

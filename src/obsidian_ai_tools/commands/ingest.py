@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 
 from ..config import get_settings
+from ..dedup import ExistingNote
 from ..ingestion import (
     ContentFetchError,
     IngestionProgress,
@@ -69,6 +70,13 @@ def ingest(
             help="Override provider order (comma-separated: direct,supadata,decodo)",
         ),
     ] = None,
+    update: Annotated[
+        bool,
+        typer.Option(
+            "--update",
+            help="Regenerate the note if this source is already in the vault",
+        ),
+    ] = False,
 ) -> None:
     """Ingest content into your Obsidian vault.
 
@@ -140,6 +148,7 @@ def ingest(
         prompt_version=prompt_version,
         transcript_providers=transcript_providers,
         max_pages=max_pages,
+        update=update,
     )
     try:
         result = ingest_content(request, settings, on_progress=show_progress)
@@ -169,8 +178,20 @@ def ingest(
         typer.echo(f"❌ Failed to write note: {e.__cause__ or e}", err=True)
         raise typer.Exit(1) from e
 
-    typer.echo("✅ Ingestion complete!")
     vault_path = request.vault_path or settings.obsidian_vault_path
+
+    if isinstance(result, ExistingNote):
+        typer.echo(f"📄 Already in vault: '{result.title}'")
+        typer.echo(f"   Tags: {', '.join(result.tags) if result.tags else 'none'}")
+        typer.echo(f"   Path: {result.file_path}")
+        try:
+            typer.echo(f"   Open: {build_obsidian_url(vault_path, result.file_path)}")
+        except ValueError:
+            pass
+        typer.echo("💡 Re-run with --update to regenerate this note.")
+        return
+
+    typer.echo("✅ Ingestion complete!")
     try:
         typer.echo(f"   Open: {build_obsidian_url(vault_path, result.file_path)}")
     except ValueError:

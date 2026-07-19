@@ -257,3 +257,38 @@ class TestBuildObsidianUrl:
         """Test files outside the vault are rejected."""
         with pytest.raises(ValueError):
             build_obsidian_url(Path("/vaults/notes"), Path("/elsewhere/note.md"))
+
+
+class TestWriteNoteTargetPath:
+    """Tests for update-in-place writes via target_path."""
+
+    @pytest.fixture
+    def sample_note(self) -> Note:
+        return Note(
+            title="Regenerated Title",
+            summary="New summary",
+            tags=["test"],
+            source_url="https://example.com",
+            model="test-model",
+        )
+
+    def test_overwrites_target_keeping_filename(self, tmp_path: Path, sample_note: Note) -> None:
+        existing = tmp_path / "inbox" / "web-old-title.md"
+        existing.parent.mkdir(parents=True)
+        existing.write_text("old content", encoding="utf-8")
+
+        result = write_note(sample_note, tmp_path, target_path=existing)
+
+        assert result == existing
+        assert "Regenerated Title" in existing.read_text(encoding="utf-8")
+        assert list((tmp_path / "inbox").glob("*.md")) == [existing]
+
+    def test_rejects_target_outside_vault(self, tmp_path: Path, sample_note: Note) -> None:
+        from obsidian_ai_tools.obsidian import PathTraversalError
+
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        outside = tmp_path / "elsewhere.md"
+
+        with pytest.raises(PathTraversalError):
+            write_note(sample_note, vault, target_path=outside)
