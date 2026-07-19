@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 from .config import Settings
+from .dedup import ExistingNote, find_note_by_source
 from .llm import generate_note
 from .models import ArticleMetadata, Note, VideoMetadata
 from .obsidian import write_note
@@ -55,6 +56,7 @@ class IngestionRequest:
     max_pages: int | None = None
     captured_content: str | None = None
     captured_title: str | None = None
+    update: bool = False
 
 
 @dataclass(frozen=True)
@@ -114,8 +116,14 @@ def ingest_content(
     request: IngestionRequest,
     settings: Settings,
     on_progress: Callable[[IngestionProgress], None] | None = None,
-) -> IngestionResult:
-    """Fetch a source, generate a note, and persist it to the vault."""
+) -> IngestionResult | ExistingNote:
+    """Fetch a source, generate a note, and persist it to the vault.
+
+    If the source already exists in the vault (matched by normalized
+    source_url) and request.update is False, returns the ExistingNote without
+    fetching or calling the LLM. With request.update the pipeline runs fully
+    and overwrites the existing file, keeping its name.
+    """
     try:
         provider = ProviderFactory.get_provider(request.url)
     except ValueError as exc:
@@ -123,6 +131,21 @@ def ingest_content(
 
     prompt_version = request.prompt_version or default_prompt_version(provider.name)
     vault_path = request.vault_path or settings.obsidian_vault_path
+
+    existing: ExistingNote | None = None
+    try:
+        existing = find_note_by_source(vault_path, request.url)
+    except Exception:
+        # Dedup is an optimization; a scan failure must never block ingestion.
+        logging.getLogger("obsidian_ai_tools.ingestion").warning(
+            "Duplicate scan failed; proceeding with ingestion", exc_info=True
+        )
+    if existing is not None and not request.update:
+        logging.getLogger("obsidian_ai_tools.ingestion").info(
+            "Source already in vault; skipping ingestion",
+            extra={"file_path": str(existing.file_path), "url": request.url},
+        )
+        return existing
 
     def emit(
         stage: ProgressStage,
@@ -199,6 +222,7 @@ def ingest_content(
             note=note,
             vault_path=vault_path,
             inbox_folder=settings.obsidian_inbox_folder,
+            target_path=existing.file_path if existing is not None else None,
         )
     except Exception as exc:
         raise VaultWriteError(f"Vault write failed: {exc}") from exc

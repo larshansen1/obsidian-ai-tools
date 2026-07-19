@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ..config import get_settings
+from ..dedup import ExistingNote
 from ..ingestion import (
     ContentFetchError,
     NoteGenerationStageError,
@@ -37,6 +38,7 @@ class IngestRequest(BaseModel):
     max_pages: int | None = None
     captured_content: str | None = None
     captured_title: str | None = None
+    update: bool = False
 
 
 class IngestResponse(BaseModel):
@@ -108,6 +110,7 @@ def create_app() -> FastAPI:
                     max_pages=req.max_pages,
                     captured_content=req.captured_content,
                     captured_title=req.captured_title,
+                    update=req.update,
                 ),
                 settings,
             )
@@ -133,6 +136,16 @@ def create_app() -> FastAPI:
             obsidian_url: str | None = build_obsidian_url(vault_path, result.file_path)
         except ValueError:
             obsidian_url = None
+
+        if isinstance(result, ExistingNote):
+            return IngestResponse(
+                status="exists",
+                title=result.title,
+                file_path=str(result.file_path),
+                tags=result.tags,
+                source_type=result.source_type or "unknown",
+                obsidian_url=obsidian_url,
+            )
 
         return IngestResponse(
             title=result.note.title,

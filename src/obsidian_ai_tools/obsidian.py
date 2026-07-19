@@ -92,13 +92,21 @@ def build_obsidian_url(vault_path: Path, file_path: Path) -> str:
     return f"obsidian://open?vault={vault_name}&file={file_param}"
 
 
-def write_note(note: Note, vault_path: Path, inbox_folder: str = "inbox") -> Path:
+def write_note(
+    note: Note,
+    vault_path: Path,
+    inbox_folder: str = "inbox",
+    target_path: Path | None = None,
+) -> Path:
     """Write note to Obsidian vault inbox folder.
 
     Args:
         note: Note object to write
         vault_path: Path to Obsidian vault root
         inbox_folder: Folder within vault for new notes (default: "inbox")
+        target_path: Overwrite this existing note instead of deriving a
+            filename from the title (used for source-based updates, where the
+            file identity must not follow the LLM's regenerated title)
 
     Returns:
         Path to created note file
@@ -107,6 +115,20 @@ def write_note(note: Note, vault_path: Path, inbox_folder: str = "inbox") -> Pat
         FileWriteError: If note cannot be written
         PathTraversalError: If path traversal is detected
     """
+    if target_path is not None:
+        try:
+            resolved_target = target_path.resolve()
+            resolved_vault = vault_path.resolve()
+        except Exception as e:
+            raise FileWriteError(f"Path validation failed: {e}") from e
+        if not str(resolved_target).startswith(str(resolved_vault)):
+            raise PathTraversalError(f"Update target outside vault: {target_path}")
+        try:
+            target_path.write_text(note.to_markdown(), encoding="utf-8")
+            return target_path
+        except Exception as e:
+            raise FileWriteError(f"Failed to write note to {target_path}: {e}") from e
+
     # Build target directory path
     inbox_path = vault_path / inbox_folder
 
