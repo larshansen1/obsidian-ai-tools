@@ -17,6 +17,7 @@ from obsidian_ai_tools.ingestion import (
     NoteGenerationStageError,
     ProviderSelectionError,
     VaultWriteError,
+    default_prompt_version,
     ingest_content,
 )
 from obsidian_ai_tools.models import ArticleMetadata, CostInfo, Note
@@ -64,6 +65,11 @@ def _cost_info() -> CostInfo:
         total_cost_usd=0.001,
         source_url="https://example.com/article",
     )
+
+
+def test_default_prompt_version_uses_github_repo_prompt() -> None:
+    """GitHub repository ingestion should use the repo-specific prompt by default."""
+    assert default_prompt_version("github") == "github_repo_v1"
 
 
 def test_ingest_content_runs_shared_pipeline_and_emits_progress(tmp_path: Path) -> None:

@@ -102,3 +102,65 @@ class TestNote:
         )
         markdown = note.to_markdown()
         assert "author:" not in markdown
+
+    def test_to_markdown_includes_source_references(self) -> None:
+        """Test that source file references are included when provided."""
+        note = Note(
+            title="Test Note",
+            summary="Test summary",
+            tags=["test"],
+            source_url="https://github.com/user/repo",
+            source_type="github",
+            source_references=[
+                "[README.md](https://github.com/user/repo/blob/main/README.md)",
+                "[docs/usage.md](https://github.com/user/repo/blob/main/docs/usage.md)",
+            ],
+            model="test-model",
+        )
+
+        markdown = note.to_markdown()
+
+        assert "source_type: github" in markdown
+        assert "## Source Files" in markdown
+        assert "- [README.md](https://github.com/user/repo/blob/main/README.md)" in markdown
+        assert "- [docs/usage.md](https://github.com/user/repo/blob/main/docs/usage.md)" in markdown
+
+    def test_github_note_uses_repository_sections(self) -> None:
+        """GitHub notes should render repo sections instead of generic key points."""
+        note = Note(
+            title="Test Repo",
+            summary="Repository summary",
+            key_points=[
+                "Purpose: Explain the project goal",
+                "Architecture Read: Bounded GitHub documentation flows into a note renderer",
+                "Design Principles and Tradeoffs: Local-first and bounded",
+                "Technology and Runtime: Python and GitHub API",
+                "Usage Surface: CLI ingestion",
+                "Security Posture: Configure GITHUB_TOKEN for private repos",
+                "Operational Maturity: Usable personal tool with focused tests",
+                "Caveats and Unknowns: Documentation may be incomplete",
+            ],
+            claims=["The docs claim bounded repo ingestion"],
+            implications=["Repo notes are easier to scan"],
+            tags=["github"],
+            source_url="https://github.com/user/repo",
+            source_type="github",
+            source_references=["[README.md](https://github.com/user/repo/blob/main/README.md)"],
+            model="test-model",
+        )
+
+        markdown = note.to_markdown()
+
+        assert "## Key Points" not in markdown
+        assert "## Purpose" in markdown
+        assert "- Explain the project goal" in markdown
+        assert "## Architecture Read" in markdown
+        assert "## Design Principles and Tradeoffs" in markdown
+        assert "## Technology and Runtime" in markdown
+        assert "## Usage Surface" in markdown
+        assert "## Security Posture" in markdown
+        assert "## Operational Maturity" in markdown
+        assert "## Caveats and Unknowns" in markdown
+        assert "## Evidence Highlights" in markdown
+        assert "## Adoption Fit" in markdown
+        assert "[GitHub Repository](https://github.com/user/repo)" in markdown

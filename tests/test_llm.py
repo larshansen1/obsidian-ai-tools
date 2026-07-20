@@ -1,13 +1,16 @@
 """Tests for LLM integration functionality."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from obsidian_ai_tools.llm import (
     NoteGenerationError,
     build_prompt,
+    generate_note,
     parse_llm_response,
 )
-from obsidian_ai_tools.models import VideoMetadata
+from obsidian_ai_tools.models import ArticleMetadata, VideoMetadata
 
 
 class TestBuildPrompt:
@@ -38,6 +41,25 @@ Transcript: {transcript}"""
         assert "https://youtube.com/watch?v=test123" in result
         assert "This is a test transcript." in result
 
+    def test_prompt_includes_github_repository_metadata(self) -> None:
+        """GitHub repo metadata should format through article-style templates."""
+        metadata = ArticleMetadata(
+            title="user/repo repository documentation",
+            url="https://github.com/user/repo",
+            author="user",
+            site_name="GitHub Repository",
+            content="Purpose: Test repository",
+            source_type="github",
+            source_references=["[README.md](https://github.com/user/repo/blob/main/README.md)"],
+        )
+        template = "Title: {title}\nURL: {url}\nContent: {content}"
+
+        result = build_prompt(metadata, template)
+
+        assert "user/repo repository documentation" in result
+        assert "https://github.com/user/repo" in result
+        assert "Purpose: Test repository" in result
+
 
 class TestParseLLMResponse:
     """Tests for parse_llm_response function."""
@@ -54,6 +76,52 @@ class TestParseLLMResponse:
         response = '```json\n{"title": "Test", "tags": ["tag1"]}\n```'
         result = parse_llm_response(response)
         assert result["title"] == "Test"
+
+
+class TestGenerateNote:
+    """Tests for note assembly from LLM responses."""
+
+    def test_generate_note_preserves_github_source_type_and_references(self) -> None:
+        """GitHub metadata should produce github notes with deterministic file references."""
+        metadata = ArticleMetadata(
+            title="user/repo repository documentation",
+            url="https://github.com/user/repo",
+            content="Repository docs",
+            author="user",
+            site_name="GitHub Repository",
+            source_type="github",
+            source_references=["[README.md](https://github.com/user/repo/blob/main/README.md)"],
+        )
+        mock_response = MagicMock()
+        mock_response.choices = [
+            MagicMock(
+                message=MagicMock(
+                    content=(
+                        '{"title": "Repo", "summary": "Summary", '
+                        '"key_points": ["Purpose"], "tags": ["repo"]}'
+                    )
+                )
+            )
+        ]
+        mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=5, cost=0.001)
+
+        with (
+            patch("obsidian_ai_tools.llm.load_prompt_template", return_value="{content}"),
+            patch("obsidian_ai_tools.llm.OpenAI") as mock_openai,
+        ):
+            mock_client = MagicMock()
+            mock_client.chat.completions.create.return_value = mock_response
+            mock_openai.return_value = mock_client
+            note, cost_info = generate_note(
+                metadata=metadata,
+                model="test-model",
+                api_key="test-key",
+                prompt_version="github_repo_v1",
+            )
+
+        assert note.source_type == "github"
+        assert cost_info.source_type == "github"
+        assert note.source_references == metadata.source_references
 
     def test_parse_json_in_generic_code_block(self) -> None:
         """Test parsing JSON wrapped in ``` code block."""

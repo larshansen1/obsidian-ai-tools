@@ -108,6 +108,7 @@ def default_prompt_version(provider_name: str) -> str:
     return {
         "youtube": "youtube_v2",
         "file": "markdown_v1",
+        "github": "github_repo_v1",
         "pdf": "pdf_v1",
     }.get(provider_name, "article_v1")
 

@@ -144,10 +144,12 @@ def generate_note(
         content = metadata.transcript
         source_type = "youtube"
         author = metadata.channel_name
+        source_references: list[str] = []
     else:
         content = metadata.content
-        source_type = "web"
+        source_type = metadata.source_type
         author = metadata.author if metadata.author else "Unknown"
+        source_references = metadata.source_references
 
     if len(content) > max_content_length:
         raise NoteGenerationError(
@@ -212,6 +214,7 @@ def generate_note(
             author=author,
             source_url=metadata.url,
             source_type=source_type,
+            source_references=source_references,
             model=model,
             prompt_version=prompt_version,
         )

@@ -41,6 +41,11 @@ class ArticleMetadata(BaseModel):
     author: str | None = Field(None, description="Article author")
     site_name: str | None = Field(None, description="Website name")
     published_date: str | None = Field(None, description="Publication date")
+    source_type: str = Field(default="web", description="Content source type")
+    source_references: list[str] = Field(
+        default_factory=list,
+        description="Markdown-formatted source references used to build this content",
+    )
     fetched_at: datetime = Field(
         default_factory=datetime.now,
         description="Timestamp when article was fetched",
@@ -59,6 +64,10 @@ class Note(BaseModel):
     author: str | None = Field(None, description="Content author/creator")
     source_url: str = Field(..., description="Original source URL")
     source_type: str = Field(default="youtube", description="Content source type")
+    source_references: list[str] = Field(
+        default_factory=list,
+        description="Markdown-formatted source references used to build this note",
+    )
     created_at: datetime = Field(
         default_factory=datetime.now, description="Note creation timestamp"
     )
@@ -102,6 +111,91 @@ class Note(BaseModel):
             return f'"{escaped}"'
         return value
 
+    def _github_sections(self) -> dict[str, list[str]]:
+        section_aliases = {
+            "purpose": "Purpose",
+            "architecture": "Architecture Read",
+            "architecture read": "Architecture Read",
+            "principles": "Principles",
+            "design principles": "Design Principles and Tradeoffs",
+            "design principles and tradeoffs": "Design Principles and Tradeoffs",
+            "technology": "Technology",
+            "technology and runtime": "Technology and Runtime",
+            "usage": "Usage Surface",
+            "usage surface": "Usage Surface",
+            "setup": "Setup and Operations",
+            "setup and operations": "Setup and Operations",
+            "security": "Security Posture",
+            "security posture": "Security Posture",
+            "maturity": "Operational Maturity",
+            "operational maturity": "Operational Maturity",
+            "caveats": "Caveats",
+            "caveats and unknowns": "Caveats and Unknowns",
+        }
+        sections: dict[str, list[str]] = {}
+        for point in self.key_points:
+            label, separator, detail = point.partition(":")
+            section = section_aliases.get(label.strip().lower()) if separator else None
+            if section is None:
+                sections.setdefault("Additional Notes", []).append(point)
+            elif detail.strip():
+                sections.setdefault(section, []).append(detail.strip())
+        return sections
+
+    def _github_body(self) -> str:
+        body = f"""# {self.title}
+
+## Summary
+
+{self.summary}
+
+"""
+        sections = self._github_sections()
+        section_order = [
+            "Purpose",
+            "Architecture Read",
+            "Design Principles and Tradeoffs",
+            "Principles",
+            "Technology and Runtime",
+            "Technology",
+            "Usage Surface",
+            "Security Posture",
+            "Operational Maturity",
+            "Setup and Operations",
+            "Caveats and Unknowns",
+            "Caveats",
+            "Additional Notes",
+        ]
+        for section in section_order:
+            if section not in sections:
+                continue
+            body += f"## {section}\n\n"
+            for item in sections[section]:
+                body += f"- {item}\n"
+            body += "\n"
+
+        if self.claims:
+            body += "## Evidence Highlights\n\n"
+            for claim in self.claims:
+                body += f"- {claim}\n"
+            body += "\n"
+
+        if self.implications:
+            body += "## Adoption Fit\n\n"
+            for impl in self.implications:
+                body += f"- {impl}\n"
+            body += "\n"
+
+        body += f"""## Source
+
+[GitHub Repository]({self.source_url})
+"""
+        if self.source_references:
+            body += "\n## Source Files\n\n"
+            for reference in self.source_references:
+                body += f"- {reference}\n"
+        return body
+
     def to_markdown(self) -> str:
         """Convert note to Obsidian-formatted markdown with frontmatter."""
         # Format tags for frontmatter (list format)
@@ -131,6 +225,9 @@ model: {self.model}
 prompt_version: {self.prompt_version}
 ---
 """
+
+        if self.source_type == "github":
+            return frontmatter + "\n" + self._github_body()
 
         # Build body
         body = f"""# {self.title}
@@ -168,5 +265,9 @@ prompt_version: {self.prompt_version}
 
 [{link_text}]({self.source_url})
 """
+        if self.source_references:
+            body += "\n## Source Files\n\n"
+            for reference in self.source_references:
+                body += f"- {reference}\n"
 
         return frontmatter + "\n" + body
