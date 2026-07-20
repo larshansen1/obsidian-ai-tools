@@ -124,3 +124,38 @@ class TestNote:
         assert "## Source Files" in markdown
         assert "- [README.md](https://github.com/user/repo/blob/main/README.md)" in markdown
         assert "- [docs/usage.md](https://github.com/user/repo/blob/main/docs/usage.md)" in markdown
+
+    def test_github_note_uses_repository_sections(self) -> None:
+        """GitHub notes should render repo sections instead of generic key points."""
+        note = Note(
+            title="Test Repo",
+            summary="Repository summary",
+            key_points=[
+                "Purpose: Explain the project goal",
+                "Principles: Local-first and bounded",
+                "Technology: Python and GitHub API",
+                "Usage Surface: CLI ingestion",
+                "Setup and Operations: Configure GITHUB_TOKEN for private repos",
+                "Caveats: Documentation may be incomplete",
+            ],
+            claims=["The docs claim bounded repo ingestion"],
+            implications=["Repo notes are easier to scan"],
+            tags=["github"],
+            source_url="https://github.com/user/repo",
+            source_type="github",
+            source_references=["[README.md](https://github.com/user/repo/blob/main/README.md)"],
+            model="test-model",
+        )
+
+        markdown = note.to_markdown()
+
+        assert "## Key Points" not in markdown
+        assert "## Purpose" in markdown
+        assert "- Explain the project goal" in markdown
+        assert "## Principles" in markdown
+        assert "## Technology" in markdown
+        assert "## Usage Surface" in markdown
+        assert "## Setup and Operations" in markdown
+        assert "## Caveats" in markdown
+        assert "## Documented Claims" in markdown
+        assert "[GitHub Repository](https://github.com/user/repo)" in markdown

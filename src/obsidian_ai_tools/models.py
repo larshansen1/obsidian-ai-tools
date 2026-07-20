@@ -111,6 +111,75 @@ class Note(BaseModel):
             return f'"{escaped}"'
         return value
 
+    def _github_sections(self) -> dict[str, list[str]]:
+        section_aliases = {
+            "purpose": "Purpose",
+            "principles": "Principles",
+            "technology": "Technology",
+            "usage": "Usage Surface",
+            "usage surface": "Usage Surface",
+            "setup": "Setup and Operations",
+            "setup and operations": "Setup and Operations",
+            "caveats": "Caveats",
+        }
+        sections: dict[str, list[str]] = {}
+        for point in self.key_points:
+            label, separator, detail = point.partition(":")
+            section = section_aliases.get(label.strip().lower()) if separator else None
+            if section is None:
+                sections.setdefault("Additional Notes", []).append(point)
+            elif detail.strip():
+                sections.setdefault(section, []).append(detail.strip())
+        return sections
+
+    def _github_body(self) -> str:
+        body = f"""# {self.title}
+
+## Summary
+
+{self.summary}
+
+"""
+        sections = self._github_sections()
+        section_order = [
+            "Purpose",
+            "Principles",
+            "Technology",
+            "Usage Surface",
+            "Setup and Operations",
+            "Caveats",
+            "Additional Notes",
+        ]
+        for section in section_order:
+            if section not in sections:
+                continue
+            body += f"## {section}\n\n"
+            for item in sections[section]:
+                body += f"- {item}\n"
+            body += "\n"
+
+        if self.claims:
+            body += "## Documented Claims\n\n"
+            for claim in self.claims:
+                body += f"- {claim}\n"
+            body += "\n"
+
+        if self.implications:
+            body += "## Implications\n\n"
+            for impl in self.implications:
+                body += f"- {impl}\n"
+            body += "\n"
+
+        body += f"""## Source
+
+[GitHub Repository]({self.source_url})
+"""
+        if self.source_references:
+            body += "\n## Source Files\n\n"
+            for reference in self.source_references:
+                body += f"- {reference}\n"
+        return body
+
     def to_markdown(self) -> str:
         """Convert note to Obsidian-formatted markdown with frontmatter."""
         # Format tags for frontmatter (list format)
@@ -140,6 +209,9 @@ model: {self.model}
 prompt_version: {self.prompt_version}
 ---
 """
+
+        if self.source_type == "github":
+            return frontmatter + "\n" + self._github_body()
 
         # Build body
         body = f"""# {self.title}

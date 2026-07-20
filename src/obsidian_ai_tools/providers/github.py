@@ -37,6 +37,15 @@ PACKAGE_METADATA_FILES = {
     "build.gradle",
     "build.gradle.kts",
 }
+PRIMARY_README_FILES = {
+    "readme",
+    "readme.adoc",
+    "readme.md",
+    "readme.markdown",
+    "readme.mdx",
+    "readme.rst",
+    "readme.txt",
+}
 
 
 class GitHubRepositoryError(ValueError):
@@ -311,8 +320,10 @@ class GitHubProvider(BaseProvider):
     def _priority_for_path(self, path: str) -> int:
         lower_path = path.lower()
         name = lower_path.rsplit("/", 1)[-1]
-        if name.startswith("readme"):
+        if name in PRIMARY_README_FILES:
             return 0 if "/" not in lower_path else 20
+        if name.startswith("readme"):
+            return 5 if "/" not in lower_path else 25
         if name.startswith("contributing"):
             return 10
         if name.startswith("security"):

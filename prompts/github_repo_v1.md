@@ -49,8 +49,9 @@ Return ONLY a valid JSON object with this exact structure:
     "Purpose: ...",
     "Principles: ...",
     "Technology: ...",
-    "Usage: ...",
-    "Setup: ..."
+    "Usage Surface: ...",
+    "Setup and Operations: ...",
+    "Caveats: ..."
   ],
   "implications": [
     "Why this repository matters or how it should be used",
@@ -92,5 +93,7 @@ Before returning, verify:
 - Valid JSON format
 - All required fields present
 - Tags are an array of lowercase strings
-- Key points cover purpose, principles, technology, and usage where documented
+- Key points use the section prefixes exactly as shown when evidence exists:
+  `Purpose:`, `Principles:`, `Technology:`, `Usage Surface:`,
+  `Setup and Operations:`, `Caveats:`
 - No unsupported claims about the source code

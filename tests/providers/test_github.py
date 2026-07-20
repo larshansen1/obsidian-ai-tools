@@ -106,6 +106,40 @@ def test_github_provider_ingests_bounded_documentation_with_provenance() -> None
     assert "https://api.github.com/repos/user/repo/contents/src/main.py" not in fetched_urls
 
 
+def test_github_provider_prioritizes_canonical_readme_before_translations() -> None:
+    """The canonical README should be selected before localized README variants."""
+    provider = GitHubProvider()
+    responses = {
+        "https://api.github.com/repos/user/repo": FakeResponse({"default_branch": "main"}),
+        "https://api.github.com/repos/user/repo/contents": FakeResponse(
+            [
+                {"type": "file", "name": "README.zh-CN.md", "path": "README.zh-CN.md"},
+                {"type": "file", "name": "README.md", "path": "README.md"},
+                {"type": "file", "name": "README.ja-JP.md", "path": "README.ja-JP.md"},
+            ]
+        ),
+        "https://api.github.com/repos/user/repo/contents/README.md": FakeResponse(
+            encoded_file("# Canonical README")
+        ),
+        "https://api.github.com/repos/user/repo/contents/README.ja-JP.md": FakeResponse(
+            encoded_file("# Japanese README")
+        ),
+        "https://api.github.com/repos/user/repo/contents/README.zh-CN.md": FakeResponse(
+            encoded_file("# Chinese README")
+        ),
+    }
+
+    def fake_get(url: str, **kwargs: Any) -> FakeResponse:
+        return responses[url]
+
+    with patch("obsidian_ai_tools.providers.github.requests.get", side_effect=fake_get):
+        result = provider._ingest("https://github.com/user/repo")
+
+    assert result.source_references[0] == (
+        "[README.md](https://github.com/user/repo/blob/main/README.md)"
+    )
+
+
 def test_github_provider_treats_tree_docs_url_as_documentation_root() -> None:
     """A /tree/<ref>/docs URL should select docs files from that directory."""
     provider = GitHubProvider()
