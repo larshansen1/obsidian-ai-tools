@@ -114,13 +114,23 @@ class Note(BaseModel):
     def _github_sections(self) -> dict[str, list[str]]:
         section_aliases = {
             "purpose": "Purpose",
+            "architecture": "Architecture Read",
+            "architecture read": "Architecture Read",
             "principles": "Principles",
+            "design principles": "Design Principles and Tradeoffs",
+            "design principles and tradeoffs": "Design Principles and Tradeoffs",
             "technology": "Technology",
+            "technology and runtime": "Technology and Runtime",
             "usage": "Usage Surface",
             "usage surface": "Usage Surface",
             "setup": "Setup and Operations",
             "setup and operations": "Setup and Operations",
+            "security": "Security Posture",
+            "security posture": "Security Posture",
+            "maturity": "Operational Maturity",
+            "operational maturity": "Operational Maturity",
             "caveats": "Caveats",
+            "caveats and unknowns": "Caveats and Unknowns",
         }
         sections: dict[str, list[str]] = {}
         for point in self.key_points:
@@ -143,10 +153,16 @@ class Note(BaseModel):
         sections = self._github_sections()
         section_order = [
             "Purpose",
+            "Architecture Read",
+            "Design Principles and Tradeoffs",
             "Principles",
+            "Technology and Runtime",
             "Technology",
             "Usage Surface",
+            "Security Posture",
+            "Operational Maturity",
             "Setup and Operations",
+            "Caveats and Unknowns",
             "Caveats",
             "Additional Notes",
         ]
@@ -159,13 +175,13 @@ class Note(BaseModel):
             body += "\n"
 
         if self.claims:
-            body += "## Documented Claims\n\n"
+            body += "## Evidence Highlights\n\n"
             for claim in self.claims:
                 body += f"- {claim}\n"
             body += "\n"
 
         if self.implications:
-            body += "## Implications\n\n"
+            body += "## Adoption Fit\n\n"
             for impl in self.implications:
                 body += f"- {impl}\n"
             body += "\n"

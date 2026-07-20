@@ -132,11 +132,13 @@ class TestNote:
             summary="Repository summary",
             key_points=[
                 "Purpose: Explain the project goal",
-                "Principles: Local-first and bounded",
-                "Technology: Python and GitHub API",
+                "Architecture Read: Bounded GitHub documentation flows into a note renderer",
+                "Design Principles and Tradeoffs: Local-first and bounded",
+                "Technology and Runtime: Python and GitHub API",
                 "Usage Surface: CLI ingestion",
-                "Setup and Operations: Configure GITHUB_TOKEN for private repos",
-                "Caveats: Documentation may be incomplete",
+                "Security Posture: Configure GITHUB_TOKEN for private repos",
+                "Operational Maturity: Usable personal tool with focused tests",
+                "Caveats and Unknowns: Documentation may be incomplete",
             ],
             claims=["The docs claim bounded repo ingestion"],
             implications=["Repo notes are easier to scan"],
@@ -152,10 +154,13 @@ class TestNote:
         assert "## Key Points" not in markdown
         assert "## Purpose" in markdown
         assert "- Explain the project goal" in markdown
-        assert "## Principles" in markdown
-        assert "## Technology" in markdown
+        assert "## Architecture Read" in markdown
+        assert "## Design Principles and Tradeoffs" in markdown
+        assert "## Technology and Runtime" in markdown
         assert "## Usage Surface" in markdown
-        assert "## Setup and Operations" in markdown
-        assert "## Caveats" in markdown
-        assert "## Documented Claims" in markdown
+        assert "## Security Posture" in markdown
+        assert "## Operational Maturity" in markdown
+        assert "## Caveats and Unknowns" in markdown
+        assert "## Evidence Highlights" in markdown
+        assert "## Adoption Fit" in markdown
         assert "[GitHub Repository](https://github.com/user/repo)" in markdown
