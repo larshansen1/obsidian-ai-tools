@@ -102,3 +102,25 @@ class TestNote:
         )
         markdown = note.to_markdown()
         assert "author:" not in markdown
+
+    def test_to_markdown_includes_source_references(self) -> None:
+        """Test that source file references are included when provided."""
+        note = Note(
+            title="Test Note",
+            summary="Test summary",
+            tags=["test"],
+            source_url="https://github.com/user/repo",
+            source_type="github",
+            source_references=[
+                "[README.md](https://github.com/user/repo/blob/main/README.md)",
+                "[docs/usage.md](https://github.com/user/repo/blob/main/docs/usage.md)",
+            ],
+            model="test-model",
+        )
+
+        markdown = note.to_markdown()
+
+        assert "source_type: github" in markdown
+        assert "## Source Files" in markdown
+        assert "- [README.md](https://github.com/user/repo/blob/main/README.md)" in markdown
+        assert "- [docs/usage.md](https://github.com/user/repo/blob/main/docs/usage.md)" in markdown

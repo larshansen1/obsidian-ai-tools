@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     supadata_key: str | None = Field(
         default=None, description="Supadata API key for YouTube transcripts (optional)"
     )
+    github_token: str | None = Field(
+        default=None,
+        description="GitHub token for private repository documentation ingestion (optional)",
+    )
     youtube_transcript_provider_order: str = Field(
         default="direct,supadata,decodo",
         description="Comma-separated list of transcript providers (direct,supadata,decodo)",

@@ -80,6 +80,7 @@ class TestSettingsIsolation:
             youtube_api_key="yt-key",
             decodo_api_key="decodo-key",
             supadata_key="supadata-key",
+            github_token="github-token",
             youtube_transcript_provider_order="decodo,direct",
             cache_dir=cache_path,
             cache_ttl_hours=24,
@@ -92,6 +93,7 @@ class TestSettingsIsolation:
         assert settings.llm_model == "openai/gpt-4"
         assert settings.max_transcript_length == 100000
         assert settings.youtube_api_key == "yt-key"
+        assert settings.github_token == "github-token"
         assert settings.cache_ttl_hours == 24
         assert settings.circuit_breaker_threshold == 5
         assert settings.max_pdf_pages == 100

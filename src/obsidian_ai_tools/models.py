@@ -41,6 +41,11 @@ class ArticleMetadata(BaseModel):
     author: str | None = Field(None, description="Article author")
     site_name: str | None = Field(None, description="Website name")
     published_date: str | None = Field(None, description="Publication date")
+    source_type: str = Field(default="web", description="Content source type")
+    source_references: list[str] = Field(
+        default_factory=list,
+        description="Markdown-formatted source references used to build this content",
+    )
     fetched_at: datetime = Field(
         default_factory=datetime.now,
         description="Timestamp when article was fetched",
@@ -59,6 +64,10 @@ class Note(BaseModel):
     author: str | None = Field(None, description="Content author/creator")
     source_url: str = Field(..., description="Original source URL")
     source_type: str = Field(default="youtube", description="Content source type")
+    source_references: list[str] = Field(
+        default_factory=list,
+        description="Markdown-formatted source references used to build this note",
+    )
     created_at: datetime = Field(
         default_factory=datetime.now, description="Note creation timestamp"
     )
@@ -168,5 +177,9 @@ prompt_version: {self.prompt_version}
 
 [{link_text}]({self.source_url})
 """
+        if self.source_references:
+            body += "\n## Source Files\n\n"
+            for reference in self.source_references:
+                body += f"- {reference}\n"
 
         return frontmatter + "\n" + body
