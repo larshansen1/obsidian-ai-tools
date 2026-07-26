@@ -377,6 +377,68 @@ def test_http_ingest_reports_existing_source(tmp_path: Path) -> None:
     )
 
 
+def test_http_lookup_reports_existing_note(tmp_path: Path) -> None:
+    """Test /lookup surfaces a matching note without running the pipeline."""
+    existing = ExistingNote(
+        file_path=tmp_path / "inbox" / "web-existing-note.md",
+        title="Existing Note",
+        tags=["test"],
+        source_type="web",
+    )
+
+    with (
+        patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+        patch(
+            "obsidian_ai_tools.server.app.find_note_by_source", return_value=existing
+        ) as mock_find,
+        patch("obsidian_ai_tools.server.app.ingest_content") as mock_ingest,
+    ):
+        response = TestClient(create_app()).get(
+            "/lookup", params={"url": "https://example.com/article"}
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["exists"] is True
+    assert body["title"] == "Existing Note"
+    assert body["tags"] == ["test"]
+    assert body["source_type"] == "web"
+    assert body["obsidian_url"] == (
+        f"obsidian://open?vault={tmp_path.name}&file=inbox%2Fweb-existing-note.md"
+    )
+    mock_find.assert_called_once_with(tmp_path, "https://example.com/article")
+    mock_ingest.assert_not_called()
+
+
+def test_http_lookup_reports_missing_note(tmp_path: Path) -> None:
+    """Test /lookup returns exists=false when no note matches the source."""
+    with (
+        patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+        patch("obsidian_ai_tools.server.app.find_note_by_source", return_value=None),
+    ):
+        response = TestClient(create_app()).get(
+            "/lookup", params={"url": "https://example.com/unknown"}
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "exists": False,
+        "title": None,
+        "file_path": None,
+        "tags": [],
+        "source_type": None,
+        "obsidian_url": None,
+    }
+
+
+def test_http_lookup_requires_url(tmp_path: Path) -> None:
+    """Test /lookup rejects a request with no url parameter."""
+    with patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)):
+        response = TestClient(create_app()).get("/lookup")
+
+    assert response.status_code == 422
+
+
 def test_cli_ingest_reports_existing_source(tmp_path: Path) -> None:
     """Test the CLI adapter prints the skip message for duplicates."""
     existing = ExistingNote(

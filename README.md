@@ -214,13 +214,15 @@ The server binds to `127.0.0.1:8765` by default and exposes:
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/status` | Report the configured vault, inbox, and model |
+| `GET` | `/lookup?url=` | Read-only duplicate check — is this source already in the vault? |
 | `POST` | `/ingest` | Run the full ingestion pipeline |
 | `GET` | `/docs` | OpenAPI documentation |
 
 To use the browser extension, start the server and load `chrome-extension/` as an unpacked extension in Chrome.
 Reload the unpacked extension after updating it. When ingesting an open ChatGPT or Claude conversation,
 the extension captures the rendered chat text from the authenticated browser tab before sending it to the
-local service.
+local service. On open, the popup checks `/lookup` and — if the page is already in the vault — shows the
+existing note, its tags, and an "Open in Obsidian" link, with the button switched to "Update existing note".
 
 ## Command Reference
 

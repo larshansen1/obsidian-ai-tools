@@ -49,6 +49,42 @@ async function init() {
 
   const serverOk = await checkServer();
   btn.disabled = !serverOk || !isSupportedUrl(currentUrl);
+
+  // Fire-and-forget: the popup is already usable at this point, and a slow or
+  // failing lookup must never block ingest or surface an error.
+  if (serverOk && isSupportedUrl(currentUrl)) {
+    checkExisting();
+  }
+}
+
+// Read-only duplicate check so the user sees "already in vault" without having
+// to click Ingest first. Silent on any failure — falls back to old behaviour.
+async function checkExisting() {
+  try {
+    const r = await fetch(`${SERVER}/lookup?url=${encodeURIComponent(currentUrl)}`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!r.ok) return;
+
+    const data = await r.json();
+    if (!data.exists) return;
+
+    // A click may have started an ingest while the lookup was in flight; do not
+    // overwrite that result.
+    if (btn.disabled) return;
+
+    updateMode = true;
+    btnLabel.textContent = "Update existing note";
+    showResult(
+      "info",
+      `📄 Already in vault: ${data.title}`,
+      data.file_path,
+      data.tags ?? [],
+      data.obsidian_url,
+    );
+  } catch (_) {
+    // Timeout, offline server, or bad payload: leave the popup as-is.
+  }
 }
 
 // ── Result display ───────────────────────────────────────────────────────────
