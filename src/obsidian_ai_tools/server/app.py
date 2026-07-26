@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from ..config import get_settings
-from ..dedup import ExistingNote
+from ..dedup import ExistingNote, find_note_by_source
 from ..ingestion import (
     ContentFetchError,
     NoteGenerationStageError,
@@ -47,6 +47,15 @@ class IngestResponse(BaseModel):
     file_path: str
     tags: list[str]
     source_type: str
+    obsidian_url: str | None = None
+
+
+class LookupResponse(BaseModel):
+    exists: bool = False
+    title: str | None = None
+    file_path: str | None = None
+    tags: list[str] = []
+    source_type: str | None = None
     obsidian_url: str | None = None
 
 
@@ -90,6 +99,32 @@ def create_app() -> FastAPI:
             vault=str(settings.obsidian_vault_path),
             inbox=settings.obsidian_inbox_folder,
             model=settings.llm_model,
+        )
+
+    # Read-only duplicate check for the extension popup: it runs on popup open,
+    # so it must stay a frontmatter scan — no fetch, no LLM, no vault write.
+    # Declared sync so FastAPI runs the filesystem walk in the threadpool
+    # instead of blocking the event loop.
+    @app.get("/lookup", response_model=LookupResponse)
+    def lookup(url: str, vault_path: str | None = None) -> LookupResponse:
+        settings = get_settings()
+        vault = Path(vault_path) if vault_path else settings.obsidian_vault_path
+        existing = find_note_by_source(vault, url)
+        if existing is None:
+            return LookupResponse(exists=False)
+
+        try:
+            obsidian_url: str | None = build_obsidian_url(vault, existing.file_path)
+        except ValueError:
+            obsidian_url = None
+
+        return LookupResponse(
+            exists=True,
+            title=existing.title,
+            file_path=str(existing.file_path),
+            tags=existing.tags,
+            source_type=existing.source_type or "unknown",
+            obsidian_url=obsidian_url,
         )
 
     @app.post("/ingest", response_model=IngestResponse)
