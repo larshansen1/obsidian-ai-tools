@@ -214,7 +214,11 @@ def test_github_provider_reports_insufficient_documentation() -> None:
 def test_github_provider_uses_token_header(monkeypatch: pytest.MonkeyPatch) -> None:
     """GitHub requests include Authorization when GITHUB_TOKEN is configured."""
     monkeypatch.setenv("GITHUB_TOKEN", "secret-token")
-    provider = GitHubProvider()
+    with patch(
+        "obsidian_ai_tools.providers.github.get_settings",
+        side_effect=RuntimeError("no settings in test"),
+    ):
+        provider = GitHubProvider()
 
     with patch("obsidian_ai_tools.providers.github.requests.get") as mock_get:
         mock_get.return_value = FakeResponse({"default_branch": "main"})

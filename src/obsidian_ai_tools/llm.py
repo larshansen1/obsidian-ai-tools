@@ -122,6 +122,7 @@ def generate_note(
     existing_tags: str | None = None,
     max_content_length: int = 50000,
     prompt_version: str = "youtube_v1",
+    base_url: str = "https://openrouter.ai/api/v1",
 ) -> tuple[Note, CostInfo]:
     """Generate Obsidian note from content using OpenRouter.
 
@@ -162,7 +163,7 @@ def generate_note(
     prompt = build_prompt(metadata, template, existing_tags)
 
     client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
+        base_url=base_url,
         api_key=api_key,
     )
 

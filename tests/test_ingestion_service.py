@@ -32,6 +32,7 @@ def _settings(vault_path: Path) -> SimpleNamespace:
         obsidian_inbox_folder="inbox",
         llm_model="test-model",
         openrouter_api_key="test-key",
+        llm_base_url="https://openrouter.ai/api/v1",
         max_transcript_length=1234,
     )
 
@@ -111,6 +112,7 @@ def test_ingest_content_runs_shared_pipeline_and_emits_progress(tmp_path: Path) 
         existing_tags=None,
         max_content_length=1234,
         prompt_version="article_v1",
+        base_url="https://openrouter.ai/api/v1",
     )
     mock_write.assert_called_once_with(
         note=note, vault_path=tmp_path, inbox_folder="inbox", target_path=None

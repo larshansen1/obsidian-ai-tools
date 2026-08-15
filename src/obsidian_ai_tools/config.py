@@ -53,6 +53,10 @@ class Settings(BaseSettings):
         default="anthropic/claude-3.5-sonnet",
         description="OpenRouter model identifier",
     )
+    llm_base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        description="OpenAI-compatible API base URL (e.g. LM Studio: http://localhost:1234/v1)",
+    )
     max_transcript_length: int = Field(
         default=50000, description="Maximum transcript length in characters"
     )
