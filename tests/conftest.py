@@ -1,13 +1,12 @@
 """Pytest configuration and fixtures."""
 
-import os
-import tempfile
 from collections.abc import Generator, Iterator
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
+from obsidian_ai_tools.config import get_settings
 from obsidian_ai_tools.observability import ObservabilityDB, _set_db_for_test
 
 
@@ -27,46 +26,61 @@ def _obs_db_tmp(tmp_path: Path) -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
-def mock_settings_env() -> Iterator[None]:
-    """Set up test environment variables for all tests.
+def _isolate_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Guarantee no test can read the developer's real .env.
 
-    Creates a temporary .env file with test configuration to avoid
-    requiring actual environment variables in test environment.
+    Two independent layers, both required:
+
+    Layer 1 - ``find_env_file()`` is redirected at the config module, so
+    ``get_settings()`` hands a throwaway .env to ``Settings(_env_file=...)``
+    instead of whatever real .env sits on the current working directory chain.
+
+    Layer 2 - the same keys are also exported as process environment
+    variables. Environment variables outrank dotenv values in
+    pydantic-settings' documented precedence, so a direct ``Settings(...)``
+    call - which reads no dotenv file at all now - is covered too.
+
+    The cache is cleared on setup *and* teardown so no test inherits another
+    test's Settings object.
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        env_file = Path(tmpdir) / ".env"
+    base = tmp_path / "_kai_test_env"
+    vault = base / "vault"
+    (vault / "inbox").mkdir(parents=True)
+    cache_dir = base / "cache"
 
-        # Write minimal test configuration
-        env_content = """
-OPENROUTER_API_KEY=test_key_for_testing
-OBSIDIAN_VAULT_PATH=/tmp/test_vault
-OBSIDIAN_INBOX_FOLDER=inbox
-LLM_MODEL=anthropic/claude-3.5-sonnet
-MAX_TRANSCRIPT_LENGTH=50000
-YOUTUBE_TRANSCRIPT_PROVIDER_ORDER=direct,supadata,decodo
-CACHE_DIR=/tmp/test_cache
-CACHE_TTL_HOURS=168
-CIRCUIT_BREAKER_THRESHOLD=3
-CIRCUIT_BREAKER_TIMEOUT_HOURS=2
-MAX_PDF_PAGES=50
-MAX_PDF_SIZE_MB=20
-"""
+    test_env: dict[str, str] = {
+        "OPENROUTER_API_KEY": "test_key_for_testing",
+        "OBSIDIAN_VAULT_PATH": str(vault),
+        "OBSIDIAN_INBOX_FOLDER": "inbox",
+        "LLM_MODEL": "anthropic/claude-3.5-sonnet",
+        "MAX_TRANSCRIPT_LENGTH": "50000",
+        "YOUTUBE_TRANSCRIPT_PROVIDER_ORDER": "direct,supadata,decodo",
+        "CACHE_DIR": str(cache_dir),
+        "CACHE_TTL_HOURS": "168",
+        "CIRCUIT_BREAKER_THRESHOLD": "3",
+        "CIRCUIT_BREAKER_TIMEOUT_HOURS": "2",
+        "MAX_PDF_PAGES": "50",
+        "MAX_PDF_SIZE_MB": "20",
+        # Every remaining secret-bearing field needs a placeholder, otherwise
+        # the real .env value for it could still reach Settings.
+        "GITHUB_TOKEN": "test-github-token",
+        "YOUTUBE_API_KEY": "test-youtube-api-key",
+        "DECODO_API_KEY": "test-decodo-api-key",
+        "SUPADATA_KEY": "test-supadata-key",
+    }
 
-        env_file.write_text(env_content.strip())
+    # Layer 1: the only .env any test can reach.
+    env_file = base / ".env"
+    env_file.write_text("\n".join(f"{key}={value}" for key, value in test_env.items()) + "\n")
+    monkeypatch.setattr("obsidian_ai_tools.config.find_env_file", lambda: env_file)
 
-        # Set a temporary directory that can be used by tests
-        test_vault = Path("/tmp/test_vault")
-        test_vault.mkdir(exist_ok=True)
-        (test_vault / "inbox").mkdir(exist_ok=True)
+    # Layer 2: environment variables beat dotenv values.
+    for key, value in test_env.items():
+        monkeypatch.setenv(key, value)
 
-        # Change to temp directory where .env exists
-        original_cwd = os.getcwd()
-        os.chdir(tmpdir)
-
-        yield
-
-        # Cleanup
-        os.chdir(original_cwd)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 # External Service Mocking Fixtures

@@ -23,3 +23,6 @@ docs/decisions.md
 
 # Local uv environment resolution
 /uv.lock
+
+# Riptide artifacts (cloud-synced)
+.humanlayer/tasks/

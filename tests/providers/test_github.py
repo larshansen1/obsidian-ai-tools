@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from obsidian_ai_tools.config import get_settings
 from obsidian_ai_tools.providers.factory import ProviderFactory
 from obsidian_ai_tools.providers.github import GitHubProvider, GitHubRepositoryError
 from obsidian_ai_tools.providers.web import WebProvider
@@ -213,12 +214,13 @@ def test_github_provider_reports_insufficient_documentation() -> None:
 
 def test_github_provider_uses_token_header(monkeypatch: pytest.MonkeyPatch) -> None:
     """GitHub requests include Authorization when GITHUB_TOKEN is configured."""
+    # No get_settings patch needed: environment variables outrank dotenv
+    # values, so the rebuilt Settings carry this placeholder and _load_token()
+    # returns it through its normal path.
     monkeypatch.setenv("GITHUB_TOKEN", "secret-token")
-    with patch(
-        "obsidian_ai_tools.providers.github.get_settings",
-        side_effect=RuntimeError("no settings in test"),
-    ):
-        provider = GitHubProvider()
+    get_settings.cache_clear()
+
+    provider = GitHubProvider()
 
     with patch("obsidian_ai_tools.providers.github.requests.get") as mock_get:
         mock_get.return_value = FakeResponse({"default_branch": "main"})
