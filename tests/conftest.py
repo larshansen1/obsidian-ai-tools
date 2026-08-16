@@ -2,7 +2,6 @@
 
 from collections.abc import Generator, Iterator
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
 
@@ -87,34 +86,6 @@ def _isolate_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterat
 
 
 @pytest.fixture
-def mock_requests_get() -> Mock:
-    """Mock requests.get for HTTP GET calls.
-
-    Returns a Mock that can be configured per-test.
-    Use with @patch decorator or as a fixture.
-    """
-    mock = Mock()
-    mock.return_value.status_code = 200
-    mock.return_value.headers = {"content-type": "text/html"}
-    mock.return_value.text = "<html><body>Test content</body></html>"
-    mock.return_value.raise_for_status = Mock()
-    return mock
-
-
-@pytest.fixture
-def mock_requests_post() -> Mock:
-    """Mock requests.post for HTTP POST calls.
-
-    Returns a Mock that can be configured per-test.
-    """
-    mock = Mock()
-    mock.return_value.status_code = 200
-    mock.return_value.json.return_value = {"status": "success"}
-    mock.return_value.raise_for_status = Mock()
-    return mock
-
-
-@pytest.fixture
 def mock_supadata_response() -> dict[str, str]:
     """Mock successful Supadata API response.
 
@@ -128,36 +99,6 @@ def mock_supadata_response() -> dict[str, str]:
         "author": "Test Author",
         "date_published": "2026-01-04T12:00:00Z",
     }
-
-
-@pytest.fixture
-def mock_openrouter_response() -> dict[str, list[dict[str, dict[str, str]]]]:
-    """Mock successful OpenRouter API response.
-
-    Provides a standard LLM response from OpenRouter.
-    """
-    return {
-        "choices": [
-            {
-                "message": {
-                    "content": '{"title": "Test Note", "summary": "Test summary", "tags": ["test"]}'
-                }
-            }
-        ]
-    }
-
-
-@pytest.fixture
-def mock_youtube_transcript() -> list[dict[str, float | str]]:
-    """Mock YouTube transcript data.
-
-    Provides sample transcript data as returned by youtube_transcript_api.
-    """
-    return [
-        {"text": "Hello, this is a test video.", "start": 0.0, "duration": 3.5},
-        {"text": "This is the second segment.", "start": 3.5, "duration": 2.8},
-        {"text": "And this is the final part.", "start": 6.3, "duration": 3.2},
-    ]
 
 
 @pytest.fixture
@@ -179,16 +120,23 @@ def mock_pdf_content(tmp_path: Path) -> bytes:
     return pdf_path.read_bytes()
 
 
-@pytest.fixture(autouse=False)
+@pytest.fixture(autouse=True)
 def disable_network_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fixture to disable all network calls.
+    """Block real outbound HTTP for every test.
 
-    Use this fixture in tests that should never make real network calls.
-    If any code tries to use requests.get/post, it will raise an error.
+    Autouse, so no test has to opt in. Any unpatched ``requests.get`` or
+    ``requests.post`` raises ``RuntimeError("Attempted real network call...")``
+    instead of reaching the internet.
 
-    Usage:
-        def test_something(disable_network_calls):
-            # Test code here - network calls will fail
+    Scope limit, stated plainly: this replaces ``requests.get`` and
+    ``requests.post`` and *nothing else*. It does **not** cover ``httpx``
+    (which the OpenAI client uses), ``urllib``, or raw sockets. Those still
+    have to be patched per test.
+
+    Module-boundary patches keep working. A test doing
+    ``patch("obsidian_ai_tools.providers.web.requests.get")`` targets the same
+    ``requests`` module object this fixture patched, so the test's mock wins
+    for the duration of the patch and the guard is restored afterwards.
     """
 
     def mock_get(*args: object, **kwargs: object) -> None:

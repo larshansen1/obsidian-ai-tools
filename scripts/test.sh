@@ -26,8 +26,8 @@ if [ -z "$PYTHON" ]; then
 fi
 
 if [ "${COVERAGE:-0}" = "1" ]; then
-    PYTHONPATH=. "$PYTHON" -m coverage run -m pytest --maxfail=1 --disable-warnings "$@"
+    PYTHONPATH=. "$PYTHON" -m coverage run -m pytest --disable-warnings "$@"
     "$PYTHON" -m coverage report
 else
-    PYTHONPATH=. "$PYTHON" -m pytest --maxfail=1 --disable-warnings "$@"
+    PYTHONPATH=. "$PYTHON" -m pytest --disable-warnings "$@"
 fi

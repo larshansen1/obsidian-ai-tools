@@ -65,7 +65,6 @@ addopts = [
     "-ra",
     "--strict-markers",
     "--disable-warnings",
-    "--maxfail=1",
 ]
 testpaths = ["tests"]
 markers = [
