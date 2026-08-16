@@ -1,7 +1,9 @@
 """Pytest configuration and fixtures."""
 
 from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -80,6 +82,49 @@ def _isolate_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterat
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+# Shared Test Helpers
+
+
+@contextmanager
+def patched_openai(
+    content: str,
+    *,
+    prompt_tokens: int = 50,
+    completion_tokens: int = 30,
+    cost: float = 0.001,
+) -> Iterator[MagicMock]:
+    """Patch ``obsidian_ai_tools.llm.OpenAI`` with a canned chat completion.
+
+    Replaces the ~10-line ``MagicMock`` scaffold that ``generate_note`` tests
+    would otherwise rebuild by hand. Only the two things that carry meaning are
+    parameters: the JSON payload the model "returns", and the usage numbers the
+    cost calculation reads back.
+
+    Args:
+        content: Raw ``message.content`` string, normally a JSON note payload.
+        prompt_tokens: Value for ``usage.prompt_tokens``.
+        completion_tokens: Value for ``usage.completion_tokens``.
+        cost: Value for ``usage.cost``.
+
+    Yields:
+        The patched ``OpenAI`` class mock, so a test can assert on how the
+        client was constructed or called.
+    """
+    response = MagicMock()
+    response.choices = [MagicMock(message=MagicMock(content=content))]
+    response.usage = MagicMock(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cost=cost,
+    )
+
+    with patch("obsidian_ai_tools.llm.OpenAI") as mock_openai:
+        client = MagicMock()
+        client.chat.completions.create.return_value = response
+        mock_openai.return_value = client
+        yield mock_openai
 
 
 # External Service Mocking Fixtures

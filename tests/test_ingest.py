@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from conftest import patched_openai
 from typer.testing import CliRunner
 
 from obsidian_ai_tools.cli import app
@@ -77,22 +78,10 @@ More content here. Bullet points:
             published_date=None,
         )
 
-        mock_llm_response = MagicMock()
-        mock_llm_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content='{"title": "Ingested Note", "summary": "Test summary", '
-                    '"key_points": ["Point 1", "Point 2"], "tags": ["test", "markdown"]}'
-                )
-            )
-        ]
-        mock_llm_response.usage = MagicMock(prompt_tokens=50, completion_tokens=30, cost=0.001)
-
-        with patch("obsidian_ai_tools.llm.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_llm_response
-            mock_openai.return_value = mock_client
-
+        with patched_openai(
+            '{"title": "Ingested Note", "summary": "Test summary", '
+            '"key_points": ["Point 1", "Point 2"], "tags": ["test", "markdown"]}'
+        ):
             from obsidian_ai_tools.llm import generate_note
 
             note, _ = generate_note(
@@ -167,22 +156,10 @@ class TestWebProviderIngest:
             published_date=None,
         )
 
-        mock_llm_response = MagicMock()
-        mock_llm_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content='{"title": "Web Article Summary", "summary": "Test summary", '
-                    '"key_points": ["Key point"], "tags": ["web", "article"]}'
-                )
-            )
-        ]
-        mock_llm_response.usage = MagicMock(prompt_tokens=50, completion_tokens=30, cost=0.001)
-
-        with patch("obsidian_ai_tools.llm.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_llm_response
-            mock_openai.return_value = mock_client
-
+        with patched_openai(
+            '{"title": "Web Article Summary", "summary": "Test summary", '
+            '"key_points": ["Key point"], "tags": ["web", "article"]}'
+        ):
             from obsidian_ai_tools.llm import generate_note
 
             note, _ = generate_note(
@@ -385,22 +362,13 @@ class TestPDFProviderIngest:
             published_date=None,
         )
 
-        mock_llm_response = MagicMock()
-        mock_llm_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content='{"title": "Paper Summary", "summary": "ML research summary", '
-                    '"key_points": ["Neural networks", "Transformers"], "tags": ["ml", "research"]}'
-                )
-            )
-        ]
-        mock_llm_response.usage = MagicMock(prompt_tokens=100, completion_tokens=50, cost=0.002)
-
-        with patch("obsidian_ai_tools.llm.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_llm_response
-            mock_openai.return_value = mock_client
-
+        with patched_openai(
+            '{"title": "Paper Summary", "summary": "ML research summary", '
+            '"key_points": ["Neural networks", "Transformers"], "tags": ["ml", "research"]}',
+            prompt_tokens=100,
+            completion_tokens=50,
+            cost=0.002,
+        ):
             from obsidian_ai_tools.llm import generate_note
 
             note, _ = generate_note(
@@ -449,27 +417,16 @@ class TestYouTubeIngestEnhanced:
             video_id="abc123",
         )
 
-        mock_llm_response = MagicMock()
-        mock_llm_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content=(
-                        '{"title": "AI Techniques Overview", "summary": "Advanced methods", '
-                        '"key_points": ["RL", "Policy Gradients"], '
-                        '"claims": ["Outperforms supervised"], '
-                        '"implications": ["Future of autonomous systems"], '
-                        '"tags": ["ai", "ml"]}'
-                    )
-                )
-            )
-        ]
-        mock_llm_response.usage = MagicMock(prompt_tokens=100, completion_tokens=80, cost=0.002)
-
-        with patch("obsidian_ai_tools.llm.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_llm_response
-            mock_openai.return_value = mock_client
-
+        with patched_openai(
+            '{"title": "AI Techniques Overview", "summary": "Advanced methods", '
+            '"key_points": ["RL", "Policy Gradients"], '
+            '"claims": ["Outperforms supervised"], '
+            '"implications": ["Future of autonomous systems"], '
+            '"tags": ["ai", "ml"]}',
+            prompt_tokens=100,
+            completion_tokens=80,
+            cost=0.002,
+        ):
             from obsidian_ai_tools.llm import generate_note
 
             note, _ = generate_note(
@@ -493,12 +450,17 @@ class TestYouTubeIngestEnhanced:
             assert "## Key Claims" in content
             assert "## Implications" in content
 
-    def test_youtube_ingest_provider_fallback_logging(self, temp_vault: Path) -> None:
-        """Test that provider fallback is tracked in metadata."""
+    def test_youtube_ingest_provider_fallback_logging(
+        self, temp_vault: Path, tmp_path: Path
+    ) -> None:
+        """A fallback transcript provider is tracked on the metadata and in the DB."""
         from obsidian_ai_tools.models import VideoMetadata
+        from obsidian_ai_tools.observability import ObservabilityDB
         from obsidian_ai_tools.obsidian import write_note
+        from obsidian_ai_tools.providers.youtube import YouTubeProvider
 
-        metadata = VideoMetadata(
+        # The direct provider failed upstream, so supadata served the transcript.
+        fallback_metadata = VideoMetadata(
             title="Test Video",
             url="https://youtube.com/watch?v=fallback_test",
             transcript="Test transcript content for fallback scenario",
@@ -507,22 +469,27 @@ class TestYouTubeIngestEnhanced:
             provider_used="supadata",
         )
 
-        mock_llm_response = MagicMock()
-        mock_llm_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content='{"title": "Fallback Test", "summary": "Summary", '
-                    '"key_points": ["Point"], "tags": ["test"]}'
-                )
-            )
-        ]
-        mock_llm_response.usage = MagicMock(prompt_tokens=50, completion_tokens=30, cost=0.001)
+        db = ObservabilityDB(tmp_path / "obs.db")
+        client = MagicMock()
+        client.get_video_metadata.return_value = fallback_metadata
 
-        with patch("obsidian_ai_tools.llm.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_llm_response
-            mock_openai.return_value = mock_client
+        with (
+            patch("obsidian_ai_tools.youtube.YouTubeClient", return_value=client),
+            patch("obsidian_ai_tools.providers.youtube.get_db", return_value=db),
+        ):
+            metadata = YouTubeProvider()._ingest(fallback_metadata.url)
 
+        # The name of this test is about provider tracking, so assert it.
+        assert metadata.provider_used == "supadata"
+        summary = db.get_provider_summary(days=1)
+        assert any(
+            row["provider"] == "youtube" and row["strategy"] == "primary" for row in summary
+        ), "Expected a 'youtube/primary' provider attempt to be recorded"
+
+        with patched_openai(
+            '{"title": "Fallback Test", "summary": "Summary", '
+            '"key_points": ["Point"], "tags": ["test"]}'
+        ):
             from obsidian_ai_tools.llm import generate_note
 
             note, _ = generate_note(
@@ -601,22 +568,9 @@ class TestIngestNoteGeneration:
             video_id="empty_tags",
         )
 
-        mock_llm_response = MagicMock()
-        mock_llm_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content='{"title": "Empty Tags Test", "summary": "Summary", '
-                    '"key_points": [], "tags": []}'
-                )
-            )
-        ]
-        mock_llm_response.usage = MagicMock(prompt_tokens=50, completion_tokens=30, cost=0.001)
-
-        with patch("obsidian_ai_tools.llm.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_llm_response
-            mock_openai.return_value = mock_client
-
+        with patched_openai(
+            '{"title": "Empty Tags Test", "summary": "Summary", "key_points": [], "tags": []}'
+        ):
             from obsidian_ai_tools.llm import generate_note
 
             note, _ = generate_note(
@@ -645,22 +599,10 @@ class TestIngestNoteGeneration:
             video_id="special",
         )
 
-        mock_llm_response = MagicMock()
-        mock_llm_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content='{"title": "Special Characters: A Test", "summary": "Summary", '
-                    '"key_points": ["Point with: colon"], "tags": ["test"]}'
-                )
-            )
-        ]
-        mock_llm_response.usage = MagicMock(prompt_tokens=50, completion_tokens=30, cost=0.001)
-
-        with patch("obsidian_ai_tools.llm.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_llm_response
-            mock_openai.return_value = mock_client
-
+        with patched_openai(
+            '{"title": "Special Characters: A Test", "summary": "Summary", '
+            '"key_points": ["Point with: colon"], "tags": ["test"]}'
+        ):
             from obsidian_ai_tools.llm import generate_note
 
             note, _ = generate_note(
@@ -702,22 +644,12 @@ class TestIngestEdgeCases:
             published_date=None,
         )
 
-        mock_llm_response = MagicMock()
-        mock_llm_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content='{"title": "Short", "summary": "Short", '
-                    '"key_points": ["Short"], "tags": ["short"]}'
-                )
-            )
-        ]
-        mock_llm_response.usage = MagicMock(prompt_tokens=10, completion_tokens=10, cost=0.0001)
-
-        with patch("obsidian_ai_tools.llm.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_llm_response
-            mock_openai.return_value = mock_client
-
+        with patched_openai(
+            '{"title": "Short", "summary": "Short", "key_points": ["Short"], "tags": ["short"]}',
+            prompt_tokens=10,
+            completion_tokens=10,
+            cost=0.0001,
+        ):
             from obsidian_ai_tools.llm import generate_note
 
             note, _ = generate_note(
@@ -749,22 +681,13 @@ class TestIngestEdgeCases:
         tags = ["tag" + str(i) for i in range(15)]
         tags_json = json.dumps(tags)
 
-        mock_llm_response = MagicMock()
-        mock_llm_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content='{"title": "Many Tags", "summary": "Summary", '
-                    f'"key_points": ["Point"], "tags": {tags_json}}}'
-                )
-            )
-        ]
-        mock_llm_response.usage = MagicMock(prompt_tokens=100, completion_tokens=100, cost=0.002)
-
-        with patch("obsidian_ai_tools.llm.OpenAI") as mock_openai:
-            mock_client = MagicMock()
-            mock_client.chat.completions.create.return_value = mock_llm_response
-            mock_openai.return_value = mock_client
-
+        with patched_openai(
+            '{"title": "Many Tags", "summary": "Summary", '
+            f'"key_points": ["Point"], "tags": {tags_json}}}',
+            prompt_tokens=100,
+            completion_tokens=100,
+            cost=0.002,
+        ):
             from obsidian_ai_tools.llm import generate_note
 
             note, _ = generate_note(

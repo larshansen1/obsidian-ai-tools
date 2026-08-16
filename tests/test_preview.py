@@ -359,17 +359,19 @@ class TestFormatPreviewJson:
 
 
 class TestPreviewCommand:
-    """Integration tests for kai preview CLI command."""
+    """Integration tests for kai preview CLI command.
 
-    def test_preview_command_no_url(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    These tests need no environment setup of their own: the autouse
+    ``_isolate_settings`` fixture in conftest already exports a valid
+    ``OBSIDIAN_VAULT_PATH`` / ``OPENROUTER_API_KEY`` / ``LLM_MODEL`` trio, and
+    every test that touches the vault passes ``--vault`` explicitly.
+    """
+
+    def test_preview_command_no_url(self) -> None:
         """Test preview fails without URL."""
         from typer.testing import CliRunner
 
         from obsidian_ai_tools.cli import app
-
-        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
-        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-        monkeypatch.setenv("LLM_MODEL", "test-model")
 
         runner = CliRunner()
         result = runner.invoke(app, ["preview"])
@@ -383,7 +385,6 @@ class TestPreviewCommand:
         mock_generate: MagicMock,
         tmp_path: Path,
         sample_preview: PreviewInfo,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test successful preview."""
         from typer.testing import CliRunner
@@ -391,10 +392,6 @@ class TestPreviewCommand:
         from obsidian_ai_tools.cli import app
 
         mock_generate.return_value = sample_preview
-
-        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
-        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-        monkeypatch.setenv("LLM_MODEL", "test-model")
 
         runner = CliRunner()
         result = runner.invoke(app, ["preview", "https://example.com", "--vault", str(tmp_path)])
@@ -408,7 +405,6 @@ class TestPreviewCommand:
         mock_generate: MagicMock,
         tmp_path: Path,
         sample_preview: PreviewInfo,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test preview with JSON output."""
         from typer.testing import CliRunner
@@ -416,10 +412,6 @@ class TestPreviewCommand:
         from obsidian_ai_tools.cli import app
 
         mock_generate.return_value = sample_preview
-
-        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
-        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-        monkeypatch.setenv("LLM_MODEL", "test-model")
 
         runner = CliRunner()
         result = runner.invoke(
@@ -434,7 +426,6 @@ class TestPreviewCommand:
         self,
         mock_generate: MagicMock,
         tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test preview with unsupported URL."""
         from typer.testing import CliRunner
@@ -442,10 +433,6 @@ class TestPreviewCommand:
         from obsidian_ai_tools.cli import app
 
         mock_generate.side_effect = UnsupportedURLError("Cannot determine source type")
-
-        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
-        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-        monkeypatch.setenv("LLM_MODEL", "test-model")
 
         runner = CliRunner()
         result = runner.invoke(app, ["preview", "ftp://invalid.com", "--vault", str(tmp_path)])
@@ -461,7 +448,6 @@ class TestPreviewCommand:
         mock_generate: MagicMock,
         tmp_path: Path,
         sample_preview: PreviewInfo,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Batch mode should process valid stdin URLs and report total cost."""
         from typer.testing import CliRunner
@@ -469,9 +455,6 @@ class TestPreviewCommand:
         from obsidian_ai_tools.cli import app
 
         mock_generate.return_value = sample_preview
-        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
-        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-        monkeypatch.setenv("LLM_MODEL", "test-model")
 
         result = CliRunner().invoke(
             app,
@@ -495,7 +478,6 @@ class TestPreviewCommand:
         mock_generate: MagicMock,
         tmp_path: Path,
         sample_preview: PreviewInfo,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Interactive preview should save the selected URL to the reading list."""
         from typer.testing import CliRunner
@@ -503,9 +485,6 @@ class TestPreviewCommand:
         from obsidian_ai_tools.cli import app
 
         mock_generate.return_value = sample_preview
-        monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(tmp_path))
-        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
-        monkeypatch.setenv("LLM_MODEL", "test-model")
 
         result = CliRunner().invoke(
             app,
