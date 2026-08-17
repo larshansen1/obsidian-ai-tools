@@ -126,6 +126,8 @@ All writes are best-effort — a DB failure never blocks the operation. The sing
 
 ## Key design decisions
 
+Numbered architecture decision records live in [`docs/adr/`](docs/adr/). The decisions below predate that convention.
+
 **Single config source.** `config.py: get_settings()` is `@lru_cache`; all modules import it. Settings are validated by Pydantic at startup with explicit error messages.
 
 **Explicit error types.** Each module raises its own typed exceptions (`ContentFetchError`, `NoteGenerationStageError`, `VaultWriteError`, …). The CLI catches these and maps them to user-facing messages; the HTTP server maps them to HTTP status codes.
@@ -156,5 +158,4 @@ See `DEVELOPMENT.md` for the full quality gate reference and `CLI_COMMANDS.md` f
 |-------|-------|
 | [#31](https://github.com/larshansen1/obsidian-ai-tools/issues/31) | Consolidate duplicate rate-limiter and fallback pattern across `web.py` / `pdf.py` |
 | [#32](https://github.com/larshansen1/obsidian-ai-tools/issues/32) | Delete `api_contracts.py` (0 callers) or wire its validators at call sites |
-| [#14](https://github.com/larshansen1/obsidian-ai-tools/issues/14) | Provider plugin/adapter structure — blocked on usage review [#29](https://github.com/larshansen1/obsidian-ai-tools/issues/29) |
 | [#30](https://github.com/larshansen1/obsidian-ai-tools/issues/30) | This document update (closes on merge of this commit) |
