@@ -5,7 +5,31 @@ from unittest.mock import patch
 
 import pytest
 
-from obsidian_ai_tools.config import Settings, get_settings
+# NOTE: find_env_file is imported here, at module level, on purpose. The autouse
+# _isolate_settings fixture in conftest.py replaces the *attribute*
+# obsidian_ai_tools.config.find_env_file, so a function-body import would hand
+# TestFindEnvFile the patched stub instead of the real walk. A module-level
+# import binds the original function object at collection time, before any
+# fixture runs, which is exactly what those tests need.
+from obsidian_ai_tools.config import Settings, find_env_file, get_settings
+
+# The attribute the autouse fixture patches, and the one these tests re-point.
+_FIND_ENV_FILE = "obsidian_ai_tools.config.find_env_file"
+
+
+def _make_vault(tmp_path: Path, name: str = "vault") -> Path:
+    """Create a vault directory that passes validate_vault_path."""
+    vault = tmp_path / name
+    vault.mkdir(parents=True, exist_ok=True)
+    return vault
+
+
+def _write_env_file(directory: Path, **values: str) -> Path:
+    """Write a .env file into ``directory`` and return its path."""
+    directory.mkdir(parents=True, exist_ok=True)
+    env_path = directory / ".env"
+    env_path.write_text("\n".join(f"{key}={value}" for key, value in values.items()) + "\n")
+    return env_path
 
 
 @pytest.fixture
@@ -188,34 +212,42 @@ class TestSettingsValidation:
 
 
 class TestGetSettingsCache:
-    """Tests for get_settings caching behavior."""
+    """Tests for get_settings() end to end: caching and the file it reads.
 
-    def test_get_settings_is_cached(self) -> None:
-        """Test that get_settings returns same instance."""
-        # Clear the cache first
+    Every test here points find_env_file() at its own throwaway .env, which
+    overrides the redirect the autouse _isolate_settings fixture installs. The
+    cache is cleared explicitly before each assertion so no ordering assumption
+    is needed; the fixture clears it again on teardown.
+    """
+
+    def test_get_settings_is_cached(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Repeat calls return the one cached instance."""
+        vault = _make_vault(tmp_path)
+        env_path = _write_env_file(
+            tmp_path / "config",
+            OPENROUTER_API_KEY="cache-test-key",
+            OBSIDIAN_VAULT_PATH=str(vault),
+        )
+        monkeypatch.setattr(_FIND_ENV_FILE, lambda: env_path)
         get_settings.cache_clear()
-
-        # Skip this test if no .env file exists
-        from obsidian_ai_tools.config import find_env_file
-
-        if find_env_file() is None:
-            pytest.skip("No .env file found - skipping cache test")
 
         settings1 = get_settings()
         settings2 = get_settings()
 
-        # Should be the exact same object (cached)
         assert settings1 is settings2
+        assert get_settings.cache_info().currsize == 1
 
-        # Clean up
-        get_settings.cache_clear()
-
-    def test_cache_clear_reloads_settings(self) -> None:
-        """Test that clearing cache allows reloading settings."""
-        from obsidian_ai_tools.config import find_env_file
-
-        if find_env_file() is None:
-            pytest.skip("No .env file found - skipping cache test")
+    def test_cache_clear_reloads_settings(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """cache_clear() yields a distinct object carrying the same values."""
+        vault = _make_vault(tmp_path)
+        env_path = _write_env_file(
+            tmp_path / "config",
+            OPENROUTER_API_KEY="cache-test-key",
+            OBSIDIAN_VAULT_PATH=str(vault),
+        )
+        monkeypatch.setattr(_FIND_ENV_FILE, lambda: env_path)
 
         get_settings.cache_clear()
         settings1 = get_settings()
@@ -223,10 +255,174 @@ class TestGetSettingsCache:
         get_settings.cache_clear()
         settings2 = get_settings()
 
-        # Should be different objects after cache clear
         assert settings1 is not settings2
-        # But should have same values
         assert settings1.openrouter_api_key == settings2.openrouter_api_key
+        assert settings1.obsidian_vault_path == settings2.obsidian_vault_path
 
-        # Clean up
+    def test_get_settings_reads_the_file_find_env_file_reports(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression test for passing _env_file per call.
+
+        Before that change, Settings read one absolute path frozen at import
+        time, so re-pointing find_env_file() changed nothing. Now the values
+        must follow the file.
+        """
+        vault = _make_vault(tmp_path)
+
+        # Environment variables outrank dotenv values in pydantic-settings, and
+        # the autouse fixture exports this key. Drop it so the dotenv file is
+        # what decides.
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+        first = _write_env_file(
+            tmp_path / "first",
+            OPENROUTER_API_KEY="key-from-first-env-file",
+            OBSIDIAN_VAULT_PATH=str(vault),
+        )
+        second = _write_env_file(
+            tmp_path / "second",
+            OPENROUTER_API_KEY="key-from-second-env-file",
+            OBSIDIAN_VAULT_PATH=str(vault),
+        )
+
+        monkeypatch.setattr(_FIND_ENV_FILE, lambda: first)
         get_settings.cache_clear()
+        assert get_settings().openrouter_api_key == "key-from-first-env-file"
+
+        monkeypatch.setattr(_FIND_ENV_FILE, lambda: second)
+        get_settings.cache_clear()
+        assert get_settings().openrouter_api_key == "key-from-second-env-file"
+
+
+class TestGetSettingsErrors:
+    """Tests for the two RuntimeError branches in get_settings()."""
+
+    def test_missing_env_file_raises_runtime_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """No .env anywhere is a pre-flight failure with recovery guidance."""
+        monkeypatch.setattr(_FIND_ENV_FILE, lambda: None)
+        get_settings.cache_clear()
+
+        with pytest.raises(RuntimeError, match="Could not find .env file") as exc_info:
+            get_settings()
+
+        assert "~/.kai/.env" in str(exc_info.value)
+
+    def test_validation_error_names_the_file_that_was_read(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A bad .env is wrapped, and the message quotes the file actually read."""
+        vault = _make_vault(tmp_path)
+
+        # The autouse fixture exports a valid provider order; the dotenv value
+        # only reaches the validator once the environment variable is gone.
+        monkeypatch.delenv("YOUTUBE_TRANSCRIPT_PROVIDER_ORDER", raising=False)
+
+        env_path = _write_env_file(
+            tmp_path / "bad",
+            OPENROUTER_API_KEY="test-key",
+            OBSIDIAN_VAULT_PATH=str(vault),
+            YOUTUBE_TRANSCRIPT_PROVIDER_ORDER="not-a-provider",
+        )
+        monkeypatch.setattr(_FIND_ENV_FILE, lambda: env_path)
+        get_settings.cache_clear()
+
+        with pytest.raises(RuntimeError, match="Configuration error") as exc_info:
+            get_settings()
+
+        message = str(exc_info.value)
+        assert str(env_path) in message
+        assert "Invalid provider name" in message
+
+    def test_non_validation_error_propagates_unchanged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Anything that is not a validation error escapes with its own type."""
+        vault = _make_vault(tmp_path)
+        env_path = _write_env_file(
+            tmp_path / "config",
+            OPENROUTER_API_KEY="test-key",
+            OBSIDIAN_VAULT_PATH=str(vault),
+        )
+        monkeypatch.setattr(_FIND_ENV_FILE, lambda: env_path)
+
+        def explode(**kwargs: object) -> Settings:
+            raise OSError("dotenv file is unreadable")
+
+        monkeypatch.setattr("obsidian_ai_tools.config.Settings", explode)
+        get_settings.cache_clear()
+
+        with pytest.raises(OSError, match="dotenv file is unreadable"):
+            get_settings()
+
+
+class TestFindEnvFile:
+    """Tests for the real find_env_file() upward walk and home fallback.
+
+    These call the module-level import at the top of this file, which is the
+    original function - the autouse fixture only replaces the attribute on the
+    config module.
+    """
+
+    def test_finds_env_in_the_current_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The walk starts at the working directory itself."""
+        env_path = tmp_path / ".env"
+        env_path.write_text("OPENROUTER_API_KEY=test-key\n")
+        monkeypatch.chdir(tmp_path)
+
+        assert find_env_file() == env_path
+
+    def test_walks_up_to_a_parent_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A .env two levels up is found from a nested working directory."""
+        env_path = tmp_path / ".env"
+        env_path.write_text("OPENROUTER_API_KEY=test-key\n")
+        leaf = tmp_path / "project" / "src"
+        leaf.mkdir(parents=True)
+        monkeypatch.chdir(leaf)
+
+        assert find_env_file() == env_path
+
+    def test_nearest_env_file_wins(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The first .env encountered on the way up is the one returned."""
+        (tmp_path / ".env").write_text("OPENROUTER_API_KEY=outer\n")
+        inner = tmp_path / "project"
+        inner.mkdir()
+        inner_env = inner / ".env"
+        inner_env.write_text("OPENROUTER_API_KEY=inner\n")
+        monkeypatch.chdir(inner)
+
+        assert find_env_file() == inner_env
+
+    def test_falls_back_to_home_kai_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With nothing on the cwd chain, ~/.kai/.env is used."""
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        home = tmp_path / "home"
+        (home / ".kai").mkdir(parents=True)
+        home_env = home / ".kai" / ".env"
+        home_env.write_text("OPENROUTER_API_KEY=test-key\n")
+
+        monkeypatch.chdir(workdir)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+
+        assert find_env_file() == home_env
+
+    def test_returns_none_when_nothing_is_found(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No .env on the chain and no home fallback means None."""
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        home = tmp_path / "home"
+        home.mkdir()
+
+        monkeypatch.chdir(workdir)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+
+        assert find_env_file() is None

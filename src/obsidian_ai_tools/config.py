@@ -29,8 +29,12 @@ def find_env_file() -> Path | None:
 class Settings(BaseSettings):
     """Application settings loaded from environment variables and .env file."""
 
+    # NOTE: env_file is deliberately absent here. Setting it in the class body
+    # would call find_env_file() once, at import time, and freeze that absolute
+    # path onto the class for the lifetime of the process. get_settings()
+    # resolves the path per call and passes it via the documented per-instance
+    # `_env_file` override instead.
     model_config = SettingsConfigDict(
-        env_file=find_env_file() or ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -52,6 +56,10 @@ class Settings(BaseSettings):
     llm_model: str = Field(
         default="anthropic/claude-3.5-sonnet",
         description="OpenRouter model identifier",
+    )
+    llm_base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        description="OpenAI-compatible API base URL (e.g. LM Studio: http://localhost:1234/v1)",
     )
     max_transcript_length: int = Field(
         default=50000, description="Maximum transcript length in characters"
@@ -140,7 +148,9 @@ def get_settings() -> Settings:
         )
 
     try:
-        return Settings()  # type: ignore[call-arg]
+        # Pass the path resolved just above, so the file we read is always the
+        # file the error messages below name.
+        return Settings(_env_file=env_file)  # type: ignore[call-arg]
     except Exception as e:
         # Provide helpful context for configuration errors
         error_msg = str(e)

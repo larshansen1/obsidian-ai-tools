@@ -197,6 +197,7 @@ def ingest_content(
             existing_tags=existing_tags,
             max_content_length=settings.max_transcript_length,
             prompt_version=prompt_version,
+            base_url=settings.llm_base_url,
         )
     except Exception as exc:
         raise NoteGenerationStageError(f"Note generation failed: {exc}") from exc
