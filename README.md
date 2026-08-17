@@ -56,6 +56,8 @@ The note lands in your vault's inbox folder with frontmatter (`title`, `tags`, `
 
 YouTube ingestion can use free direct transcript fetching. Supadata and Decodo keys are optional fallbacks.
 
+The vault does not have to be an Obsidian vault: `OBSIDIAN_VAULT_PATH` can point at any folder of markdown files. Obsidian-specific extras (the clickable `obsidian://open` link, `[[wikilink]]` backlink boosting in search) degrade gracefully when the folder is not managed by Obsidian. See [`docs/adr/0001-defer-note-source-adapter.md`](docs/adr/0001-defer-note-source-adapter.md).
+
 ## Installation
 
 ```bash
