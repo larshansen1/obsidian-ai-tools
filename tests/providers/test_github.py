@@ -3,7 +3,7 @@
 import base64
 import logging
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -375,45 +375,51 @@ def test_github_error_message_uses_payload_message_when_not_rate_limited() -> No
         {"message": "Bad credentials"},
         headers={"X-RateLimit-Remaining": "42"},
     )
-    assert GitHubProvider()._github_error_message(response) == access_denied_message(
-        "Bad credentials"
-    )
+    assert GitHubProvider()._github_error_message(
+        cast(requests.Response, response)
+    ) == access_denied_message("Bad credentials")
 
 
 def test_github_error_message_reports_rate_limit_from_header() -> None:
     """A zero remaining quota is a rate limit even without message text."""
     response = FakeResponse({}, headers={"X-RateLimit-Remaining": "0"})
-    assert GitHubProvider()._github_error_message(response) == rate_limit_message()
+    assert (
+        GitHubProvider()._github_error_message(cast(requests.Response, response))
+        == rate_limit_message()
+    )
 
 
 def test_github_error_message_reports_rate_limit_from_message_text() -> None:
     """The rate-limit branch also triggers on the message alone (case-insensitive)."""
     response = FakeResponse({"message": "Rate Limit exceeded"})
-    assert GitHubProvider()._github_error_message(response) == rate_limit_message()
+    assert (
+        GitHubProvider()._github_error_message(cast(requests.Response, response))
+        == rate_limit_message()
+    )
 
 
 def test_github_error_message_falls_back_to_response_text() -> None:
     """Without a payload message, the raw response text is quoted."""
     response = FakeResponse({}, text="raw failure body")
-    assert GitHubProvider()._github_error_message(response) == access_denied_message(
-        "raw failure body"
-    )
+    assert GitHubProvider()._github_error_message(
+        cast(requests.Response, response)
+    ) == access_denied_message("raw failure body")
 
 
 def test_github_error_message_falls_back_to_default_denial() -> None:
     """No JSON and no text yields the default denial detail."""
     response = BrokenJsonResponse(None, text="")
-    assert GitHubProvider()._github_error_message(response) == access_denied_message(
-        "GitHub access denied"
-    )
+    assert GitHubProvider()._github_error_message(
+        cast(requests.Response, response)
+    ) == access_denied_message("GitHub access denied")
 
 
 def test_github_error_message_prefers_text_over_default_when_json_broken() -> None:
     """Broken JSON still allows the raw text to be surfaced."""
     response = BrokenJsonResponse(None, text="fallback body")
-    assert GitHubProvider()._github_error_message(response) == access_denied_message(
-        "fallback body"
-    )
+    assert GitHubProvider()._github_error_message(
+        cast(requests.Response, response)
+    ) == access_denied_message("fallback body")
 
 
 # ---------------------------------------------------------------------------
@@ -614,7 +620,7 @@ def test_discover_candidates_root_rules() -> None:
     """Root selection: doc files at root only, docs dirs descended, others skipped."""
     provider = GitHubProvider()
     ref = provider_ref()
-    root = [
+    root: list[dict[str, Any]] = [
         {"type": "file", "name": "README.md", "path": "README.md", "size": 100},
         {"type": "file", "name": "notes.md", "path": "notes.md", "size": 10},
         {"type": "file", "name": "readme.md"},

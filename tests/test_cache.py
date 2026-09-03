@@ -176,7 +176,10 @@ class TestVideoCache:
         assert "T" in data["cached_at"]
 
     def test_get_not_expired_at_exact_ttl(
-        self, cache_dir: Path, sample_metadata: VideoMetadata, monkeypatch
+        self,
+        cache_dir: Path,
+        sample_metadata: VideoMetadata,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A cache entry aged exactly TTL hours is still valid."""
         cache = VideoCache(cache_dir, ttl_hours=1)
@@ -194,7 +197,10 @@ class TestVideoCache:
         assert cache_file.exists()
 
     def test_get_expired_removes_file(
-        self, cache_dir: Path, sample_metadata: VideoMetadata, monkeypatch
+        self,
+        cache_dir: Path,
+        sample_metadata: VideoMetadata,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Expired entries are removed when read."""
         cache = VideoCache(cache_dir, ttl_hours=1)
@@ -212,7 +218,10 @@ class TestVideoCache:
         assert not cache_file.exists()
 
     def test_stats_counts_with_fixed_time(
-        self, cache_dir: Path, sample_metadata: VideoMetadata, monkeypatch
+        self,
+        cache_dir: Path,
+        sample_metadata: VideoMetadata,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Stats count valid, expired and corrupt entries correctly."""
         cache = VideoCache(cache_dir, ttl_hours=1)

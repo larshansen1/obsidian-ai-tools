@@ -462,14 +462,19 @@ class TestIngestLocalMetrics:
         with pytest.raises(IsADirectoryError, match="Path is a directory"):
             provider._ingest(str(tmp_path))
 
-    def test_ingest_local_records_success_and_logs(self, tmp_path: Path, caplog) -> None:
+    def test_ingest_local_records_success_and_logs(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """Success path records a primary success and logs the extraction start."""
         caplog.set_level(logging.INFO)
         provider = PDFProvider()
         pdf = tmp_path / "notes.pdf"
         pdf.write_bytes(b"%PDF-1.4 fake")
         mock_metadata = _article(str(pdf))
-        provider._extract_text_from_pdf = Mock(return_value=mock_metadata)
+        monkeypatch.setattr(provider, "_extract_text_from_pdf", Mock(return_value=mock_metadata))
 
         with patch("obsidian_ai_tools.providers.pdf._record_attempt") as mock_attempt:
             with patch(
@@ -481,12 +486,16 @@ class TestIngestLocalMetrics:
         mock_attempt.assert_called_once_with("primary", "success", 0.0, url=str(pdf))
         assert any("Extracting text from local PDF" in rec.message for rec in caplog.records)
 
-    def test_ingest_local_records_failure(self, tmp_path: Path) -> None:
+    def test_ingest_local_records_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Failure path records a primary failure with error type and source."""
         provider = PDFProvider()
         pdf = tmp_path / "notes.pdf"
         pdf.write_bytes(b"%PDF-1.4 fake")
-        provider._extract_text_from_pdf = Mock(side_effect=ValueError("boom"))
+        monkeypatch.setattr(
+            provider, "_extract_text_from_pdf", Mock(side_effect=ValueError("boom"))
+        )
 
         with patch("obsidian_ai_tools.providers.pdf._record_attempt") as mock_attempt:
             with patch(
@@ -497,35 +506,56 @@ class TestIngestLocalMetrics:
 
         mock_attempt.assert_called_once_with("primary", "failure", 1.0, "ValueError", str(pdf))
 
-    def test_ingest_local_small_file_has_no_size_warning(self, tmp_path: Path, caplog) -> None:
+    def test_ingest_local_small_file_has_no_size_warning(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """Small files never trigger the size warning."""
         provider = PDFProvider()
         pdf = tmp_path / "small.pdf"
         pdf.write_bytes(b"\x00" * 4096)
-        provider._extract_text_from_pdf = Mock(return_value=_article(str(pdf)))
+        monkeypatch.setattr(
+            provider, "_extract_text_from_pdf", Mock(return_value=_article(str(pdf)))
+        )
 
         provider._ingest(str(pdf))
 
         assert not any("PDF file size" in rec.message for rec in caplog.records)
 
-    def test_ingest_local_size_warning_exact_message(self, tmp_path: Path, caplog) -> None:
+    def test_ingest_local_size_warning_exact_message(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """A file slightly over the limit logs the exact size warning."""
         provider = PDFProvider()
         pdf = tmp_path / "big.pdf"
         pdf.write_bytes(b"\x00" * 20_980_000)  # ~20.007 MB in the true denominator
-        provider._extract_text_from_pdf = Mock(return_value=_article(str(pdf)))
+        monkeypatch.setattr(
+            provider, "_extract_text_from_pdf", Mock(return_value=_article(str(pdf)))
+        )
 
         provider._ingest(str(pdf))
 
         messages = [rec.message for rec in caplog.records]
         assert "PDF file size (20.0MB) exceeds limit (20MB)" in messages
 
-    def test_ingest_local_exactly_at_limit_has_no_warning(self, tmp_path: Path, caplog) -> None:
+    def test_ingest_local_exactly_at_limit_has_no_warning(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """A file of exactly max_size_mb is NOT over the limit."""
         provider = PDFProvider()
         pdf = tmp_path / "limit.pdf"
         pdf.write_bytes(b"\x00" * (20 * 1024 * 1024))  # exactly 20MB
-        provider._extract_text_from_pdf = Mock(return_value=_article(str(pdf)))
+        monkeypatch.setattr(
+            provider, "_extract_text_from_pdf", Mock(return_value=_article(str(pdf)))
+        )
 
         provider._ingest(str(pdf))
 
@@ -553,7 +583,9 @@ def _text_page(text: str) -> Mock:
 class TestExtractTextFromPdf:
     """Text extraction behaviour for the pypdf-reader path."""
 
-    def test_extract_open_failure_logs_and_wraps_error(self, tmp_path: Path, caplog) -> None:
+    def test_extract_open_failure_logs_and_wraps_error(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """A broken PDF logs the open error and raises a wrapped RuntimeError."""
         provider = PDFProvider()
         pdf = tmp_path / "broken.pdf"
@@ -565,7 +597,9 @@ class TestExtractTextFromPdf:
 
         assert any("Failed to open PDF: boom" in rec.message for rec in caplog.records)
 
-    def test_extract_truncation_warning_exact_message(self, tmp_path: Path, caplog) -> None:
+    def test_extract_truncation_warning_exact_message(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Truncating to a page limit logs the documented warning."""
         provider = PDFProvider()
         pdf = tmp_path / "long.pdf"
@@ -578,7 +612,9 @@ class TestExtractTextFromPdf:
         messages = [rec.message for rec in caplog.records]
         assert "PDF has 3 pages, extracting first 2 pages only" in messages
 
-    def test_extract_equal_pages_have_no_truncation_warning(self, tmp_path: Path, caplog) -> None:
+    def test_extract_equal_pages_have_no_truncation_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """No truncation warning when the page count equals the limit."""
         provider = PDFProvider()
         pdf = tmp_path / "doc.pdf"
@@ -590,7 +626,9 @@ class TestExtractTextFromPdf:
 
         assert not any("PDF has" in rec.message for rec in caplog.records)
 
-    def test_extract_page_failure_warning_names_page(self, tmp_path: Path, caplog) -> None:
+    def test_extract_page_failure_warning_names_page(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Failed page extraction logs the 1-based page number."""
         provider = PDFProvider()
         pdf = tmp_path / "doc.pdf"
@@ -690,7 +728,7 @@ class TestExtractTextFromPdf:
 class TestFetchSupadata:
     """Supadata fallback requests and field mapping."""
 
-    def test_posts_exact_request_and_maps_fields(self, caplog) -> None:
+    def test_posts_exact_request_and_maps_fields(self, caplog: pytest.LogCaptureFixture) -> None:
         """The POST call, payload, headers and result fields are exact."""
         caplog.set_level(logging.INFO)
         provider = PDFProvider()
@@ -799,7 +837,12 @@ def _no_fallback_provider() -> PDFProvider:
 class TestIngestRemoteDirect:
     """Direct-download path: call wiring, content-type and size checks."""
 
-    def test_direct_success_full_flow(self, tmp_path: Path, caplog) -> None:
+    def test_direct_success_full_flow(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """Every step of the direct download is wired with exact arguments."""
         caplog.set_level(logging.INFO)
         provider = _no_fallback_provider()
@@ -815,8 +858,7 @@ class TestIngestRemoteDirect:
         ctx_manager.__exit__.return_value = None
 
         mock_extract = Mock(return_value=_article("ignore"))
-        provider._extract_text_from_pdf = mock_extract
-
+        monkeypatch.setattr(provider, "_extract_text_from_pdf", mock_extract)
         with (
             patch("obsidian_ai_tools.providers.pdf.requests.get", return_value=response),
             patch("obsidian_ai_tools.providers.pdf.requests.post") as mock_post,
@@ -849,7 +891,7 @@ class TestIngestRemoteDirect:
         assert not any("Unexpected content type" in rec.message for rec in caplog.records)
         assert not any("PDF file size" in rec.message for rec in caplog.records)
 
-    def test_requests_get_exact_call(self) -> None:
+    def test_requests_get_exact_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """requests.get must receive the URL, timeout and stream arguments."""
         provider = _no_fallback_provider()
         url = "https://example.com/doc.pdf"
@@ -857,7 +899,9 @@ class TestIngestRemoteDirect:
             [b"chunk-one"],
             {"content-type": "application/pdf", "content-length": "1000"},
         )
-        provider._extract_text_from_pdf = Mock(return_value=_article("ignore"))
+        monkeypatch.setattr(
+            provider, "_extract_text_from_pdf", Mock(return_value=_article("ignore"))
+        )
 
         with (
             patch("obsidian_ai_tools.providers.pdf.requests.get", return_value=response) as mg,
@@ -869,7 +913,7 @@ class TestIngestRemoteDirect:
 
         mg.assert_called_once_with(url, timeout=30, stream=True)
 
-    def test_exact_size_limit_is_allowed(self) -> None:
+    def test_exact_size_limit_is_allowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A download of exactly max_size_mb is allowed through."""
         provider = _no_fallback_provider()
         url = "https://example.com/doc.pdf"
@@ -880,7 +924,9 @@ class TestIngestRemoteDirect:
                 "content-length": str(20 * 1024 * 1024),
             },
         )
-        provider._extract_text_from_pdf = Mock(return_value=_article("ignore"))
+        monkeypatch.setattr(
+            provider, "_extract_text_from_pdf", Mock(return_value=_article("ignore"))
+        )
 
         with (
             patch("obsidian_ai_tools.providers.pdf.requests.get", return_value=response),
@@ -893,7 +939,9 @@ class TestIngestRemoteDirect:
         assert result.title == "T"
 
     @pytest.mark.parametrize("content_length", ["21000000", "20980000"])
-    def test_size_over_limit_raises(self, content_length: str) -> None:
+    def test_size_over_limit_raises(
+        self, content_length: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Downloads over max_size_mb raise with the size message."""
         provider = _no_fallback_provider()
         url = "https://example.com/doc.pdf"
@@ -901,7 +949,9 @@ class TestIngestRemoteDirect:
             [b"chunk-one"],
             {"content-type": "application/pdf", "content-length": content_length},
         )
-        provider._extract_text_from_pdf = Mock(return_value=_article("ignore"))
+        monkeypatch.setattr(
+            provider, "_extract_text_from_pdf", Mock(return_value=_article("ignore"))
+        )
 
         with (
             patch("obsidian_ai_tools.providers.pdf.requests.get", return_value=response),
@@ -914,7 +964,9 @@ class TestIngestRemoteDirect:
 
         assert str(exc_info.value.__cause__) == "PDF file size (20.0MB) exceeds limit (20MB)"
 
-    def test_pdf_content_type_has_no_warning(self, caplog) -> None:
+    def test_pdf_content_type_has_no_warning(
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """application/pdf content types are accepted silently."""
         provider = _no_fallback_provider()
         url = "https://example.com/doc.pdf"
@@ -922,7 +974,9 @@ class TestIngestRemoteDirect:
             [b"chunk-one"],
             {"content-type": "application/pdf", "content-length": "1000"},
         )
-        provider._extract_text_from_pdf = Mock(return_value=_article("ignore"))
+        monkeypatch.setattr(
+            provider, "_extract_text_from_pdf", Mock(return_value=_article("ignore"))
+        )
 
         with (
             patch("obsidian_ai_tools.providers.pdf.requests.get", return_value=response),
@@ -935,7 +989,12 @@ class TestIngestRemoteDirect:
         assert not any("Unexpected content type" in rec.message for rec in caplog.records)
 
     @pytest.mark.parametrize("content_type", ["pdf", "application/x-pdf", "binary/pdf"])
-    def test_pdf_substring_content_types_have_no_warning(self, caplog, content_type: str) -> None:
+    def test_pdf_substring_content_types_have_no_warning(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        content_type: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """Content types containing 'pdf' (but not the full mime) are fine too."""
         provider = _no_fallback_provider()
         url = "https://example.com/doc.pdf"
@@ -943,7 +1002,9 @@ class TestIngestRemoteDirect:
             [b"chunk-one"],
             {"content-type": content_type, "content-length": "1000"},
         )
-        provider._extract_text_from_pdf = Mock(return_value=_article("ignore"))
+        monkeypatch.setattr(
+            provider, "_extract_text_from_pdf", Mock(return_value=_article("ignore"))
+        )
 
         with (
             patch("obsidian_ai_tools.providers.pdf.requests.get", return_value=response),
@@ -955,12 +1016,18 @@ class TestIngestRemoteDirect:
 
         assert not any("Unexpected content type" in rec.message for rec in caplog.records)
 
-    def test_missing_content_type_warns_with_exact_message(self, caplog) -> None:
+    def test_missing_content_type_warns_with_exact_message(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """A missing content type warns with the empty value rendered."""
         provider = _no_fallback_provider()
         url = "https://example.com/doc.pdf"
         response = _remote_response([b"chunk-one"], {"content-length": "1000"})
-        provider._extract_text_from_pdf = Mock(return_value=_article("ignore"))
+        monkeypatch.setattr(
+            provider, "_extract_text_from_pdf", Mock(return_value=_article("ignore"))
+        )
 
         with (
             patch("obsidian_ai_tools.providers.pdf.requests.get", return_value=response),
@@ -978,7 +1045,7 @@ class TestIngestRemoteDirect:
 class TestIngestRemoteFallback:
     """Fallback path: attempt records on both failure and success."""
 
-    def test_fallback_success_records_both_attempts(self, caplog) -> None:
+    def test_fallback_success_records_both_attempts(self, caplog: pytest.LogCaptureFixture) -> None:
         """Primary failure + Supadata success are both recorded with exact args."""
         caplog.set_level(logging.INFO)
         provider = PDFProvider()

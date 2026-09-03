@@ -1,6 +1,7 @@
 """Tests for LLM integration functionality."""
 
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -356,11 +357,11 @@ class TestLoadPromptTemplate:
         assert "Prompt template not found:" in str(exc.value)
         assert "does_not_exist_template_xyz.md" in str(exc.value)
 
-    def test_read_failure_raises_exact_message(self, monkeypatch) -> None:
+    def test_read_failure_raises_exact_message(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """I/O failures while reading must surface as PromptTemplateError."""
         from pathlib import Path
 
-        def failing_read(self, *args, **kwargs) -> str:
+        def failing_read(self: Path, *args: object, **kwargs: object) -> str:
             raise OSError("disk error")
 
         monkeypatch.setattr(Path, "read_text", failing_read)
@@ -480,7 +481,12 @@ class TestGenerateNoteExactConstruction:
             channel_name="My Channel",
         )
 
-    def _suite(self, response: MagicMock, metadata: VideoMetadata, template: str | None = None):
+    def _suite(
+        self,
+        response: MagicMock,
+        metadata: VideoMetadata | ArticleMetadata,
+        template: str | None = None,
+    ) -> tuple[Any, ...]:
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = response
         with (
@@ -620,7 +626,7 @@ class TestGenerateNoteErrors:
     """Exact failure messages from generate_note."""
 
     @staticmethod
-    def make_video(**overrides) -> VideoMetadata:
+    def make_video(**overrides: str) -> VideoMetadata:
         values = dict(
             video_id="vid",
             title="T",

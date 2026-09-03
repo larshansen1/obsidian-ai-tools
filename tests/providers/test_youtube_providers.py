@@ -527,7 +527,7 @@ class TestSupadataTranscriptProviderExactCalls:
 
     def test_fetch_transcript_passes_exact_args(self) -> None:
         provider = SupadataTranscriptProvider("supa-key")
-        client = MagicMock()
+        client: Any = MagicMock()
         client.transcript.return_value = SimpleNamespace(content="text here", lang="es")
         provider._client = client
 
@@ -541,7 +541,7 @@ class TestSupadataTranscriptProviderExactCalls:
 
     def test_fetch_transcript_honors_configured_language(self) -> None:
         provider = SupadataTranscriptProvider("supa-key", lang="ja")
-        client = MagicMock()
+        client: Any = MagicMock()
         client.transcript.return_value = MagicMock(content="hai", lang="ja")
         provider._client = client
 
@@ -555,7 +555,7 @@ class TestSupadataTranscriptProviderExactCalls:
 
     def test_fetch_transcript_defaults_language_without_lang_attr(self) -> None:
         provider = SupadataTranscriptProvider("supa-key")
-        client = MagicMock()
+        client: Any = MagicMock()
         client.transcript.return_value = SimpleNamespace(content="hej hej")
         provider._client = client
 
@@ -566,7 +566,7 @@ class TestSupadataTranscriptProviderExactCalls:
 
     def test_fetch_transcript_batch_job_exact_message(self) -> None:
         provider = SupadataTranscriptProvider("key")
-        client = MagicMock()
+        client: Any = MagicMock()
         client.transcript.return_value = type("BatchJob", (), {})()
         provider._client = client
 
@@ -580,7 +580,7 @@ class TestSupadataTranscriptProviderExactCalls:
 
     def test_fetch_transcript_missing_content_exact_message(self) -> None:
         provider = SupadataTranscriptProvider("key")
-        client = MagicMock()
+        client: Any = MagicMock()
         client.transcript.return_value = type("OtherThing", (), {})()
         provider._client = client
 
@@ -594,7 +594,7 @@ class TestSupadataTranscriptProviderExactCalls:
 
     def test_fetch_transcript_parse_error_message(self) -> None:
         provider = SupadataTranscriptProvider("key")
-        client = MagicMock()
+        client: Any = MagicMock()
         client.transcript.side_effect = AttributeError("boom")
         provider._client = client
 
@@ -605,7 +605,7 @@ class TestSupadataTranscriptProviderExactCalls:
 
     def test_fetch_transcript_generic_error_message(self) -> None:
         provider = SupadataTranscriptProvider("key")
-        client = MagicMock()
+        client: Any = MagicMock()
         client.transcript.side_effect = ValueError("kaput")
         provider._client = client
 

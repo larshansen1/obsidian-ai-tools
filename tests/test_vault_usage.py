@@ -233,7 +233,9 @@ def _summary_notes() -> list[NoteToMove]:
     ]
 
 
-def test_display_batch_summary_non_dry_run_outputs_exact_lines(capsys) -> None:
+def test_display_batch_summary_non_dry_run_outputs_exact_lines(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """The confirm-phase summary prints one block per note, unmatched notes
     included - called without dry_run so its defaulted False is exercised."""
     vault_cmd._display_batch_summary(_summary_notes())
@@ -252,7 +254,9 @@ def test_display_batch_summary_non_dry_run_outputs_exact_lines(capsys) -> None:
     )
 
 
-def test_display_batch_summary_dry_run_outputs_exact_lines(capsys) -> None:
+def test_display_batch_summary_dry_run_outputs_exact_lines(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """The dry-run banner is emitted before the same per-note blocks."""
     vault_cmd._display_batch_summary(_summary_notes(), dry_run=True)
 
