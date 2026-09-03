@@ -40,13 +40,8 @@ Each feature followed a roughly consistent loop:
 | Tool | Role |
 |------|------|
 | [Claude Code](https://claude.ai/code) | Primary coding assistant (implementation, tests, refactoring) |
-| [GitNexus](https://gitnexus.dev) | Code-intelligence MCP: impact analysis, call-graph navigation, safe renaming |
 | `CLAUDE.md` | Project-level instructions baked into every Claude Code session |
 | `AGENTS.md` | Conventions for AI agents operating in this repo |
-
-### GitNexus integration
-
-GitNexus indexes the codebase as a knowledge graph. Before modifying any symbol, running `gitnexus_impact` identifies the blast radius (direct callers, affected execution flows, risk level). This prevented several cases where renaming a utility function would have silently broken unrelated commands. See `CLAUDE.md` for the full protocol.
 
 ## Key Lessons
 
@@ -157,3 +152,41 @@ affected by your changes.
 
 Do not chase a 100% score: real codebases contain equivalent mutants. The goal
 is that every surviving mutant is either killed or explicitly justified.
+
+### Writing mutation-resistant tests
+
+The mutation-testing pass (PR #51) found that most surviving mutants traced to
+a handful of systematic test-writing patterns, not to missing coverage: the
+lines ran, but no assertion noticed the defect. Write every test so any
+behavioural change is observable as a test failure.
+
+- **Assert exact outcomes with `==`.** Compare full dicts, objects, error
+  messages, and output streams. Never `assert "key" in dict` — the key can be
+  present with the wrong value — and never substring-check error text (a mutant
+  that returns `"success"` instead of `"unsuccessful"` survives an `in`
+  check).
+- **Assert every mock with `assert_called_once_with(...)` covering ALL
+  arguments**: URLs, timeouts, headers, payloads, encodings, flags. A mock
+  checked only with `assert_called()` lets a mutant that silently drops an
+  argument survive.
+- **Test every comparison at its exact boundary value, from both sides.** For
+  `<` vs `<=` and threshold constants, assert both the value just below and the
+  value at/just above the threshold so a boundary mutation cannot survive.
+- **Exercise every default at least once by omitting the kwarg.** CLI
+  frameworks (Typer) re-read the original function signature, so default
+  mutations are invisible through CLI-level tests — call the function directly.
+- **Assert log records exactly** (message, logger name, `exc_info`) whenever
+  the behaviour is a log line, and assert persisted file content byte-for-byte
+  (indent, encoding) — not just that the file exists.
+- **Make time deterministic.** monkeypatch `time.monotonic` / `datetime`
+  instead of sleeping or asserting within tolerances.
+- **Use `SimpleNamespace`, not `MagicMock`, for fakes whose attribute
+  *existence* is checked.** `MagicMock` auto-creates attributes, defeating
+  `hasattr` guards. `SimpleNamespace` raises `AttributeError` for missing
+  attributes, so the guard is exercised.
+- **Verify kills with a batch harness**: copy `src` to a temp dir, apply each
+  mutant diff, run the tests, and collect results across all mutants at
+  once. Never hand-verify mutants one at a time.
+- **`# pragma: no mutate` only for provably equivalent mutants, with a written
+  justification** — prefer killing via tests. The pragma applies to the whole
+  line, so never pragma a line that also hosts killable mutants.
