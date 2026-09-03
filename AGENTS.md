@@ -59,3 +59,8 @@ When renaming mock patch paths (e.g. `obsidian_ai_tools.cli.X` → `obsidian_ai_
 ## Writing Tests
 
 All new tests must follow the mutation-resistant test rules in DEVELOPMENT.md ("Writing mutation-resistant tests"). Summary: exact assertions (`==`, never substring/presence checks), `assert_called_with` on every mock, boundary values at exact thresholds, exercise defaults, exact log-record and persisted-content assertions, deterministic clocks. Rationale: mutation testing (see DEVELOPMENT.md) showed weaker patterns let defects survive.
+
+## Parallel Agents
+
+When dispatching multiple concurrent agents, give each its own branch and worktree (`.worktrees/<name>`) and spawn it with its `cwd` set to the worktree. Never run two agents in the same checkout, never switch branches mid-flight — a shared checkout caused real interference during the #50/#52 work. Commands, bootstrap, and cleanup: DEVELOPMENT.md ("Parallel agent worktrees").
+
