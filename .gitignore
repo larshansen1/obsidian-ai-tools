@@ -28,3 +28,6 @@ docs/decisions.md
 
 # mutmut mutation-testing workspace
 mutants/
+
+# git worktrees for parallel agent workflow
+.worktrees/

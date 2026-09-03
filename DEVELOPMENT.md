@@ -104,6 +104,43 @@ make coverage    # pytest + coverage threshold
 
 Pre-commit hooks run a subset on every commit; the full suite runs on push. See `.pre-commit-config.yaml` and `.github/workflows/ci.yml` for the exact configuration.
 
+## Parallel Agent Worktrees
+
+When dispatching multiple concurrent agents (one per issue), each worker gets its own branch and its own git worktree. Workers never share a checkout and never switch branches — the #50/#52 interference incident (mid-flight branch switch pulling the tree out from under a worker, one worker restoring a file another was editing, pre-commit's files-modified detector tripping on concurrent edits) only happened because multiple workers shared a single checkout.
+
+The orchestrator creates the worktree and spawns each worker with its `cwd` set to it:
+
+```bash
+git worktree add .worktrees/<short-name> -b <branch> <base>
+```
+
+Each worktree needs its own environment before gates can run. Verified bootstrap (all commands run from inside the worktree):
+
+```bash
+uv venv
+uv pip install -e . -r requirements-dev.txt
+uv run pytest -q -m "not slow"
+uv run pre-commit run ruff --all-files
+```
+
+Verification notes (the parts most likely to bite):
+
+- The editable install records an **absolute path**: each worktree's `.venv` imports that worktree's own `src/`, never the main checkout's, so worktrees don't cross-contaminate.
+- `uv run` picks up the worktree-local `.venv` automatically; no activation needed.
+- The `language: system` hooks (pytest-fast, radon-cc, README check) resolve `.venv/bin/python` and `./scripts/...` relative to the worktree CWD — the venv must live at `.worktrees/<name>/.venv`.
+- Remote-repo hook environments (ruff, bandit, gitleaks, …) are cached under `~/.cache/pre-commit` and shared across worktrees, so the first `pre-commit run` inside a fresh worktree doesn't re-fetch.
+- Worktrees share the main checkout's `.git/hooks`, so one `pre-commit install` in the main checkout covers every worktree.
+
+After the PR merges, the orchestrator cleans up:
+
+```bash
+git worktree remove .worktrees/<short-name>
+git branch -d <branch>
+git worktree prune   # drop stale administrative entries
+```
+
+`.worktrees/` is git-ignored.
+
 ## Mutation Testing
 
 Mutation testing measures whether the test suite actually *asserts* behavior,
