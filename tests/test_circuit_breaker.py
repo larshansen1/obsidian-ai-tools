@@ -3,6 +3,7 @@
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -259,7 +260,7 @@ class TestCircuitBreaker:
 
         class FrozenDateTime(datetime):
             @classmethod
-            def now(cls, tz=None):  # noqa: ARG003
+            def now(cls, tz: object | None = None) -> Any:  # noqa: ARG003
                 return frozen
 
         monkeypatch.setattr(circuit_breaker_module, "datetime", FrozenDateTime)

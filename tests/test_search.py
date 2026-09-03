@@ -580,6 +580,7 @@ class TestBuildExplanation:
         note = self._note(["ai"])
         query = SearchQuery(keyword="python ai", explain=True)
         explanation = _build_explanation(note, query, "keyword match")
+        assert explanation is not None
         assert "keywords: python, ai" in explanation
         assert "XX, XX" not in explanation
 
@@ -599,6 +600,7 @@ class TestBuildExplanation:
         note = self._note([f"t{i}" for i in range(6)])
         query = SearchQuery(explain=True)
         explanation = _build_explanation(note, query, "keyword match")
+        assert explanation is not None
         assert "tags: t0, t1, t2, t3, t4" in explanation
         assert "t5" not in explanation
 
@@ -606,6 +608,7 @@ class TestBuildExplanation:
         note = self._note(["ai"])
         query = SearchQuery(explain=True)
         explanation = _build_explanation(note, query, "tag match")
+        assert explanation is not None
         assert "keywords:" not in explanation
 
 

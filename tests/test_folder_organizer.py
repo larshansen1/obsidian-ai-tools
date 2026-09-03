@@ -535,13 +535,15 @@ class TestMoveNoteSecurity:
         assert result.to_folder == "../escape"
         assert note.file_path.exists()
 
-    def test_move_note_wraps_path_validation_error(self, tmp_path: Path, monkeypatch) -> None:
+    def test_move_note_wraps_path_validation_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Handle exceptions raised while resolving destinations."""
         vault = tmp_path / "vault"
         vault.mkdir()
         note = self._make_note(vault, "AI/Projects")
 
-        def boom(self, strict: bool = False) -> None:
+        def boom(self: Path, strict: bool = False) -> None:
             raise RuntimeError("boom")
 
         monkeypatch.setattr(Path, "resolve", boom)
@@ -565,13 +567,15 @@ class TestMoveNoteSecurity:
         assert result.success
         assert (dest / "note.md").exists()
 
-    def test_move_note_wraps_filesystem_error(self, tmp_path: Path, monkeypatch) -> None:
+    def test_move_note_wraps_filesystem_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Report failures during the actual move as errors."""
         vault = tmp_path / "vault"
         vault.mkdir()
         note = self._make_note(vault, "AI/Projects")
 
-        def boom(self, *args, **kwargs) -> None:
+        def boom(self: Path, *args: object, **kwargs: object) -> None:
             raise RuntimeError("boom")
 
         monkeypatch.setattr(Path, "mkdir", boom)
@@ -714,7 +718,9 @@ class TestCollectExistingFolders:
 
         assert folders == ["Alpha", "Zeta"]
 
-    def test_collect_break_on_first_file(self, tmp_path: Path, monkeypatch) -> None:
+    def test_collect_break_on_first_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Non-directory entries must not stop collection."""
         vault = tmp_path / "vault"
         (vault / "Notes").mkdir(parents=True)
@@ -729,7 +735,9 @@ class TestCollectExistingFolders:
 
         assert "Notes" in folders
 
-    def test_collect_break_on_hidden_dir(self, tmp_path: Path, monkeypatch) -> None:
+    def test_collect_break_on_hidden_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Hidden directories must not stop collection."""
         vault = tmp_path / "vault"
         (vault / "Notes").mkdir(parents=True)
@@ -742,7 +750,9 @@ class TestCollectExistingFolders:
 
         assert "Notes" in folders
 
-    def test_collect_break_on_too_deep_dir(self, tmp_path: Path, monkeypatch) -> None:
+    def test_collect_break_on_too_deep_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Deep directories must not stop collection."""
         vault = tmp_path / "vault"
         (vault / "Notes").mkdir(parents=True)
@@ -973,12 +983,14 @@ class TestValidateFolderPathMessages:
         )
         assert "resolves outside" in message
 
-    def test_resolve_failure_exact_message(self, tmp_path: Path, monkeypatch) -> None:
+    def test_resolve_failure_exact_message(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Resolve failures are wrapped with the underlying error."""
         vault = tmp_path / "vault"
         vault.mkdir()
 
-        def boom(self, strict: bool = False) -> None:
+        def boom(self: Path, strict: bool = False) -> None:
             raise OSError("boom")
 
         monkeypatch.setattr(Path, "resolve", boom)

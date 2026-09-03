@@ -689,6 +689,7 @@ def test_ingest_content_uses_provider_default_prompt_version(tmp_path: Path) -> 
             _settings(tmp_path),  # type: ignore[arg-type]
         )
 
+    assert isinstance(result, IngestionResult)
     assert result.prompt_version == "youtube_v2"
     assert mock_generate.call_args.kwargs["prompt_version"] == "youtube_v2"
 

@@ -144,7 +144,9 @@ class TestYouTubeClientConstruction:
         assert client.supadata_provider is None
         assert client.metadata_provider is None
 
-    def test_client_warns_when_keys_missing(self, tmp_path: Path, caplog) -> None:
+    def test_client_warns_when_keys_missing(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Each missing key produces its own warning message."""
         caplog.set_level(logging.WARNING, logger="obsidian_ai_tools.youtube")
         YouTubeClient(self.make_settings(tmp_path))
@@ -153,7 +155,9 @@ class TestYouTubeClientConstruction:
         _assert_logged(caplog, "Supadata API key not configured")
         _assert_logged(caplog, "YouTube API key not configured - using fallback metadata")
 
-    def test_client_logs_when_supadata_configured(self, tmp_path: Path, caplog) -> None:
+    def test_client_logs_when_supadata_configured(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """A configured Supadata key logs the primary-source notice."""
         vault = tmp_path / "vault"
         vault.mkdir()
@@ -176,10 +180,14 @@ class TestFetchTranscriptFallback:
     def make_client(tmp_path: Path) -> YouTubeClient:
         return YouTubeClient(TestYouTubeClientConstruction.make_settings(tmp_path))
 
-    def test_joins_errors_with_semicolon_separator(self, tmp_path: Path) -> None:
+    def test_joins_errors_with_semicolon_separator(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         client = self.make_client(tmp_path)
-        client.unofficial_provider.fetch_transcript = Mock(
-            side_effect=TranscriptUnavailableError("E1")
+        monkeypatch.setattr(
+            client.unofficial_provider,
+            "fetch_transcript",
+            Mock(side_effect=TranscriptUnavailableError("E1")),
         )
 
         with pytest.raises(
@@ -188,10 +196,14 @@ class TestFetchTranscriptFallback:
         ):
             client._fetch_transcript_with_fallback("vid123", "direct")
 
-    def test_skips_unknown_provider_and_continues(self, tmp_path: Path, caplog) -> None:
+    def test_skips_unknown_provider_and_continues(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         client = self.make_client(tmp_path)
-        client.unofficial_provider.fetch_transcript = Mock(
-            return_value=("hello transcript words", "en")
+        monkeypatch.setattr(
+            client.unofficial_provider,
+            "fetch_transcript",
+            Mock(return_value=("hello transcript words", "en")),
         )
 
         caplog.set_level(logging.WARNING, logger="obsidian_ai_tools.youtube")
@@ -231,32 +243,40 @@ class TestTryProviderMethods:
     def make_client(tmp_path: Path) -> YouTubeClient:
         return YouTubeClient(TestYouTubeClientConstruction.make_settings(tmp_path))
 
-    def test_try_direct_success_passes_video_id_and_records(self, tmp_path: Path) -> None:
+    def test_try_direct_success_passes_video_id_and_records(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         client = self.make_client(tmp_path)
-        client.unofficial_provider.fetch_transcript = Mock(return_value=("text here", "es"))
-        client.circuit_breaker.record_success = Mock()
+        fetch_transcript = Mock(return_value=("text here", "es"))
+        record_success = Mock()
+        monkeypatch.setattr(client.unofficial_provider, "fetch_transcript", fetch_transcript)
+        monkeypatch.setattr(client.circuit_breaker, "record_success", record_success)
 
         result = client._try_direct_provider("videoX")
 
         assert result == ("text here", "es")
-        client.unofficial_provider.fetch_transcript.assert_called_once_with("videoX")
-        client.circuit_breaker.record_success.assert_called_once()
+        fetch_transcript.assert_called_once_with("videoX")
+        record_success.assert_called_once()
 
-    def test_try_direct_failure_records_failure(self, tmp_path: Path) -> None:
+    def test_try_direct_failure_records_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         client = self.make_client(tmp_path)
-        client.unofficial_provider.fetch_transcript = Mock(
-            side_effect=TranscriptUnavailableError("no")
-        )
-        client.circuit_breaker.record_failure = Mock()
+        fetch_transcript = Mock(side_effect=TranscriptUnavailableError("no"))
+        record_failure = Mock()
+        monkeypatch.setattr(client.unofficial_provider, "fetch_transcript", fetch_transcript)
+        monkeypatch.setattr(client.circuit_breaker, "record_failure", record_failure)
 
         with pytest.raises(TranscriptUnavailableError, match="no"):
             client._try_direct_provider("videoX")
 
-        client.circuit_breaker.record_failure.assert_called_once()
+        record_failure.assert_called_once()
 
-    def test_try_direct_open_circuit_message(self, tmp_path: Path, caplog) -> None:
+    def test_try_direct_open_circuit_message(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         client = self.make_client(tmp_path)
-        client.circuit_breaker.is_open = Mock(return_value=True)
+        monkeypatch.setattr(client.circuit_breaker, "is_open", Mock(return_value=True))
 
         caplog.set_level(logging.DEBUG, logger="obsidian_ai_tools.youtube")
         with pytest.raises(TranscriptUnavailableError) as exc:
@@ -311,7 +331,9 @@ class TestFetchMetadata:
     def make_client(tmp_path: Path) -> YouTubeClient:
         return YouTubeClient(TestYouTubeClientConstruction.make_settings(tmp_path))
 
-    def test_uses_metadata_provider_result(self, tmp_path: Path, caplog) -> None:
+    def test_uses_metadata_provider_result(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         client = self.make_client(tmp_path)
         client.metadata_provider = Mock()
         client.metadata_provider.fetch_metadata.return_value = {
@@ -336,7 +358,9 @@ class TestFetchMetadata:
             "channel_name": "Unknown Channel",
         }
 
-    def test_placeholder_when_provider_fails(self, tmp_path: Path, caplog) -> None:
+    def test_placeholder_when_provider_fails(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         client = self.make_client(tmp_path)
         client.metadata_provider = Mock()
         client.metadata_provider.fetch_metadata.side_effect = Exception("boom")
@@ -356,10 +380,16 @@ class TestGetVideoMetadata:
     def make_client(tmp_path: Path) -> YouTubeClient:
         return YouTubeClient(TestYouTubeClientConstruction.make_settings(tmp_path))
 
-    def test_full_flow_builds_metadata(self, tmp_path: Path, caplog) -> None:
+    def test_full_flow_builds_metadata(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         client = self.make_client(tmp_path)
         transcript = "real title " + " ".join(f"word{i}" for i in range(198))
-        client.unofficial_provider.fetch_transcript = Mock(return_value=(transcript, "fr"))
+        monkeypatch.setattr(
+            client.unofficial_provider,
+            "fetch_transcript",
+            Mock(return_value=(transcript, "fr")),
+        )
         client.metadata_provider = Mock()
         client.metadata_provider.fetch_metadata.return_value = {
             "title": "Real Title",
@@ -380,7 +410,9 @@ class TestGetVideoMetadata:
         _assert_logged(caplog, "Cache MISS for fullflow - fetching from providers")
         _assert_logged(caplog, "Cached result for fullflow (provider: direct)")
 
-    def test_cache_hit_short_circuits(self, tmp_path: Path, caplog) -> None:
+    def test_cache_hit_short_circuits(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
         client = self.make_client(tmp_path)
         cached = VideoMetadata(
             video_id="cachedvid",
@@ -400,28 +432,34 @@ class TestGetVideoMetadata:
         mock_get.assert_called_once_with("cachedvid")
         _assert_logged(caplog, "Cache HIT for cachedvid")
 
-    def test_forwards_provider_order(self, tmp_path: Path) -> None:
+    def test_forwards_provider_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         client = self.make_client(tmp_path)
-        client._fetch_metadata = Mock(return_value={"title": "T", "channel_name": "C"})
-        client._fetch_transcript_with_fallback = Mock(
+        fetch_metadata = Mock(return_value={"title": "T", "channel_name": "C"})
+        fetch_transcript = Mock(
             return_value=(" ".join(f"word{i}" for i in range(200)), "en", "direct")
         )
+        monkeypatch.setattr(client, "_fetch_metadata", fetch_metadata)
+        monkeypatch.setattr(client, "_fetch_transcript_with_fallback", fetch_transcript)
 
         client.get_video_metadata(
             "https://youtube.com/watch?v=ord1", provider_order="supadata,decodo"
         )
 
-        client._fetch_metadata.assert_called_once_with("ord1")
-        client._fetch_transcript_with_fallback.assert_called_once_with("ord1", "supadata,decodo")
+        fetch_metadata.assert_called_once_with("ord1")
+        fetch_transcript.assert_called_once_with("ord1", "supadata,decodo")
 
-    def test_raises_on_low_quality_transcript(self, tmp_path: Path) -> None:
+    def test_raises_on_low_quality_transcript(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         client = self.make_client(tmp_path)
         client.metadata_provider = Mock()
         client.metadata_provider.fetch_metadata.return_value = {
             "title": "Whatever Title",
             "channel_name": "C",
         }
-        client.unofficial_provider.fetch_transcript = Mock(return_value=("short", "en"))
+        monkeypatch.setattr(
+            client.unofficial_provider, "fetch_transcript", Mock(return_value=("short", "en"))
+        )
 
         with pytest.raises(TranscriptUnavailableError) as exc:
             client.get_video_metadata("https://youtube.com/watch?v=qvid")
@@ -430,7 +468,9 @@ class TestGetVideoMetadata:
             "Transcript quality too low for qvid: Transcript too short (5 chars, minimum 100)"
         )
 
-    def test_raises_on_irrelevant_transcript(self, tmp_path: Path, caplog) -> None:
+    def test_raises_on_irrelevant_transcript(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         client = self.make_client(tmp_path)
         transcript = " ".join(f"word{i}" for i in range(200))
         client.metadata_provider = Mock()
@@ -438,7 +478,9 @@ class TestGetVideoMetadata:
             "title": "Quantum SpaceX Rocket 2026",
             "channel_name": "C",
         }
-        client.unofficial_provider.fetch_transcript = Mock(return_value=(transcript, "en"))
+        monkeypatch.setattr(
+            client.unofficial_provider, "fetch_transcript", Mock(return_value=(transcript, "en"))
+        )
 
         caplog.set_level(logging.WARNING, logger="obsidian_ai_tools.youtube")
         with pytest.raises(TranscriptUnavailableError) as exc:

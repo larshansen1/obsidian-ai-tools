@@ -15,8 +15,10 @@ import io
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+import pytest
 import typer
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
@@ -198,7 +200,9 @@ def test_serve_background_refuses_when_already_running(tmp_path: Path) -> None:
     mock_popen.assert_not_called()
 
 
-def test_serve_background_builds_the_full_command_and_popen_kwargs(tmp_path: Path, capsys) -> None:
+def test_serve_background_builds_the_full_command_and_popen_kwargs(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     with (
         patch("obsidian_ai_tools.commands.serve.Path.home", return_value=tmp_path),
         patch("obsidian_ai_tools.commands.serve.subprocess.Popen") as mock_popen,
@@ -277,12 +281,14 @@ def test_serve_background_with_reload_adds_the_flag(tmp_path: Path) -> None:
     assert "--reload" in mock_popen.call_args.args[0]
 
 
-def test_serve_background_writes_state_files_as_utf8(tmp_path: Path, monkeypatch) -> None:
+def test_serve_background_writes_state_files_as_utf8(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The child output log and the pid file are opened with an explicit utf-8
     encoding, never the locale default or a non-canonical name."""
     seen: list[tuple[str, dict]] = []
-    real_open = Path.open
-    real_write_text = Path.write_text
+    real_open: Any = Path.open
+    real_write_text: Any = Path.write_text
 
     def spy_open(self: object, *args: object, **kwargs: object) -> object:
         mode = args[0] if args else kwargs.get("mode")
@@ -310,18 +316,20 @@ def test_serve_background_writes_state_files_as_utf8(tmp_path: Path, monkeypatch
     assert all(entry[1].get("encoding") == "utf-8" for entry in recording)
 
 
-def test_serve_status_log_reads_the_log_as_utf8(tmp_path: Path, monkeypatch) -> None:
+def test_serve_status_log_reads_the_log_as_utf8(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     state_dir = tmp_path / ".kai"
     state_dir.mkdir()
     (state_dir / "server.log").write_text("line\n", encoding="utf-8")
 
     seen: list[dict] = []
-    real_read_text = Path.read_text
+    real_read_text: Any = Path.read_text
 
     def spy_read_text(self: object, *args: object, **kwargs: object) -> str:
         if getattr(self, "name", "") == "server.log":
             seen.append(dict(kwargs))
-        return real_read_text(self, *args, **kwargs)
+        return cast(str, real_read_text(self, *args, **kwargs))
 
     monkeypatch.setattr(Path, "read_text", spy_read_text)
 
@@ -338,7 +346,9 @@ def test_serve_status_log_reads_the_log_as_utf8(tmp_path: Path, monkeypatch) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_serve_foreground_uses_defaults_and_launches_uvicorn(tmp_path: Path, capsys) -> None:
+def test_serve_foreground_uses_defaults_and_launches_uvicorn(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """With no options, serve must run uvicorn with documented defaults.
 
     Called directly (not via typer) so the signature defaults themselves are
@@ -367,7 +377,9 @@ def test_serve_foreground_uses_defaults_and_launches_uvicorn(tmp_path: Path, cap
     mock_popen.assert_not_called()
 
 
-def test_serve_foreground_warns_on_non_loopback_host(capsys) -> None:
+def test_serve_foreground_warns_on_non_loopback_host(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """Binding beyond loopback must warn on stderr before starting uvicorn."""
 
     fake_run = MagicMock()
@@ -382,7 +394,9 @@ def test_serve_foreground_warns_on_non_loopback_host(capsys) -> None:
     assert fake_run.call_args.kwargs == {"host": "0.0.0.0", "port": 9000, "reload": False}
 
 
-def test_serve_foreground_does_not_warn_on_loopback_hosts(tmp_path: Path, capsys) -> None:
+def test_serve_foreground_does_not_warn_on_loopback_hosts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
 
     fake_run = MagicMock()
     with (
