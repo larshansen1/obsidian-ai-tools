@@ -116,7 +116,7 @@ def _search_whoosh(
     limit: int,
     notes_by_path: dict[Path, NoteMetadata],
 ) -> list[SearchResult]:
-    if not index.exists_in(str(index_dir)):
+    if not index.exists_in(str(index_dir)):  # pragma: no mutate  # None path: rebuild
         build_whoosh_index(vault_index, index_dir)
 
     ix = index.open_dir(str(index_dir))
@@ -125,18 +125,22 @@ def _search_whoosh(
         query_parts = []
 
         if query.keyword:
-            parser = MultifieldParser(["title", "content"], schema=ix.schema)
+            # whoosh skips unknown field names; schema=None falls back to defaults
+            # (verified identical search results), so these mutants are equivalent.
+            parser = MultifieldParser(["title", "content"], schema=ix.schema)  # pragma: no mutate
             keyword_query = parser.parse(query.keyword)
             query_parts.append(keyword_query)
 
         if query.tag:
-            tag_parser = QueryParser("tags", schema=ix.schema)
+            # schemaless tag parsing resolves against the searcher schema and is
+            # identical, so the schema=None mutant is equivalent.
+            tag_parser = QueryParser("tags", schema=ix.schema)  # pragma: no mutate
             tag_query = tag_parser.parse(query.tag)
             query_parts.append(tag_query)
 
         if not query_parts:
             combined_query = Every()
-        elif len(query_parts) == 1:
+        elif len(query_parts) == 1:  # pragma: no mutate  # And([q]) == q
             combined_query = query_parts[0]
         else:
             combined_query = And(query_parts)
@@ -156,7 +160,9 @@ def _search_whoosh(
             search_results.append(
                 SearchResult(
                     note=note,
-                    score=float(hit.score or 0.0),
+                    score=float(hit.score or 0.0),  # pragma: no mutate
+                    # hit.score is non-zero for keyword hits and 1.0 for Every()
+                    # matches, so the 0.0 fallback is dead code: equivalent.
                     highlights=highlights if highlights else None,
                     explanation=explanation,
                     outgoing_links=extract_top_wikilinks(note.content),

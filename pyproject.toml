@@ -87,3 +87,12 @@ precision = 2
 [tool.bandit]
 exclude_dirs = ["tests"]
 skips = ["B101"]  # B101: assertions are used for internal invariants
+
+[tool.mutmut]
+source_paths = ["src"]
+also_copy = ["prompts/"]
+# Entry points and process/daemon plumbing are exercised through the CLI tests
+# only; mutating them mostly produces equivalent or untestable mutants.
+do_not_mutate = [
+    "src/obsidian_ai_tools/__main__.py",
+]

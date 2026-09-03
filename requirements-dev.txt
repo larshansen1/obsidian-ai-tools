@@ -5,3 +5,4 @@ ruff
 radon
 bandit
 pre-commit
+mutmut>=3.7

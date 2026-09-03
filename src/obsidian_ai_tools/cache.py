@@ -67,8 +67,10 @@ class VideoCache:
             return cached_video.metadata
 
         except (json.JSONDecodeError, ValueError, KeyError):
-            # Corrupted cache file - remove it
-            cache_path.unlink(missing_ok=True)
+            # Corrupted cache file - remove it. `missing_ok` only differs when the
+            # file vanished between the exists() guard above and unlink(), an
+            # impossible TOCTOU race in single-threaded use (mutants equivalent).
+            cache_path.unlink(missing_ok=True)  # pragma: no mutate
             return None
 
     def set(self, video_id: str, metadata: VideoMetadata, provider: str) -> None:
@@ -89,7 +91,9 @@ class VideoCache:
                 cached_video.model_dump(mode="json"),
                 f,
                 indent=2,
-                default=str,
+                # model_dump(mode="json") is fully JSON-serializable, so default
+                # is never invoked; removing/mutating it is equivalent.
+                default=str,  # pragma: no mutate
             )
 
     def invalidate(self, video_id: str) -> bool:

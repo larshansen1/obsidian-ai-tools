@@ -120,7 +120,9 @@ def find_note_by_source(vault_path: Path, url: str) -> ExistingNote | None:
         try:
             metadata = yaml.safe_load(frontmatter_text) or {}
         except yaml.YAMLError:
-            metadata = {}
+            # pragma: no mutate
+            # None here is overwritten by the isinstance guard below: equivalent.
+            metadata = {}  # pragma: no mutate  # equivalent (rescue by isinstance guard)
         if not isinstance(metadata, dict):
             metadata = {}
         raw_tags = metadata.get("tags") or []

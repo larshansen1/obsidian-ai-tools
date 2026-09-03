@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Any
+from typing import Any, cast
 
 import requests
 import trafilatura
@@ -83,6 +83,9 @@ class WebProvider(BaseProvider):
                 content=captured_content.strip(),
                 title=kwargs.get("captured_title") or "Captured Chat",
                 author="Unknown Author",
+                # pragma: no mutate - removing "published_date=None" is equivalent
+                # (ArticleMetadata.published_date defaults to None); assert instead on
+                # the resolved value (result.published_date is None) in tests.
                 published_date=None,
                 site_name="Browser Capture",
                 url=source,
@@ -222,7 +225,8 @@ class WebProvider(BaseProvider):
 
     def _fetch_supadata(self, url: str) -> dict[str, Any]:
         """Fetch using Supadata API."""
-        headers = {"x-api-key": self.supadata_key}
+        api_key = cast(str, self.supadata_key)
+        headers = {"x-api-key": api_key}
 
         params = {
             "url": url,

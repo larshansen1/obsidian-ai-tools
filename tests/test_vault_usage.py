@@ -8,6 +8,10 @@ tests/test_cli.py::test_rebuild_index_command and tests/test_observability.py.
 Note on counts: `usage` is wrapped in @track_command("usage"), which records its
 own invocation *after* the report is rendered, so it never appears in its own
 output.
+
+Also covers command registration and the batch-move summary rendering from the
+same module (the dry-run/confirm report that process-inbox prints), because
+both are cheap unit-level checks of vault-local code.
 """
 
 from collections.abc import Iterator
@@ -15,9 +19,12 @@ from pathlib import Path
 from unittest.mock import call, patch
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from obsidian_ai_tools.cli import app
+from obsidian_ai_tools.commands import vault as vault_cmd
+from obsidian_ai_tools.folder_organizer import NoteToMove
 from obsidian_ai_tools.observability import ObservabilityDB, _set_db_for_test
 
 runner = CliRunner()
@@ -184,3 +191,78 @@ def test_usage_exits_when_settings_cannot_be_loaded(usage_db: ObservabilityDB) -
     assert "❌ Configuration error" in result.stderr
     assert "Could not find .env file" in result.stderr
     assert "Command usage" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# command registration
+# ---------------------------------------------------------------------------
+
+
+def test_register_installs_all_vault_commands_on_a_fresh_app() -> None:
+    """register() must wire rebuild-index/process-inbox/usage onto any app."""
+    fresh = typer.Typer()
+    vault_cmd.register(fresh)
+    for command in ("rebuild-index", "process-inbox", "usage"):
+        result = runner.invoke(fresh, [command, "--help"])
+        assert result.exit_code == 0, f"{command!r} not registered: {result.output}"
+
+
+# ---------------------------------------------------------------------------
+# batch-move summary rendering (process-inbox dry-run / confirm report)
+# ---------------------------------------------------------------------------
+
+
+def _summary_notes() -> list[NoteToMove]:
+    return [
+        NoteToMove(
+            file_path=Path("/vault/inbox/note-a.md"),
+            title="Note A",
+            tags=["ai", "python"],
+            best_folder="AI",
+            matched_tags=["ai", "python"],
+            score=42.0,
+        ),
+        NoteToMove(
+            file_path=Path("/vault/inbox/note-b.md"),
+            title="Note B",
+            tags=["ai"],
+            best_folder="Development/Python",
+            matched_tags=[],
+            score=11.5,
+        ),
+    ]
+
+
+def test_display_batch_summary_non_dry_run_outputs_exact_lines(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The confirm-phase summary prints one block per note, unmatched notes
+    included - called without dry_run so its defaulted False is exercised."""
+    vault_cmd._display_batch_summary(_summary_notes())
+
+    assert capsys.readouterr().out == (
+        "📋 Found 2 note(s) to move:\n"
+        "\n"
+        "  📄 note-a.md\n"
+        "     Tags: ai, python\n"
+        "     → AI (matched: ai, python, score: 42.0)\n"
+        "\n"
+        "  📄 note-b.md\n"
+        "     Tags: ai\n"
+        "     → Development/Python (matched: none, score: 11.5)\n"
+        "\n"
+    )
+
+
+def test_display_batch_summary_dry_run_outputs_exact_lines(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The dry-run banner is emitted before the same per-note blocks."""
+    vault_cmd._display_batch_summary(_summary_notes(), dry_run=True)
+
+    out = capsys.readouterr().out
+    assert out.startswith("🔍 DRY RUN - No files will be moved\n\n")
+    assert "📋 Found 2 note(s) to move:" not in out
+    assert "  📄 note-a.md\n" in out
+    assert "     Tags: ai, python\n" in out
+    assert "→ AI (matched: ai, python, score: 42.0)" in out

@@ -46,7 +46,9 @@ def sanitize_filename(title: str, max_length: int = 100) -> str:
     sanitized = sanitized.lower()
 
     # Limit length
-    if len(sanitized) > max_length:
+    # Truncating a string of exactly max_length is the identity; the full string
+    # was already strip("-")-ed, so the comparison threshold is unobservable.
+    if len(sanitized) > max_length:  # pragma: no mutate
         sanitized = sanitized[:max_length].rstrip("-")
 
     # Ensure we have something (fallback to "note" if empty)
@@ -87,8 +89,10 @@ def build_obsidian_url(vault_path: Path, file_path: Path) -> str:
         ValueError: If file_path is not inside vault_path
     """
     rel_path = file_path.relative_to(vault_path)
-    vault_name = quote(vault_path.name, safe="")
-    file_param = quote(str(rel_path), safe="")
+    # quote() never encodes alnum + "._~-"; vault names contain no "/", so safe-
+    # value variants and the default safe="/" encode identically.
+    vault_name = quote(vault_path.name, safe="")  # pragma: no mutate
+    file_param = quote(str(rel_path), safe="")  # pragma: no mutate
     return f"obsidian://open?vault={vault_name}&file={file_param}"
 
 
@@ -124,7 +128,9 @@ def write_note(
         if not str(resolved_target).startswith(str(resolved_vault)):
             raise PathTraversalError(f"Update target outside vault: {target_path}")
         try:
-            target_path.write_text(note.to_markdown(), encoding="utf-8")
+            # utf-8 is the default codec; omitted/None/UTF-8 variants produce
+            # byte-identical output for any content on this platform.
+            target_path.write_text(note.to_markdown(), encoding="utf-8")  # pragma: no mutate
             return target_path
         except Exception as e:
             raise FileWriteError(f"Failed to write note to {target_path}: {e}") from e

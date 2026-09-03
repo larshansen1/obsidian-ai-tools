@@ -1,13 +1,17 @@
 """Tests for LLM integration functionality."""
 
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from obsidian_ai_tools.llm import (
     NoteGenerationError,
+    PromptTemplateError,
     build_prompt,
     generate_note,
+    load_prompt_template,
     parse_llm_response,
 )
 from obsidian_ai_tools.models import ArticleMetadata, VideoMetadata
@@ -332,3 +336,427 @@ class TestBuildPromptEdgeCases:
         assert "<Special>" in result
         assert "{Chars}" in result
         assert '"quotes"' in result
+
+
+class TestLoadPromptTemplate:
+    """Template loading from the prompts directory."""
+
+    def test_loads_default_youtube_template(self) -> None:
+        """Calling without args must load the real youtube_v1 template."""
+        content = load_prompt_template()
+
+        assert "YouTube video transcripts" in content
+        assert "{title}" in content
+        assert "{transcript}" in content
+
+    def test_missing_template_raises_exact_message(self) -> None:
+        """A missing template file must mention the template path."""
+        with pytest.raises(PromptTemplateError) as exc:
+            load_prompt_template("does_not_exist_template_xyz")
+
+        assert "Prompt template not found:" in str(exc.value)
+        assert "does_not_exist_template_xyz.md" in str(exc.value)
+
+    def test_read_failure_raises_exact_message(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """I/O failures while reading must surface as PromptTemplateError."""
+        from pathlib import Path
+
+        def failing_read(self: Path, *args: object, **kwargs: object) -> str:
+            raise OSError("disk error")
+
+        monkeypatch.setattr(Path, "read_text", failing_read)
+
+        with pytest.raises(PromptTemplateError, match="Failed to read prompt template: disk error"):
+            load_prompt_template()
+
+
+class TestBuildPromptTagsPlaceholder:
+    """The EXISTING_TAGS placeholder contract."""
+
+    @pytest.fixture
+    def video(self) -> VideoMetadata:
+        return VideoMetadata(
+            video_id="v1",
+            title="Tag Video",
+            url="https://youtube.com/watch?v=v1",
+            transcript="A transcript body.",
+            channel_name="Channel",
+        )
+
+    def test_default_tags_message_when_none(self, video: VideoMetadata) -> None:
+        """No existing tags yields the exact fallback sentence."""
+        template = "Title: {title}\nTags: {EXISTING_TAGS}"
+
+        result = build_prompt(video, template)
+
+        assert "No existing tags available." in result
+
+    def test_provided_tags_are_injected(self, video: VideoMetadata) -> None:
+        """Provided tags replace the fallback sentence."""
+        template = "Tags: {EXISTING_TAGS}"
+
+        result = build_prompt(video, template, existing_tags="tag-one, tag-two")
+
+        assert "tag-one, tag-two" in result
+        assert "No existing tags available." not in result
+
+    def test_article_tags_placeholder(self) -> None:
+        """Article metadata also fills the EXISTING_TAGS placeholder."""
+        metadata = ArticleMetadata(
+            title="Article", url="https://example.com/a", content="Body text"
+        )
+        template = "Tags: {EXISTING_TAGS}"
+
+        assert build_prompt(metadata, template) == "Tags: No existing tags available."
+
+    def test_article_author_and_site_name_fallback_to_exact_defaults(self) -> None:
+        """Missing author/site_name use the exact 'Unknown'/'Unknown Site' defaults."""
+        metadata = ArticleMetadata(title="No Author", url="https://example.com/a", content="Body")
+        template = "Author: {author}\nSite: {site_name}"
+
+        result = build_prompt(metadata, template)
+
+        assert result == "Author: Unknown\nSite: Unknown Site"
+
+    def test_article_custom_author_and_site_name_are_kept(self) -> None:
+        """Provided author/site_name must not be replaced by defaults."""
+        metadata = ArticleMetadata(
+            title="Authored",
+            url="https://example.com/a",
+            content="Body",
+            author="Jane Doe",
+            site_name="Example Docs",
+        )
+        template = "Author: {author}\nSite: {site_name}"
+
+        result = build_prompt(metadata, template)
+
+        assert result == "Author: Jane Doe\nSite: Example Docs"
+
+
+class TestParseLLMResponseFences:
+    """Fence boundary and multi-fence selection in parse_llm_response."""
+
+    def test_json_fence_directly_adjacent_to_content(self) -> None:
+        """No whitespace between fence and JSON must still parse."""
+        response = '```json{"a": 1}```'
+
+        result = parse_llm_response(response)
+
+        assert result == {"a": 1}
+
+    def test_generic_fence_directly_adjacent_to_content(self) -> None:
+        """Generic fence with JSON starting immediately after it must parse."""
+        response = '```{"a": 1}```'
+
+        result = parse_llm_response(response)
+
+        assert result == {"a": 1}
+
+    def test_multiple_fences_use_first_closing_fence(self) -> None:
+        """JSON extraction must stop at the first closing fence, not the last."""
+        response = '```json\n{"title": "First"}\n```\nmore text\n```json\n{"title": "Second"}\n```'
+
+        result = parse_llm_response(response)
+
+        assert result == {"title": "First"}
+
+
+class TestGenerateNoteExactConstruction:
+    """Exact OpenAI arguments, model calls, and Note/CostInfo assembly."""
+
+    VALID_RESPONSE = (
+        '{"title": "Note Title", "summary": "The summary", '
+        '"key_points": ["one", "two"], "tags": ["tag1", "tag2"], '
+        '"claims": ["claim"], "implications": ["impl"]}'
+    )
+    TEMPLATE = "Title: {title}\nURL: {url}\nTranscript: {transcript}\nTags: {EXISTING_TAGS}"
+
+    def _make_video(self) -> VideoMetadata:
+        return VideoMetadata(
+            video_id="vid1",
+            title="Video Title",
+            url="https://youtube.com/watch?v=vid1",
+            transcript="This is a test transcript.",
+            channel_name="My Channel",
+        )
+
+    def _suite(
+        self,
+        response: MagicMock,
+        metadata: VideoMetadata | ArticleMetadata,
+        template: str | None = None,
+    ) -> tuple[Any, ...]:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = response
+        with (
+            patch(
+                "obsidian_ai_tools.llm.load_prompt_template",
+                return_value=template if template is not None else self.TEMPLATE,
+            ) as mock_load,
+            patch("obsidian_ai_tools.llm.OpenAI") as mock_openai,
+        ):
+            mock_openai.return_value = mock_client
+            note, cost_info = generate_note(
+                metadata=metadata,
+                model="model-x",
+                api_key="key-1",
+                existing_tags="tag_a",
+                prompt_version="pv2",
+                base_url="https://llm.example/v1",
+            )
+        return note, cost_info, mock_openai, mock_client, mock_load
+
+    def test_openai_constructor_and_create_call_are_exact(self) -> None:
+        """OpenAI args, messages, temperature, and extra_body must be exact."""
+        metadata = self._make_video()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content=self.VALID_RESPONSE))]
+        mock_response.usage = MagicMock(prompt_tokens=100, completion_tokens=25, cost="0.0042")
+
+        note, cost_info, mock_openai, mock_client, mock_load = self._suite(mock_response, metadata)
+
+        mock_openai.assert_called_once_with(base_url="https://llm.example/v1", api_key="key-1")
+        mock_load.assert_called_once_with("pv2")
+        expected_prompt = (
+            "Title: Video Title\nURL: https://youtube.com/watch?v=vid1\n"
+            "Transcript: This is a test transcript.\nTags: tag_a"
+        )
+        mock_client.chat.completions.create.assert_called_once_with(
+            model="model-x",
+            messages=[{"role": "user", "content": expected_prompt}],
+            temperature=0.7,
+            extra_body={"usage": {"include": True}},
+        )
+
+    def test_video_note_and_cost_fields_are_exact(self) -> None:
+        """Note fields (incl. author from channel) and cost details must be exact."""
+        metadata = self._make_video()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content=self.VALID_RESPONSE))]
+        mock_response.usage = MagicMock(prompt_tokens=100, completion_tokens=25, cost="0.0042")
+
+        note, cost_info, _, _, _ = self._suite(mock_response, metadata)
+
+        assert note.title == "Note Title"
+        assert note.summary == "The summary"
+        assert note.key_points == ["one", "two"]
+        assert note.claims == ["claim"]
+        assert note.implications == ["impl"]
+        assert note.tags == ["tag1", "tag2"]
+        assert note.author == "My Channel"
+        assert note.source_url == metadata.url
+        assert note.source_type == "youtube"
+        assert note.source_references == []
+        assert note.model == "model-x"
+        assert note.prompt_version == "pv2"
+
+        assert cost_info.model == "model-x"
+        assert cost_info.source_type == "youtube"
+        assert cost_info.input_tokens == 100
+        assert cost_info.output_tokens == 25
+        assert cost_info.total_cost_usd == 0.0042
+        assert cost_info.source_url == metadata.url
+
+    def test_article_author_falls_back_to_unknown(self) -> None:
+        """Articles without an author default to 'Unknown' in the note."""
+        metadata = ArticleMetadata(
+            title="An Article", url="https://example.com/post", content="Body text"
+        )
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content=self.VALID_RESPONSE))]
+        mock_response.usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1)
+
+        note, cost_info, _, _, _ = self._suite(
+            mock_response, metadata, template="Title: {title}\nContent: {content}"
+        )
+
+        assert note.author == "Unknown"
+        assert note.source_type == "web"
+        assert cost_info.input_tokens == 1
+        assert cost_info.total_cost_usd == 0.0
+
+    def test_cost_from_real_cost_attribute(self) -> None:
+        """A numeric cost attribute is converted and preserved exactly."""
+        metadata = self._make_video()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content=self.VALID_RESPONSE))]
+        mock_response.usage = SimpleNamespace(prompt_tokens=7, completion_tokens=3, cost=0.0009)
+
+        note, cost_info, _, _, _ = self._suite(mock_response, metadata)
+
+        assert cost_info.input_tokens == 7
+        assert cost_info.output_tokens == 3
+        assert cost_info.total_cost_usd == 0.0009
+        assert note.title == "Note Title"
+
+    def test_usage_none_defaults_to_zero(self) -> None:
+        """Missing usage data must not crash and yields zeroed costs."""
+        metadata = self._make_video()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content=self.VALID_RESPONSE))]
+        mock_response.usage = None
+
+        note, cost_info, _, _, _ = self._suite(mock_response, metadata)
+
+        assert cost_info.input_tokens == 0
+        assert cost_info.output_tokens == 0
+        assert cost_info.total_cost_usd == 0.0
+        assert note.title == "Note Title"
+
+    def test_content_exactly_max_length_is_accepted(self) -> None:
+        """Content of exactly max_content_length passes the guard."""
+        metadata = VideoMetadata(
+            video_id="edge",
+            title="T",
+            url="https://youtube.com/watch?v=edge",
+            transcript="x" * 50000,
+            channel_name="C",
+        )
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content=self.VALID_RESPONSE))]
+        mock_response.usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1)
+
+        note, _, _, _, _ = self._suite(mock_response, metadata)
+
+        assert note.title == "Note Title"
+
+
+class TestGenerateNoteErrors:
+    """Exact failure messages from generate_note."""
+
+    @staticmethod
+    def make_video(**overrides: str) -> VideoMetadata:
+        values = dict(
+            video_id="vid",
+            title="T",
+            url="https://youtube.com/watch?v=vid",
+            transcript="A transcript body.",
+            channel_name="C",
+        )
+        values.update(overrides)
+        return VideoMetadata(**values)
+
+    def test_content_too_long_exact_message(self) -> None:
+        metadata = self.make_video(transcript="x" * 50001)
+
+        with pytest.raises(NoteGenerationError) as exc:
+            generate_note(metadata=metadata, model="m", api_key="k")
+
+        assert str(exc.value) == (
+            "Content too long (50001 chars). "
+            "Maximum: 50000 chars. "
+            "This will be supported in future versions."
+        )
+
+    def test_empty_response_exact_message(self) -> None:
+        metadata = self.make_video()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content=""))]
+        mock_response.usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1)
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with (
+            patch("obsidian_ai_tools.llm.load_prompt_template", return_value="{title}"),
+            patch("obsidian_ai_tools.llm.OpenAI") as mock_openai,
+        ):
+            mock_openai.return_value = mock_client
+            with pytest.raises(NoteGenerationError) as exc:
+                generate_note(metadata=metadata, model="m", api_key="k")
+
+        assert str(exc.value) == "LLM returned empty response"
+
+    def test_missing_fields_exact_message(self) -> None:
+        metadata = self.make_video()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content='{"title": "T"}'))]
+        mock_response.usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1)
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with (
+            patch("obsidian_ai_tools.llm.load_prompt_template", return_value="{title}"),
+            patch("obsidian_ai_tools.llm.OpenAI") as mock_openai,
+        ):
+            mock_openai.return_value = mock_client
+            with pytest.raises(NoteGenerationError) as exc:
+                generate_note(metadata=metadata, model="m", api_key="k")
+
+        assert str(exc.value) == (
+            "LLM response missing required fields: ['summary', 'key_points', 'tags']"
+        )
+
+    def test_tags_not_list_exact_message(self) -> None:
+        metadata = self.make_video()
+        mock_response = MagicMock()
+        mock_response.choices = [
+            MagicMock(
+                message=MagicMock(
+                    content=('{"title": "T", "summary": "S", "key_points": [], "tags": "single"}')
+                )
+            )
+        ]
+        mock_response.usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1)
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with (
+            patch("obsidian_ai_tools.llm.load_prompt_template", return_value="{title}"),
+            patch("obsidian_ai_tools.llm.OpenAI") as mock_openai,
+        ):
+            mock_openai.return_value = mock_client
+            with pytest.raises(NoteGenerationError) as exc:
+                generate_note(metadata=metadata, model="m", api_key="k")
+
+        assert str(exc.value) == "Tags must be a list, got <class 'str'>"
+
+    def test_unexpected_error_is_wrapped_exactly(self) -> None:
+        metadata = self.make_video()
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = RuntimeError("boom")
+
+        with (
+            patch("obsidian_ai_tools.llm.load_prompt_template", return_value="{title}"),
+            patch("obsidian_ai_tools.llm.OpenAI") as mock_openai,
+        ):
+            mock_openai.return_value = mock_client
+            with pytest.raises(NoteGenerationError) as exc:
+                generate_note(metadata=metadata, model="m", api_key="k")
+
+        assert str(exc.value) == "Failed to generate note: boom"
+
+    def test_parse_error_is_not_double_wrapped(self) -> None:
+        """NoteGenerationError from parsing propagates unchanged."""
+        metadata = self.make_video()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content="not json"))]
+        mock_response.usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1)
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with (
+            patch("obsidian_ai_tools.llm.load_prompt_template", return_value="{title}"),
+            patch("obsidian_ai_tools.llm.OpenAI") as mock_openai,
+        ):
+            mock_openai.return_value = mock_client
+            with pytest.raises(NoteGenerationError) as exc:
+                generate_note(metadata=metadata, model="m", api_key="k")
+
+        assert "Failed to parse LLM response as JSON" in str(exc.value)
+
+    def test_prompt_template_error_propagates(self) -> None:
+        """PromptTemplateError from template loading is not wrapped."""
+        metadata = self.make_video()
+
+        with (
+            patch(
+                "obsidian_ai_tools.llm.load_prompt_template",
+                side_effect=PromptTemplateError("template missing"),
+            ),
+            patch("obsidian_ai_tools.llm.OpenAI") as mock_openai,
+        ):
+            with pytest.raises(PromptTemplateError, match="template missing"):
+                generate_note(metadata=metadata, model="m", api_key="k")
+
+        mock_openai.assert_not_called()

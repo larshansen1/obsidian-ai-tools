@@ -108,3 +108,52 @@ make coverage    # pytest + coverage threshold
 ```
 
 Pre-commit hooks run a subset on every commit; the full suite runs on push. See `.pre-commit-config.yaml` and `.github/workflows/ci.yml` for the exact configuration.
+
+## Mutation Testing
+
+Mutation testing measures whether the test suite actually *asserts* behavior,
+not just executes lines. [mutmut](https://mutmut.readthedocs.io/) injects small
+defects ("mutants") into the source and verifies that at least one test fails
+for each one. A mutant that survives means no test notices the defect.
+
+### Running it
+
+```bash
+uv pip install -r requirements-dev.txt   # includes mutmut
+
+# Full run (mutates everything in src/, ~30 min on 8 cores)
+uv run mutmut run --max-children 7
+
+# Results summary
+uv run mutmut results
+
+# Inspect a specific surviving mutant (tab-complete names via `mutmut browse`)
+uv run mutmut show "<mutant-name>"
+```
+
+The run copies the source tree into `mutants/` (git-ignored) and never touches
+your working copy. Results are cached; subsequent runs only re-check mutants
+affected by your changes.
+
+### Score legend
+
+| Symbol | Meaning                                                            |
+|--------|--------------------------------------------------------------------|
+| 🎉     | killed — a test failed, as it should                               |
+| 🙁     | survived — no test detected the defect **(improve these)**         |
+| 🫥     | no tests — no covering test was found (worse than survived)        |
+| ⏰     | timeout — counted as killed (mutant caused a hang)                 |
+| 🤔     | suspicious — test timings changed, worth a manual look             |
+
+### Workflow when a mutant survives
+
+1. `uv run mutmut show <name>` to see the injected defect.
+2. If the defect is observable: add or strengthen a test assertion that fails
+   under the mutant.
+3. If the mutant is *equivalent* (the mutated code is observably identical,
+   e.g. a `Literal` string comparison whose fall-through branch behaves the
+   same, or a redundant keyword argument), mark the line with
+   `# pragma: no mutate` and a short justification comment.
+
+Do not chase a 100% score: real codebases contain equivalent mutants. The goal
+is that every surviving mutant is either killed or explicitly justified.

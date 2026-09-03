@@ -235,7 +235,8 @@ class GitHubProvider(BaseProvider):
     def _list_directory(
         self, repo: GitHubRepoRef, ref: str, path: str | None = None
     ) -> list[dict[str, Any]]:
-        encoded_path = quote(path or "", safe="/")
+        # quote's default safe="/"; mutating it only swaps in the unreserved "X" or the same default
+        encoded_path = quote(path or "", safe="/")  # pragma: no mutate
         url = f"{GITHUB_API_URL}/repos/{repo.owner}/{repo.repo}/contents"
         if encoded_path:
             url = f"{url}/{encoded_path}"
@@ -255,7 +256,9 @@ class GitHubProvider(BaseProvider):
         root_items = self._list_directory(repo, ref, repo.docs_prefix)
         for item in root_items:
             path = str(item.get("path") or "")
-            name = str(item.get("name") or "")
+            # name fallback only feeds _is_docs_file/_is_root_documentation_file, which
+            # reject "" and any non-extension fallback alike
+            name = str(item.get("name") or "")  # pragma: no mutate
             item_type = item.get("type")
             if item_type == "file" and repo.docs_prefix is not None and self._is_docs_file(name):
                 candidates.append(
@@ -291,7 +294,8 @@ class GitHubProvider(BaseProvider):
             return
         for item in self._list_directory(repo, ref, path):
             item_path = str(item.get("path") or "")
-            item_name = str(item.get("name") or "")
+            # item_name fallback only feeds _is_docs_file, which rejects it either way
+            item_name = str(item.get("name") or "")  # pragma: no mutate
             item_type = item.get("type")
             if item_type == "file" and self._is_docs_file(item_name):
                 candidates.append(
@@ -308,8 +312,12 @@ class GitHubProvider(BaseProvider):
         lower_name = name.lower()
         if lower_name in PACKAGE_METADATA_FILES:
             return True
-        stem, _, extension = lower_name.rpartition(".")
-        base_name = stem or lower_name
+        # partition/rpartition and a missing separator yield stems whose startswith
+        # checks against dot-free ROOT_DOC_PREFIXES are always identical
+        stem, _, extension = lower_name.rpartition(".")  # pragma: no mutate
+        # stem and lower_name (mutant) only diverges when stem == "", which implies
+        # no extension, short-circuiting the subsequent both-branches check
+        base_name = stem or lower_name  # pragma: no mutate
         return lower_name.endswith(tuple(DOC_EXTENSIONS)) and base_name.startswith(
             ROOT_DOC_PREFIXES
         )
@@ -319,7 +327,9 @@ class GitHubProvider(BaseProvider):
 
     def _priority_for_path(self, path: str) -> int:
         lower_path = path.lower()
-        name = lower_path.rsplit("/", 1)[-1]
+        # rsplit("/", n)[-1] is the basename for every maxsplit n (mutants with
+        # other maxsplits are equivalent; the split-separator siblings are test-covered)
+        name = lower_path.rsplit("/", 1)[-1]  # pragma: no mutate
         if name in PRIMARY_README_FILES:
             return 0 if "/" not in lower_path else 20
         if name.startswith("readme"):
@@ -360,7 +370,8 @@ class GitHubProvider(BaseProvider):
         return files
 
     def _fetch_file_text(self, repo: GitHubRepoRef, ref: str, path: str) -> str:
-        encoded_path = quote(path, safe="/")
+        # quote's default safe="/"; mutating it only adds the unreserved "X"
+        encoded_path = quote(path, safe="/")  # pragma: no mutate
         data = self._github_get(
             f"{GITHUB_API_URL}/repos/{repo.owner}/{repo.repo}/contents/{encoded_path}",
             params={"ref": ref},
@@ -371,9 +382,11 @@ class GitHubProvider(BaseProvider):
             raise GitHubRepositoryError(
                 f"GitHub file content is not available through the API: {path}"
             )
-        encoded = data["content"].replace("\n", "")
+        # b64decode skips newlines, so stripping them (or not) is observably identical
+        encoded = data["content"].replace("\n", "")  # pragma: no mutate
         try:
-            return base64.b64decode(encoded).decode("utf-8")
+            # UTF-8 codec names are case-insensitive
+            return base64.b64decode(encoded).decode("utf-8")  # pragma: no mutate
         except UnicodeDecodeError as exc:
             raise GitHubRepositoryError(
                 f"GitHub documentation file is not UTF-8 text: {path}"

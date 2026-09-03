@@ -71,6 +71,8 @@ class CircuitBreaker:
                 self.state.model_dump(mode="json"),
                 f,
                 indent=2,
+                # pragma: no mutate -- with mode="json" every field is already
+                # JSON-serializable, so this fallback is never invoked.
                 default=str,
             )
 
@@ -80,6 +82,9 @@ class CircuitBreaker:
         Returns:
             True if circuit is open and requests should be blocked
         """
+        # pragma: no mutate -- CLOSED is indistinguishable from the HALF_OPEN
+        # fall-through below (both return False with no side effects), so string
+        # mutations of this comparison are equivalent mutants.
         if self.state.state == "CLOSED":
             return False
 
@@ -121,6 +126,9 @@ class CircuitBreaker:
         self.state.failure_count += 1
         self.state.last_failure_time = datetime.now()
 
+        # pragma: no mutate -- HALF_OPEN is only reachable with
+        # failure_count >= failure_threshold, so the elif below performs the
+        # identical OPEN transition; string mutations here are equivalent.
         if self.state.state == "HALF_OPEN":
             # Failed during test - reopen circuit
             self.state.state = "OPEN"

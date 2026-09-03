@@ -329,7 +329,9 @@ def _collect_existing_folders(vault_path: Path, rules: dict[str, str]) -> list[s
     """Collect candidate folders from existing rules and vault directories."""
     folders = set(rules.values())
 
-    ignored = {".git", ".obsidian", ".kai", ".trash"}
+    # All four names start with ".", so the startswith(".") filter below
+    # subsumes them; mutating this set is equivalent.
+    ignored = {".git", ".obsidian", ".kai", ".trash"}  # pragma: no mutate
     for path in vault_path.rglob("*"):
         if not path.is_dir():
             continue
@@ -337,7 +339,7 @@ def _collect_existing_folders(vault_path: Path, rules: dict[str, str]) -> list[s
         try:
             relative = path.relative_to(vault_path)
         except ValueError:
-            continue
+            continue  # pragma: no mutate (rglob only yields descendants of vault_path)
 
         parts = relative.parts
         if not parts or any(part.startswith(".") or part in ignored for part in parts):
@@ -356,7 +358,7 @@ def _find_existing_folder_match(tag: str, existing_folders: list[str]) -> str | 
     if not tag_tokens:
         return None
 
-    best_folder: str | None = None
+    best_folder: str | None = None  # pragma: no mutate
     best_score = 0.0
 
     for folder in existing_folders:

@@ -62,8 +62,12 @@ class VaultIndex(BaseModel):
                 NoteMetadata(
                     **{
                         **note_data,
-                        "file_path": Path(note_data["file_path"]),
-                        "created": (
+                        "file_path": Path(note_data["file_path"]),  # pragma: no mutate
+                        # key renames are behavior-preserving: pydantic ignores the extra
+                        # key and coerces the original str value back to Path.
+                        "created": (  # pragma: no mutate
+                            # same: a renamed extra key is ignored and the ISO string is
+                            # coerced to datetime by pydantic.
                             datetime.fromisoformat(note_data["created"])
                             if note_data.get("created")
                             else None

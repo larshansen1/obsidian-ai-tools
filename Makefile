@@ -23,6 +23,8 @@ help:
 	@echo "  pre-commit     Run pre-commit on all files"
 	@echo "  hooks          Install pre-commit git hooks"
 	@echo "  ci             Run CI-style pipeline locally"
+	@echo "  mutate         Run mutation testing (mutmut)"
+	@echo "  mutate-results Show mutation testing results summary"
 
 
 # ----------------------------
@@ -105,3 +107,16 @@ pre-commit:
 .PHONY: hooks
 hooks:
 	pre-commit install
+
+
+# ----------------------------
+# Mutation Testing
+# ----------------------------
+
+.PHONY: mutate
+mutate:
+	uv run mutmut run --max-children 7
+
+.PHONY: mutate-results
+mutate-results:
+	uv run mutmut results

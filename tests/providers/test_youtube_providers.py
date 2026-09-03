@@ -1,11 +1,17 @@
 """Comprehensive tests for YouTube transcript provider integration."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
 
 import httpx
 import pytest
+from youtube_transcript_api._errors import (
+    NoTranscriptFound,
+    TranscriptsDisabled,
+    VideoUnavailable,
+)
 
 from obsidian_ai_tools.config import Settings
 from obsidian_ai_tools.models import VideoMetadata
@@ -14,6 +20,7 @@ from obsidian_ai_tools.youtube_exceptions import TranscriptUnavailableError
 from obsidian_ai_tools.youtube_providers import (
     DecodoTranscriptProvider,
     SupadataTranscriptProvider,
+    UnofficialTranscriptProvider,
     YouTubeDataAPIMetadataProvider,
 )
 
@@ -380,3 +387,325 @@ class TestYouTubeDataAPIMetadataProvider:
 
         with pytest.raises(Exception, match="Video abc not found"):
             provider.fetch_metadata("abc")
+
+
+class TestUnofficialTranscriptProviderExact:
+    """Exact request arguments and messages for the unofficial provider."""
+
+    def test_initializes_proxies_to_none(self) -> None:
+        assert UnofficialTranscriptProvider().proxies is None
+
+    def test_fetch_transcript_exact_request_and_join(self) -> None:
+        """The fetch call and snippet join must be exact."""
+        provider = UnofficialTranscriptProvider()
+        fetched = Mock(language_code="en")
+        fetched.snippets = [Mock(text="Hello"), Mock(text="world")]
+
+        with patch("obsidian_ai_tools.youtube_providers.YouTubeTranscriptApi") as mock_api:
+            mock_api.return_value.fetch.return_value = fetched
+            transcript, language = provider.fetch_transcript("vid123")
+
+        mock_api.assert_called_once_with()
+        mock_api.return_value.fetch.assert_called_once_with("vid123", languages=["en"])
+        assert transcript == "Hello world"
+        assert language == "en"
+
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            (NoTranscriptFound("vid9", ["en"], Mock()), "No transcript available for video vid9"),
+            (TranscriptsDisabled("vid9"), "No transcript available for video vid9"),
+            (VideoUnavailable("vid9"), "Video vid9 is unavailable or private"),
+            (RuntimeError("boom"), "Failed to fetch transcript for vid9: boom"),
+        ],
+    )
+    def test_fetch_transcript_error_messages(self, error: Exception, expected: str) -> None:
+        """Each failure type surfaces its dedicated exact message."""
+        with patch("obsidian_ai_tools.youtube_providers.YouTubeTranscriptApi") as mock_api:
+            mock_api.return_value.fetch.side_effect = error
+
+            with pytest.raises(TranscriptUnavailableError) as exc:
+                UnofficialTranscriptProvider().fetch_transcript("vid9")
+
+        assert str(exc.value) == expected
+
+
+class TestDecodoTranscriptProviderExactCalls:
+    """Exact request construction and messages for the Decodo provider."""
+
+    @staticmethod
+    def make_response(payload: dict) -> MagicMock:
+        response = MagicMock()
+        response.json.return_value = payload
+        return response
+
+    def test_fetch_transcript_posts_exact_request(self) -> None:
+        """The POST target, JSON body, auth header, and timeout are exact."""
+        response = self.make_response(
+            {
+                "results": {
+                    "data": {
+                        "subtitles": {"events": [{"segs": [{"utf8": "Hello"}, {"utf8": "world"}]}]}
+                    }
+                }
+            }
+        )
+
+        with patch(
+            "obsidian_ai_tools.youtube_providers.httpx.post", return_value=response
+        ) as mock_post:
+            transcript, language = DecodoTranscriptProvider("secret-key").fetch_transcript("vid123")
+
+        mock_post.assert_called_once_with(
+            "https://scraper-api.decodo.com/v2/scrape",
+            json={"target": "youtube_subtitles", "query": "vid123", "language_code": "en"},
+            headers={
+                "Authorization": "Basic secret-key",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            timeout=30.0,
+        )
+        assert transcript == "Hello world"
+        assert language == "en"
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"results": {"data": {"subtitles": {"events": []}}}},  # empty events
+            {"results": {"data": {"subtitles": {"events": [{}]}}}},  # no segs key
+            {"results": {"data": {"subtitles": {"events": [{"segs": [{}]}]}}}},  # no utf8
+            {"results": {"data": {"subtitles": {"events": [{"segs": [{"utf8": "\n"}]}]}}}},
+            {"results": {"data": {"subtitles": {}}}},  # no events key
+            {"results": {}},  # no data/subtitles keys at all
+            {},  # no results key at all
+        ],
+    )
+    def test_fetch_transcript_no_content_exact_message(self, payload: dict) -> None:
+        """Contentless responses all produce the same exact no-content error."""
+        with patch(
+            "obsidian_ai_tools.youtube_providers.httpx.post",
+            return_value=self.make_response(payload),
+        ):
+            with pytest.raises(TranscriptUnavailableError) as exc:
+                DecodoTranscriptProvider("key").fetch_transcript("vidX")
+
+        assert str(exc.value) == (
+            "Failed to fetch transcript from Decodo for vidX: "
+            "No transcript content found in Decodo response for vidX"
+        )
+
+    def test_fetch_transcript_http_status_exact_message(self) -> None:
+        request = httpx.Request("POST", "https://decodo.example")
+        error_response = httpx.Response(429, request=request)
+        response = MagicMock()
+        response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "rate limited", request=request, response=error_response
+        )
+
+        with patch("obsidian_ai_tools.youtube_providers.httpx.post", return_value=response):
+            with pytest.raises(TranscriptUnavailableError) as exc:
+                DecodoTranscriptProvider("key").fetch_transcript("abc")
+
+        assert str(exc.value) == "Decodo API error for abc: 429"
+
+    def test_fetch_transcript_request_error_exact_message(self) -> None:
+        request = httpx.Request("POST", "https://decodo.example")
+
+        with patch(
+            "obsidian_ai_tools.youtube_providers.httpx.post",
+            side_effect=httpx.RequestError("offline", request=request),
+        ):
+            with pytest.raises(TranscriptUnavailableError) as exc:
+                DecodoTranscriptProvider("key").fetch_transcript("abc")
+
+        assert str(exc.value) == "Decodo API request failed for abc: offline"
+
+
+class TestSupadataTranscriptProviderExactCalls:
+    """Exact request arguments and messages for the Supadata provider."""
+
+    def test_fetch_transcript_passes_exact_args(self) -> None:
+        provider = SupadataTranscriptProvider("supa-key")
+        client: Any = MagicMock()
+        client.transcript.return_value = SimpleNamespace(content="text here", lang="es")
+        provider._client = client
+
+        transcript, language = provider.fetch_transcript("vid456")
+
+        client.transcript.assert_called_once_with(
+            url="https://www.youtube.com/watch?v=vid456", lang="en", text=True
+        )
+        assert transcript == "text here"
+        assert language == "es"
+
+    def test_fetch_transcript_honors_configured_language(self) -> None:
+        provider = SupadataTranscriptProvider("supa-key", lang="ja")
+        client: Any = MagicMock()
+        client.transcript.return_value = MagicMock(content="hai", lang="ja")
+        provider._client = client
+
+        transcript, language = provider.fetch_transcript("vid")
+
+        client.transcript.assert_called_once_with(
+            url="https://www.youtube.com/watch?v=vid", lang="ja", text=True
+        )
+        assert transcript == "hai"
+        assert language == "ja"
+
+    def test_fetch_transcript_defaults_language_without_lang_attr(self) -> None:
+        provider = SupadataTranscriptProvider("supa-key")
+        client: Any = MagicMock()
+        client.transcript.return_value = SimpleNamespace(content="hej hej")
+        provider._client = client
+
+        transcript, language = provider.fetch_transcript("vid")
+
+        assert transcript == "hej hej"
+        assert language == "en"
+
+    def test_fetch_transcript_batch_job_exact_message(self) -> None:
+        provider = SupadataTranscriptProvider("key")
+        client: Any = MagicMock()
+        client.transcript.return_value = type("BatchJob", (), {})()
+        provider._client = client
+
+        with pytest.raises(TranscriptUnavailableError) as exc:
+            provider.fetch_transcript("vid")
+
+        assert str(exc.value) == (
+            "Transcript not immediately available from Supadata for vid "
+            "(returned BatchJob - may require async processing or video has no transcript)"
+        )
+
+    def test_fetch_transcript_missing_content_exact_message(self) -> None:
+        provider = SupadataTranscriptProvider("key")
+        client: Any = MagicMock()
+        client.transcript.return_value = type("OtherThing", (), {})()
+        provider._client = client
+
+        with pytest.raises(TranscriptUnavailableError) as exc:
+            provider.fetch_transcript("vid")
+
+        assert str(exc.value) == (
+            "Unexpected response from Supadata for vid: "
+            "result type OtherThing has no 'content' attribute"
+        )
+
+    def test_fetch_transcript_parse_error_message(self) -> None:
+        provider = SupadataTranscriptProvider("key")
+        client: Any = MagicMock()
+        client.transcript.side_effect = AttributeError("boom")
+        provider._client = client
+
+        with pytest.raises(TranscriptUnavailableError) as exc:
+            provider.fetch_transcript("vid")
+
+        assert str(exc.value) == "Failed to parse Supadata response for vid: boom"
+
+    def test_fetch_transcript_generic_error_message(self) -> None:
+        provider = SupadataTranscriptProvider("key")
+        client: Any = MagicMock()
+        client.transcript.side_effect = ValueError("kaput")
+        provider._client = client
+
+        with pytest.raises(TranscriptUnavailableError) as exc:
+            provider.fetch_transcript("vid")
+
+        assert str(exc.value) == "Failed to fetch transcript from Supadata for vid: kaput"
+
+    def test_fetch_transcript_import_error_message(self) -> None:
+        provider = SupadataTranscriptProvider("key")
+
+        with patch.dict("sys.modules", {"supadata": None}):
+            with pytest.raises(TranscriptUnavailableError, match="Supadata library not installed"):
+                provider.fetch_transcript("vid")
+
+
+class TestSupadataClientLazyInit:
+    """Lazy construction and reuse of the Supadata client."""
+
+    def test_get_client_builds_supadata_once(self) -> None:
+        provider = SupadataTranscriptProvider("supa-key")
+        assert provider._client is None
+        fake_module = MagicMock()
+        fake_module.Supadata.return_value = "supadata-client"
+
+        with patch.dict("sys.modules", {"supadata": fake_module}):
+            first = provider._get_client()
+            second = provider._get_client()
+
+        fake_module.Supadata.assert_called_once_with(api_key="supa-key")
+        assert first == "supadata-client"
+        assert first is second
+
+
+class TestMetadataProviderLazyInit:
+    """Lazy construction and reuse of the YouTube Data API client."""
+
+    def test_get_client_builds_api_once(self) -> None:
+        provider = YouTubeDataAPIMetadataProvider("yt-key")
+        assert provider._youtube is None
+
+        with patch("googleapiclient.discovery.build") as mock_build:
+            mock_build.return_value = "youtube-client"
+            first = provider._get_client()
+            second = provider._get_client()
+
+        mock_build.assert_called_once_with("youtube", "v3", developerKey="yt-key")
+        assert first == "youtube-client"
+        assert first is second
+
+
+class TestMetadataProviderExactCalls:
+    """Exact request arguments and error wrapping for metadata fetching."""
+
+    def test_fetch_metadata_passes_exact_list_args(self) -> None:
+        provider = YouTubeDataAPIMetadataProvider("key")
+        youtube_client: Any = MagicMock()
+        youtube_client.videos.return_value.list.return_value.execute.return_value = {
+            "items": [{"snippet": {"title": "T", "channelTitle": "C"}}]
+        }
+        provider._youtube = youtube_client
+
+        provider.fetch_metadata("vid")
+
+        youtube_client.videos.assert_called_once_with()
+        youtube_client.videos.return_value.list.assert_called_once_with(part="snippet", id="vid")
+
+    def test_fetch_metadata_maps_optional_fields(self) -> None:
+        provider = YouTubeDataAPIMetadataProvider("key")
+        youtube_client: Any = MagicMock()
+        youtube_client.videos.return_value.list.return_value.execute.return_value = {
+            "items": [
+                {
+                    "snippet": {
+                        "title": "T",
+                        "channelTitle": "C",
+                        "description": "Desc text",
+                        "publishedAt": "2024-01-01",
+                    }
+                }
+            ]
+        }
+        provider._youtube = youtube_client
+
+        assert provider.fetch_metadata("vid") == {
+            "title": "T",
+            "channel_name": "C",
+            "description": "Desc text",
+            "published_at": "2024-01-01",
+        }
+
+    def test_fetch_metadata_wraps_errors_exactly(self) -> None:
+        provider = YouTubeDataAPIMetadataProvider("key")
+        youtube_client: Any = MagicMock()
+        youtube_client.videos.return_value.list.return_value.execute.side_effect = ValueError(
+            "Video vid not found"
+        )
+        provider._youtube = youtube_client
+
+        with pytest.raises(Exception) as exc:
+            provider.fetch_metadata("vid")
+
+        assert str(exc.value) == "Failed to fetch metadata from YouTube API: Video vid not found"
