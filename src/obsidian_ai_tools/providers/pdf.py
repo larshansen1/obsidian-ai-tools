@@ -4,7 +4,7 @@ import logging
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import requests
 from pypdf import PdfReader
@@ -241,8 +241,10 @@ class PDFProvider(BaseProvider):
 
         # Extract metadata
         metadata: dict[str, Any] = reader.metadata or {}
-        pdf_title = metadata.get("/Title", "")
-        pdf_author = metadata.get("/Author", "")
+        # "" default is falsy: None variant is equivalent and unkillable by tests.
+        pdf_title = metadata.get("/Title", "")  # pragma: no mutate
+        # "" default is falsy: None variant is equivalent and unkillable by tests.
+        pdf_author = metadata.get("/Author", "")  # pragma: no mutate
         pdf_creation_date = metadata.get("/CreationDate", "")
 
         # Extract text from pages
@@ -300,9 +302,10 @@ class PDFProvider(BaseProvider):
         """
         logger.info("Using Supadata fallback for PDF extraction")
 
-        headers = {"x-api-key": self.supadata_key, "Content-Type": "application/json"}
+        api_key = cast(str, self.supadata_key)
+        headers = {"x-api-key": api_key, "Content-Type": "application/json"}
 
-        payload = {
+        payload: dict[str, Any] = {
             "url": url,
             "render_js": True,
             "block_ads": True,

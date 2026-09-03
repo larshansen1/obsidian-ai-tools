@@ -3,6 +3,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
+import typer
 from typer.testing import CliRunner
 
 from obsidian_ai_tools.cli import app
@@ -371,3 +372,37 @@ def test_serve_stop_terminates_background_process(tmp_path: Path) -> None:
     assert "kai server stopped (PID 4321)" in result.output
     assert not pid_path.exists()
     assert mock_kill.call_args_list == [call(4321, 0), call(4321, 15)]
+
+
+# ---------------------------------------------------------------------------
+# command registration (fresh apps, not the shared cli app)
+# ---------------------------------------------------------------------------
+
+
+def test_ingest_register_installs_command_on_a_fresh_app() -> None:
+    """Each commands module's register() must wire itself onto any Typer app."""
+    from obsidian_ai_tools.commands import ingest
+
+    fresh = typer.Typer()
+    ingest.register(fresh)
+    result = runner.invoke(fresh, ["ingest", "--help"])
+    assert result.exit_code == 0, f"ingest not registered: {result.output}"
+
+
+def test_preview_register_installs_command_on_a_fresh_app() -> None:
+    from obsidian_ai_tools.commands import preview
+
+    fresh = typer.Typer()
+    preview.register(fresh)
+    assert preview._app is fresh
+    result = runner.invoke(fresh, ["preview", "--help"])
+    assert result.exit_code == 0, f"preview not registered: {result.output}"
+
+
+def test_search_register_installs_command_on_a_fresh_app() -> None:
+    from obsidian_ai_tools.commands import search
+
+    fresh = typer.Typer()
+    search.register(fresh)
+    result = runner.invoke(fresh, ["search", "--help"])
+    assert result.exit_code == 0, f"search not registered: {result.output}"

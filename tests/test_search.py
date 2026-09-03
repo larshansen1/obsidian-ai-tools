@@ -11,6 +11,11 @@ from obsidian_ai_tools.search import (
     SearchQuery,
     SearchResult,
     _apply_backlink_boost,
+    _build_explanation,
+    _extract_keywords,
+    _note_matches_filters,
+    build_whoosh_index,
+    get_whoosh_schema,
     list_all_tags,
     search_notes,
 )
@@ -224,6 +229,71 @@ class TestSearchNotes:
         for result in results:
             assert isinstance(result.outgoing_links, list)
 
+    def test_search_highlights_include_matched_terms(
+        self, test_vault: tuple[VaultIndex, Path]
+    ) -> None:
+        """Keyword search results carry a non-empty highlighted snippet."""
+        vault_index, index_dir = test_vault
+
+        query = SearchQuery(keyword="python", limit=10)
+        results = search_notes(query, vault_index, index_dir)
+
+        assert any(r.highlights is not None and "python" in r.highlights for r in results)
+
+    def test_search_carries_outgoing_links_from_content(self, tmp_path: Path) -> None:
+        """outgoing_links reflect the note's own [[wikilinks]]."""
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+        (inbox / "b.md").write_text("---\ntitle: Beta\n---\npython advanced python [[Gamma]]\n")
+
+        vault_index = build_index(tmp_path, "inbox")
+        index_dir = tmp_path / ".kai" / "whoosh_index"
+        results = search_notes(SearchQuery(keyword="python"), vault_index, index_dir)
+
+        assert len(results) == 1
+        assert results[0].outgoing_links == ["Gamma"]
+
+    def test_scores_below_one_for_single_term(self, tmp_path: Path) -> None:
+        """BM25F scores for a single term stay in (0, 1)."""
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+        (inbox / "one.md").write_text("---\ntitle: One\n---\npython\n")
+
+        vault_index = build_index(tmp_path, "inbox")
+        index_dir = tmp_path / ".kai" / "whoosh_index"
+        results = search_notes(SearchQuery(keyword="python"), vault_index, index_dir)
+
+        assert len(results) == 1
+        assert 0.0 < results[0].score < 1.0
+
+    def test_filtered_high_ranked_note_does_not_truncate_results(self, tmp_path: Path) -> None:
+        """A filtered-out top hit must not silently drop later matches.
+
+        "B" has the highest BM25F score but is excluded by the date filter;
+        the loop over hits must continue and still return A and C.
+        """
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+        (inbox / "a.md").write_text(
+            "---\ntitle: A\ncreated: 2026-02-01T10:00:00\ntags: [ai]\n---\npython intro\n"
+        )
+        (inbox / "b.md").write_text(
+            "---\ntitle: B\ncreated: 2025-01-01T10:00:00\n---\npython python python deep\n"
+        )
+        (inbox / "c.md").write_text(
+            "---\ntitle: C\ncreated: 2026-02-02T10:00:00\ntags: [ai]\n---\npython guide\n"
+        )
+
+        vault_index = build_index(tmp_path, "inbox")
+        index_dir = tmp_path / ".kai" / "whoosh_index"
+        results = search_notes(
+            SearchQuery(keyword="python", after=datetime(2026, 1, 1), limit=10),
+            vault_index,
+            index_dir,
+        )
+
+        assert {r.note.title for r in results} == {"A", "C"}
+
 
 class TestBacklinkBoost:
     """Tests for backlink score boosting."""
@@ -341,3 +411,219 @@ class TestSearchQuery:
         assert query.limit == 20
         assert query.explain is True
         assert query.no_boost is True
+
+
+class TestWhooshSchema:
+    """Tests for the Whoosh index schema field options."""
+
+    def test_schema_contains_all_fields(self) -> None:
+        """Schema exposes exactly the six searchable note fields."""
+        schema = get_whoosh_schema()
+        assert set(schema.names()) == {
+            "file_path",
+            "title",
+            "content",
+            "tags",
+            "author",
+            "source_url",
+            "created",
+        }
+
+    def test_file_path_stored_and_unique(self) -> None:
+        """file_path is the unique stored document identifier."""
+        schema = get_whoosh_schema()
+        assert schema["file_path"].stored is True
+        assert schema["file_path"].unique is True
+
+    def test_text_fields_stored(self) -> None:
+        """Title, author and content are stored for result display."""
+        schema = get_whoosh_schema()
+        assert schema["title"].stored is True
+        assert schema["content"].stored is True
+        assert schema["author"].stored is True
+
+    def test_tags_keyword_flags(self) -> None:
+        """tags is a stored, scorable comma-separated keyword field."""
+        schema = get_whoosh_schema()
+        assert schema["tags"].stored is True
+        assert schema["tags"].scorable is True
+
+    def test_source_url_and_created_stored(self) -> None:
+        """source_url and created are stored so metadata survives indexing."""
+        schema = get_whoosh_schema()
+        assert schema["source_url"].stored is True
+        assert schema["created"].stored is True
+
+
+class TestBuildWhooshIndex:
+    """Tests for build_whoosh_index stored document contents."""
+
+    def test_stored_fields_round_trip(self, tmp_path: Path) -> None:
+        """Document fields land in the index exactly as provided."""
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+        (inbox / "note.md").write_text(
+            "---\ntitle: Stored Note\ncreated: 2026-03-01T10:00:00\n"
+            "source_url: https://example.com/source\nauthor: Jane Doe\n---\npython content here\n"
+        )
+        vault_index = build_index(tmp_path, "inbox")
+        index_dir = tmp_path / "nested" / "whoosh_index"
+
+        build_whoosh_index(vault_index, index_dir)
+
+        from whoosh import index
+
+        with index.open_dir(str(index_dir)).searcher() as searcher:
+            doc = searcher.document(file_path=str(inbox / "note.md"))
+            assert doc["title"] == "Stored Note"
+            assert doc["author"] == "Jane Doe"
+            assert doc["source_url"] == "https://example.com/source"
+            assert doc["created"] == datetime(2026, 3, 1, 10, 0, 0)
+
+    def test_missing_optional_fields_stored_empty(self, tmp_path: Path) -> None:
+        """Notes without author/source_url store the empty string, not junk."""
+        inbox = tmp_path / "inbox"
+        inbox.mkdir()
+        (inbox / "bare.md").write_text("---\ntitle: Bare\n---\npython content here\n")
+        vault_index = build_index(tmp_path, "inbox")
+        index_dir = tmp_path / ".kai" / "whoosh_index"
+
+        build_whoosh_index(vault_index, index_dir)
+
+        from whoosh import index
+
+        with index.open_dir(str(index_dir)).searcher() as searcher:
+            doc = searcher.document(file_path=str(inbox / "bare.md"))
+            assert doc["author"] == ""
+            assert doc["source_url"] == ""
+
+
+class TestNoteMatchesFilters:
+    """Unit tests for _note_matches_filters."""
+
+    def _note(self, tags: list[str] | None = None, created: datetime | None = None) -> NoteMetadata:
+        return NoteMetadata(
+            file_path=Path("/vault/n.md"),
+            title="T",
+            tags=tags or [],
+            created=created,
+            content="",
+            modified_time=0.0,
+        )
+
+    def test_no_filters_accepts(self) -> None:
+        assert _note_matches_filters(self._note(), SearchQuery()) is True
+
+    def test_matching_tag_accepts(self) -> None:
+        note = self._note(tags=["ai", "python"])
+        assert _note_matches_filters(note, SearchQuery(tag="ai")) is True
+
+    def test_mismatched_tag_rejected(self) -> None:
+        note = self._note(tags=["ai"])
+        assert _note_matches_filters(note, SearchQuery(tag="zzz")) is False
+
+    def test_created_before_after_rejected(self) -> None:
+        note = self._note(created=datetime(2025, 1, 1))
+        assert _note_matches_filters(note, SearchQuery(after=datetime(2026, 1, 1))) is False
+
+    def test_created_after_before_rejected(self) -> None:
+        note = self._note(created=datetime(2027, 1, 1))
+        assert _note_matches_filters(note, SearchQuery(before=datetime(2026, 1, 1))) is False
+
+    def test_created_equal_to_after_accepted(self) -> None:
+        """A note created exactly at the after boundary is kept (<, not <=)."""
+        note = self._note(created=datetime(2026, 1, 1, 10, 0, 0))
+        assert (
+            _note_matches_filters(note, SearchQuery(after=datetime(2026, 1, 1, 10, 0, 0))) is True
+        )
+
+    def test_created_equal_to_before_accepted(self) -> None:
+        """A note created exactly at the before boundary is kept (>, not >=)."""
+        note = self._note(created=datetime(2026, 1, 1, 10, 0, 0))
+        assert (
+            _note_matches_filters(note, SearchQuery(before=datetime(2026, 1, 1, 10, 0, 0))) is True
+        )
+
+    def test_created_none_ignores_date_filters(self) -> None:
+        note = self._note(created=None)
+        query = SearchQuery(after=datetime(2026, 1, 1), before=datetime(2026, 2, 1))
+        assert _note_matches_filters(note, query) is True
+
+
+class TestBuildExplanation:
+    """Unit tests for _build_explanation."""
+
+    def _note(self, tags: list[str], content: str = "python basics") -> NoteMetadata:
+        return NoteMetadata(
+            file_path=Path("/vault/n.md"),
+            title="T",
+            tags=tags,
+            created=None,
+            content=content,
+            modified_time=0.0,
+        )
+
+    def test_not_explained_returns_none(self) -> None:
+        note = self._note(["ai"])
+        assert _build_explanation(note, SearchQuery(keyword="python"), "keyword match") is None
+
+    def test_reason_tags_and_keywords(self) -> None:
+        note = self._note(["ai", "python"])
+        query = SearchQuery(keyword="python", explain=True)
+        assert (
+            _build_explanation(note, query, "keyword match")
+            == "Reason: keyword match; tags: ai, python; keywords: python"
+        )
+
+    def test_multiple_keywords_joined_with_comma_space(self) -> None:
+        """Multiple extracted keywords are joined with ', ' verbatim."""
+        note = self._note(["ai"])
+        query = SearchQuery(keyword="python ai", explain=True)
+        explanation = _build_explanation(note, query, "keyword match")
+        assert "keywords: python, ai" in explanation
+        assert "XX, XX" not in explanation
+
+    def test_tags_without_keyword(self) -> None:
+        note = self._note(["ai"])
+        query = SearchQuery(explain=True)
+        assert _build_explanation(note, query, "keyword match") == "Reason: keyword match; tags: ai"
+
+    def test_no_tags_uses_none_placeholder(self) -> None:
+        note = self._note([])
+        query = SearchQuery(explain=True)
+        assert (
+            _build_explanation(note, query, "keyword match") == "Reason: keyword match; tags: none"
+        )
+
+    def test_tags_truncated_to_five(self) -> None:
+        note = self._note([f"t{i}" for i in range(6)])
+        query = SearchQuery(explain=True)
+        explanation = _build_explanation(note, query, "keyword match")
+        assert "tags: t0, t1, t2, t3, t4" in explanation
+        assert "t5" not in explanation
+
+    def test_no_keyword_omits_keywords_line(self) -> None:
+        note = self._note(["ai"])
+        query = SearchQuery(explain=True)
+        explanation = _build_explanation(note, query, "tag match")
+        assert "keywords:" not in explanation
+
+
+class TestExtractKeywords:
+    """Unit tests for _extract_keywords."""
+
+    def test_lowercases_terms(self) -> None:
+        assert _extract_keywords("PYTHON Ai") == ["python", "ai"]
+
+    def test_limits_to_five_unique_terms(self) -> None:
+        assert _extract_keywords("a b c d e f") == ["a", "b", "c", "d", "e"]
+
+    def test_deduplicates_terms(self) -> None:
+        assert _extract_keywords("foo foo bar") == ["foo", "bar"]
+
+    def test_handles_word_dashes_and_underscores(self) -> None:
+        """Hyphens and underscores are part of the token itself."""
+        assert _extract_keywords("bar-baz _qux") == ["bar-baz", "_qux"]
+
+    def test_empty_string(self) -> None:
+        assert _extract_keywords("") == []

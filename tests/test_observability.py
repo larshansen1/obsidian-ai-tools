@@ -1,9 +1,13 @@
 """Tests for DuckDB-backed observability storage."""
 
+import re
 from collections.abc import Generator
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import duckdb
 import pytest
 import typer
 
@@ -188,3 +192,222 @@ def test_provider_attempt_failure_does_not_raise(tmp_path: Path) -> None:
         side_effect=RuntimeError("locked"),
     ):
         db.record_provider_attempt("web", "primary", "success", 0.1)
+
+
+class TestConstruction:
+    """Constructor/schema behavior."""
+
+    def test_init_creates_nested_parent_directory(self, tmp_path: Path) -> None:
+        """Asking for a DB in a nested, missing directory creates it."""
+        db = ObservabilityDB(tmp_path / "nested" / "dir" / "obs.duckdb")
+        assert (tmp_path / "nested" / "dir").is_dir()
+        assert db.db_path == tmp_path / "nested" / "dir" / "obs.duckdb"
+
+    def test_init_schema_uses_expected_sql(self, tmp_path: Path) -> None:
+        """The schema init issues the exact CREATE/ALTER statements."""
+        with patch("obsidian_ai_tools.observability.duckdb.connect") as mock_connect:
+            conn = mock_connect.return_value.__enter__.return_value
+            ObservabilityDB(tmp_path / "obs.duckdb")
+
+        sqls = [call.args[0] for call in conn.execute.call_args_list]
+        assert "ALTER TABLE costs ADD COLUMN IF NOT EXISTS source_type VARCHAR" in sqls
+        assert any(sql.strip().startswith("CREATE TABLE IF NOT EXISTS costs") for sql in sqls)
+        assert any(sql.strip().startswith("CREATE TABLE IF NOT EXISTS metrics") for sql in sqls)
+        assert any(
+            sql.strip().startswith("CREATE TABLE IF NOT EXISTS command_invocations") for sql in sqls
+        )
+        assert any(
+            sql.strip().startswith("CREATE TABLE IF NOT EXISTS provider_attempts") for sql in sqls
+        )
+
+
+class TestRecordCost:
+    """record_cost SQL and parameter fidelity."""
+
+    def test_insert_parameters_round_trip(self, tmp_path: Path) -> None:
+        db = ObservabilityDB(tmp_path / "obs.duckdb")
+        with patch("obsidian_ai_tools.observability.duckdb.connect") as mock_connect:
+            db.record_cost(
+                "ingest",
+                "gpt-4",
+                10,
+                20,
+                0.0123,
+                source_type="web",
+                source_url="https://x.com",
+            )
+
+        mock_connect.assert_called_once_with(str(db.db_path))
+        conn = mock_connect.return_value.__enter__.return_value
+        sql, params = conn.execute.call_args.args
+        assert sql.strip().startswith("INSERT INTO costs")
+        assert isinstance(params[0], datetime)
+        assert params[1:] == ["ingest", "gpt-4", "web", 10, 20, 0.0123, "https://x.com"]
+
+    def test_failure_logs_warning_with_context(self, tmp_path: Path) -> None:
+        db = ObservabilityDB(tmp_path / "obs.duckdb")
+        with (
+            patch(
+                "obsidian_ai_tools.observability.duckdb.connect",
+                side_effect=RuntimeError("locked"),
+            ),
+            patch("obsidian_ai_tools.observability.logging.getLogger") as mock_gl,
+        ):
+            db.record_cost("ingest", "m", 1, 1, 0.01)
+
+        mock_gl.assert_called_once_with("obsidian_ai_tools.observability")
+        assert mock_gl.return_value.warning.call_args.args[0].startswith("Failed to record cost: ")
+
+
+class TestRecordMetric:
+    """record_metric SQL and parameter fidelity."""
+
+    def test_insert_parameters_round_trip(self, tmp_path: Path) -> None:
+        db = ObservabilityDB(tmp_path / "obs.duckdb")
+        with patch("obsidian_ai_tools.observability.duckdb.connect") as mock_connect:
+            db.record_metric("web", "success", 1.5, error_type=None, provider_used="provider1")
+
+        mock_connect.assert_called_once_with(str(db.db_path))
+        conn = mock_connect.return_value.__enter__.return_value
+        sql, params = conn.execute.call_args.args
+        assert sql.strip().startswith("INSERT INTO metrics")
+        assert isinstance(params[0], datetime)
+        assert params[1:] == ["web", "success", 1.5, None, "provider1"]
+
+    def test_failure_logs_warning_with_context(self, tmp_path: Path) -> None:
+        db = ObservabilityDB(tmp_path / "obs.duckdb")
+        with (
+            patch(
+                "obsidian_ai_tools.observability.duckdb.connect",
+                side_effect=RuntimeError("locked"),
+            ),
+            patch("obsidian_ai_tools.observability.logging.getLogger") as mock_gl,
+        ):
+            db.record_metric("web", "failure", 1.0, error_type="network")
+
+        mock_gl.assert_called_once_with("obsidian_ai_tools.observability")
+        assert mock_gl.return_value.warning.call_args.args[0].startswith(
+            "Failed to record metric: "
+        )
+
+
+class TestRecordInvocationDetails:
+    """record_invocation SQL and parameter fidelity."""
+
+    def test_insert_parameters_round_trip(self, tmp_path: Path) -> None:
+        db = ObservabilityDB(tmp_path / "obs.duckdb")
+        with patch("obsidian_ai_tools.observability.duckdb.connect") as mock_connect:
+            db.record_invocation("mycmd", "success", 0.5)
+
+        conn = mock_connect.return_value.__enter__.return_value
+        sql, params = conn.execute.call_args.args
+        assert sql.strip().startswith("INSERT INTO command_invocations")
+        assert isinstance(params[0], datetime)
+        assert params[1:] == ["mycmd", "success", 0.5, None]
+
+    def test_failure_logs_warning_with_context(self, tmp_path: Path) -> None:
+        db = ObservabilityDB(tmp_path / "obs.duckdb")
+        with (
+            patch(
+                "obsidian_ai_tools.observability.duckdb.connect",
+                side_effect=RuntimeError("locked"),
+            ),
+            patch("obsidian_ai_tools.observability.logging.getLogger") as mock_gl,
+        ):
+            db.record_invocation("mycmd", "success", 0.5)
+
+        mock_gl.assert_called_once_with("obsidian_ai_tools.observability")
+        assert mock_gl.return_value.warning.call_args.args[0].startswith(
+            "Failed to record invocation: "
+        )
+
+
+class TestRecordProviderAttemptDetails:
+    """record_provider_attempt SQL and parameter fidelity."""
+
+    def test_insert_parameters_round_trip(self, tmp_path: Path) -> None:
+        db = ObservabilityDB(tmp_path / "obs.duckdb")
+        with patch("obsidian_ai_tools.observability.duckdb.connect") as mock_connect:
+            db.record_provider_attempt(
+                "web", "primary", "failure", 0.25, "RuntimeError", "https://x.com"
+            )
+
+        conn = mock_connect.return_value.__enter__.return_value
+        sql, params = conn.execute.call_args.args
+        assert sql.strip().startswith("INSERT INTO provider_attempts")
+        assert isinstance(params[0], datetime)
+        assert params[1:] == ["web", "primary", "failure", 0.25, "RuntimeError", "https://x.com"]
+
+    def test_failure_logs_warning_with_context(self, tmp_path: Path) -> None:
+        db = ObservabilityDB(tmp_path / "obs.duckdb")
+        with (
+            patch(
+                "obsidian_ai_tools.observability.duckdb.connect",
+                side_effect=RuntimeError("locked"),
+            ),
+            patch("obsidian_ai_tools.observability.logging.getLogger") as mock_gl,
+        ):
+            db.record_provider_attempt("web", "primary", "success", 0.1)
+
+        mock_gl.assert_called_once_with("obsidian_ai_tools.observability")
+        assert mock_gl.return_value.warning.call_args.args[0].startswith(
+            "Failed to record provider attempt: "
+        )
+
+
+class TestSummaryWindows:
+    """Default 30-day look-back windows."""
+
+    def test_invocation_summary_default_excludes_old_rows(self, tmp_path: Path) -> None:
+        db = ObservabilityDB(tmp_path / "obs.duckdb")
+        with duckdb.connect(str(db.db_path)) as conn:
+            conn.execute(
+                "INSERT INTO command_invocations "
+                "(timestamp, command, outcome, duration_seconds) "
+                "VALUES (current_timestamp - INTERVAL '30 days' - INTERVAL '12 hours', "
+                "'old-cmd', 'success', 1.0)"
+            )
+
+        assert db.get_invocation_summary() == []
+
+    def test_provider_summary_default_excludes_old_rows(self, tmp_path: Path) -> None:
+        db = ObservabilityDB(tmp_path / "obs.duckdb")
+        with duckdb.connect(str(db.db_path)) as conn:
+            conn.execute(
+                "INSERT INTO provider_attempts "
+                "(timestamp, provider, strategy, outcome, duration_seconds) "
+                "VALUES (current_timestamp - INTERVAL '30 days' - INTERVAL '12 hours', "
+                "'web', 'primary', 'success', 1.0)"
+            )
+
+        assert db.get_provider_summary() == []
+
+    def test_last_used_formatted_as_date(self, tmp_path: Path) -> None:
+        """last_used is the ISO date prefix of the max timestamp."""
+        db = ObservabilityDB(tmp_path / "obs.duckdb")
+        db.record_invocation("ingest", "success", 1.0)
+
+        rows = db.get_invocation_summary(days=30)
+
+        assert len(rows) == 1
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", rows[0]["last_used"])
+
+
+class TestGetDb:
+    """get_db singleton construction from settings."""
+
+    def test_creates_singleton_at_vault_observability_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        monkeypatch.setattr(
+            "obsidian_ai_tools.config.get_settings",
+            lambda: SimpleNamespace(obsidian_vault_path=vault),
+        )
+
+        db = get_db()
+
+        assert isinstance(db, ObservabilityDB)
+        assert db.db_path == vault / ".kai" / "observability.duckdb"
+        assert get_db() is db

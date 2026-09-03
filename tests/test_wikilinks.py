@@ -101,3 +101,16 @@ class TestCountBacklinks:
         notes = [_make_note(Path("/v/a.md"), "Note A", "Plain text, no links.")]
         index = VaultIndex(notes=notes, index_path=Path("/v/.kai/index.json"))
         assert count_backlinks(index) == {}
+
+
+class TestExtractTopWikilinksDefaultLimit:
+    """Default n behaviour of extract_top_wikilinks."""
+
+    def test_default_n_limits_to_five(self) -> None:
+        """Calling without n caps unique links at five."""
+        content = " ".join(f"[[Link{i}]]" for i in range(8))
+        assert extract_top_wikilinks(content) == [f"Link{i}" for i in range(5)]
+
+    def test_default_n_preserves_document_order(self) -> None:
+        result = extract_top_wikilinks("[[C]] [[A]] [[B]] [[D]] [[E]] [[F]]")
+        assert result == ["C", "A", "B", "D", "E"]

@@ -7,6 +7,8 @@ import pytest
 
 from obsidian_ai_tools.models import Note
 from obsidian_ai_tools.obsidian import (
+    FileWriteError,
+    PathTraversalError,
     build_filename,
     build_obsidian_url,
     sanitize_filename,
@@ -37,6 +39,25 @@ class TestSanitizeFilename:
         assert sanitize_filename("") == "untitled-note"
         assert sanitize_filename("   ") == "untitled-note"
 
+    def test_default_max_length(self) -> None:
+        """The default maximum length is 100 characters."""
+        result = sanitize_filename("a" * 101)
+        assert len(result) == 100
+
+    def test_truncation_removes_trailing_hyphen(self) -> None:
+        """Truncation must not leave a trailing hyphen."""
+        result = sanitize_filename("a" * 49 + "-" + "b" * 50, max_length=50)
+        assert result == "a" * 49
+
+    def test_truncation_keeps_non_hyphen_boundary(self) -> None:
+        """Only hyphens (not other letters) are stripped at the cut."""
+        result = sanitize_filename("a" * 49 + "x" + "b" * 50, max_length=50)
+        assert result == "a" * 49 + "x"
+
+    def test_strips_leading_hyphens(self) -> None:
+        """Leading hyphens are stripped from the sanitized name."""
+        assert sanitize_filename("-foo") == "foo"
+
 
 class TestBuildFilename:
     """Tests for build_filename function."""
@@ -53,6 +74,10 @@ class TestBuildFilename:
         assert ":" not in result
         assert "/" not in result
         assert result.endswith(".md")
+
+    def test_exact_filename(self) -> None:
+        """The filename follows the documented format exactly."""
+        assert build_filename("youtube", "My Video Title") == "youtube-my-video-title.md"
 
 
 class TestWriteNote:
@@ -88,6 +113,11 @@ class TestWriteNote:
         assert "---" in content  # Frontmatter
         assert "Test Video" in content
         assert "test-model" in content
+
+    def test_default_inbox_folder(self, temp_vault: Path, sample_note: Note) -> None:
+        """Without an explicit folder the note lands in 'inbox'."""
+        result_path = write_note(sample_note, temp_vault)
+        assert result_path.parent == temp_vault / "inbox"
 
     def test_filename_format(self, temp_vault: Path, sample_note: Note) -> None:
         """Test that filename follows expected format."""
@@ -231,13 +261,88 @@ class TestWriteNote:
 
     def test_write_note_wraps_write_error(self, temp_vault: Path, sample_note: Note) -> None:
         """Write failures should become FileWriteError."""
-        from obsidian_ai_tools.obsidian import FileWriteError
-
         with (
             patch("pathlib.Path.write_text", side_effect=OSError("disk full")),
             pytest.raises(FileWriteError, match="Failed to write note"),
         ):
             write_note(sample_note, temp_vault)
+
+    def test_write_note_resolve_error_exact_message(
+        self, temp_vault: Path, sample_note: Note
+    ) -> None:
+        """Resolve failures keep the underlying error message."""
+        with (
+            patch("pathlib.Path.resolve", side_effect=OSError("boom")),
+            pytest.raises(FileWriteError) as exc_info,
+        ):
+            write_note(sample_note, temp_vault)
+
+        assert str(exc_info.value) == "Path validation failed: boom"
+
+    def test_target_path_write_error_exact_message(self, tmp_path: Path) -> None:
+        """Target-path write failures keep the target in the message."""
+        existing = tmp_path / "inbox" / "note.md"
+        existing.parent.mkdir(parents=True)
+        with (
+            patch("pathlib.Path.write_text", side_effect=OSError("disk full")),
+            pytest.raises(FileWriteError) as exc_info,
+        ):
+            write_note(self._sample_note(), tmp_path, target_path=existing)
+
+        message = str(exc_info.value)
+        assert message.startswith("Failed to write note to ")
+        assert message.endswith("disk full")
+
+    def _sample_note(self) -> Note:
+        """Build a minimal valid note."""
+        return Note(
+            title="Test Video",
+            summary="Test summary",
+            tags=["test"],
+            source_url="https://example.com",
+            model="test-model",
+        )
+
+    def test_filename_separator_rejected_forward(self, temp_vault: Path) -> None:
+        """Forward slashes in the generated filename are rejected."""
+        note = Note(
+            title="X",
+            summary="s",
+            tags=[],
+            source_url="u",
+            model="m",
+            source_type="weird/path",
+        )
+
+        with pytest.raises(PathTraversalError) as exc_info:
+            write_note(note, temp_vault)
+
+        assert str(exc_info.value) == "Filename contains path separators: weird/path-x.md"
+
+    def test_filename_separator_rejected_backslash(self, temp_vault: Path) -> None:
+        """Backslashes in the generated filename are rejected."""
+        note = Note(
+            title="X",
+            summary="s",
+            tags=[],
+            source_url="u",
+            model="m",
+            source_type="weird\\path",
+        )
+
+        with pytest.raises(PathTraversalError):
+            write_note(note, temp_vault)
+
+    def test_target_path_outside_vault_exact_message(self, tmp_path: Path) -> None:
+        """Target paths outside the vault report the attempted path."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        outside = tmp_path / "elsewhere.md"
+
+        with pytest.raises(PathTraversalError) as exc_info:
+            write_note(self._sample_note(), vault, target_path=outside)
+
+        assert str(exc_info.value) == f"Update target outside vault: {outside}"
 
 
 class TestBuildObsidianUrl:
