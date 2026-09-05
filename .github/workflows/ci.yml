@@ -1,6 +1,9 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 jobs:
   security:
@@ -8,8 +11,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-python@v6
         with:
@@ -54,6 +55,9 @@ jobs:
 
       - name: Lint (ruff)
         run: make lint
+
+      - name: Format check (ruff)
+        run: ruff format --check .
 
       - name: Typecheck (mypy)
         run: make typecheck
