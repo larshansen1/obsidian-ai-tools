@@ -48,7 +48,6 @@ This document outlines a comprehensive plan for converting the Obsidian AI Tools
 | `YOUTUBE_TRANSCRIPT_PROVIDER_ORDER` | string | `direct,supadata,decodo` | Provider fallback order |
 | `EMBEDDING_MODEL` | string | `all-MiniLM-L6-v2` | Sentence transformer model |
 | `CACHE_DIR` | string | `.cache` | Cache directory |
-| `CACHE_TTL_HOURS` | int | 168 (7 days) | Cache time-to-live |
 | `CIRCUIT_BREAKER_THRESHOLD` | int | 3 | Failures before quarantine |
 | `CIRCUIT_BREAKER_TIMEOUT_HOURS` | int | 2 | Circuit breaker reset time |
 | `MAX_PDF_PAGES` | int | 50 | Max PDF pages to process |

@@ -73,7 +73,6 @@ class YouTubeClient:
         cache_dir = Path(self.settings.cache_dir)
         self.cache = VideoCache(
             cache_dir=cache_dir,
-            ttl_hours=self.settings.cache_ttl_hours,
         )
 
         # Initialize circuit breaker for unofficial API

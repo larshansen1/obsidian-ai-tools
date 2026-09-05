@@ -1,7 +1,7 @@
 """Cache management for YouTube video metadata and transcripts."""
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,15 +21,13 @@ class CachedVideo(BaseModel):
 class VideoCache:
     """File-based cache for YouTube video metadata."""
 
-    def __init__(self, cache_dir: Path, ttl_hours: int = 168):
+    def __init__(self, cache_dir: Path):
         """Initialize cache.
 
         Args:
             cache_dir: Directory to store cache files
-            ttl_hours: Time-to-live in hours (default: 168 = 7 days)
         """
         self.cache_dir = cache_dir / "youtube"
-        self.ttl = timedelta(hours=ttl_hours)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_cache_path(self, video_id: str) -> Path:
@@ -56,13 +54,6 @@ class VideoCache:
                 data = json.load(f)
 
             cached_video = CachedVideo(**data)
-
-            # Check if expired
-            age = datetime.now() - cached_video.cached_at
-            if age > self.ttl:
-                # Cache expired - remove file
-                cache_path.unlink()
-                return None
 
             return cached_video.metadata
 
@@ -130,28 +121,19 @@ class VideoCache:
             Dictionary with cache stats
         """
         total = 0
-        valid = 0
-        expired = 0
+        corrupted = 0
 
         for cache_file in self.cache_dir.glob("*.json"):
             total += 1
             try:
                 with cache_file.open("r") as f:
                     data = json.load(f)
-                cached_video = CachedVideo(**data)
-                age = datetime.now() - cached_video.cached_at
-
-                if age <= self.ttl:
-                    valid += 1
-                else:
-                    expired += 1
+                CachedVideo(**data)
             except (json.JSONDecodeError, ValueError, KeyError):
-                expired += 1
+                corrupted += 1
 
         return {
             "total_files": total,
-            "valid": valid,
-            "expired": expired,
-            "ttl_hours": self.ttl.total_seconds() / 3600,
+            "corrupted": corrupted,
             "cache_dir": str(self.cache_dir),
         }

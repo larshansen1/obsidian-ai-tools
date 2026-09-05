@@ -99,7 +99,6 @@ class TestYouTubeClientConstruction:
 
         mock_cache.assert_called_once_with(
             cache_dir=Path(settings.cache_dir),
-            ttl_hours=settings.cache_ttl_hours,
         )
         mock_breaker.assert_called_once_with(
             state_file=Path(settings.cache_dir) / "circuit_breaker_state.json",
