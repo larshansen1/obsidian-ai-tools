@@ -12,10 +12,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Install Gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz \
+            | tar -xz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+
       - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        with:
-          config-path: .gitleaks.toml
+        run: gitleaks detect --source . --no-git --redact -c .gitleaks.toml
 
   build:
     runs-on: ubuntu-latest
