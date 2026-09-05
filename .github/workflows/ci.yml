@@ -45,7 +45,7 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
-          pip install types-requests
+          pip install types-requests types-PyYAML
 
       - name: Install package
         run: pip install -e .
