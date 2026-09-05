@@ -56,7 +56,6 @@ def isolated_settings(tmp_path: Path) -> Settings:
         supadata_key=None,
         youtube_transcript_provider_order="direct,supadata,decodo",
         cache_dir=tmp_path / "cache",
-        cache_ttl_hours=168,
         circuit_breaker_threshold=3,
         circuit_breaker_timeout_hours=2,
         max_pdf_pages=50,
@@ -107,7 +106,6 @@ class TestSettingsIsolation:
             github_token="github-token",
             youtube_transcript_provider_order="decodo,direct",
             cache_dir=cache_path,
-            cache_ttl_hours=24,
             circuit_breaker_threshold=5,
             circuit_breaker_timeout_hours=4,
             max_pdf_pages=100,
@@ -118,7 +116,6 @@ class TestSettingsIsolation:
         assert settings.max_transcript_length == 100000
         assert settings.youtube_api_key == "yt-key"
         assert settings.github_token == "github-token"
-        assert settings.cache_ttl_hours == 24
         assert settings.circuit_breaker_threshold == 5
         assert settings.max_pdf_pages == 100
 

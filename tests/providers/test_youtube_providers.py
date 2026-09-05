@@ -216,7 +216,6 @@ class TestYouTubeClientCaching:
             openrouter_api_key="test-key",
             obsidian_vault_path=vault_path,
             cache_dir=tmp_path / "cache",
-            cache_ttl_hours=24,
         )
 
     def test_cache_hit_skips_providers(

@@ -101,9 +101,6 @@ class Settings(BaseSettings):
 
     # Cache Configuration
     cache_dir: Path = Field(default=Path(".cache"), description="Directory for cache files")
-    cache_ttl_hours: int = Field(
-        default=168, description="Cache time-to-live in hours (default: 7 days)"
-    )
 
     # Circuit Breaker Configuration
     circuit_breaker_threshold: int = Field(default=3, description="Failures before quarantine")

@@ -57,7 +57,6 @@ def _isolate_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterat
         "MAX_TRANSCRIPT_LENGTH": "50000",
         "YOUTUBE_TRANSCRIPT_PROVIDER_ORDER": "direct,supadata,decodo",
         "CACHE_DIR": str(cache_dir),
-        "CACHE_TTL_HOURS": "168",
         "CIRCUIT_BREAKER_THRESHOLD": "3",
         "CIRCUIT_BREAKER_TIMEOUT_HOURS": "2",
         "MAX_PDF_PAGES": "50",
