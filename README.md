@@ -320,3 +320,5 @@ gitleaks detect --source . --no-git --redact
 ## License
 
 MIT
+
+Hello world
