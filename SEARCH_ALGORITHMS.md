@@ -18,12 +18,12 @@ The `kai search` command performs full-text search across an Obsidian vault usin
 ```python
 Schema(
     file_path=ID(stored=True, unique=True),  # Note identifier
-    title=TEXT(stored=True),                  # Note title (searchable + stored)
-    content=TEXT(stored=True),                # Full content (searchable)
+    title=TEXT(stored=True),  # Note title (searchable + stored)
+    content=TEXT(stored=True),  # Full content (searchable)
     tags=KEYWORD(stored=True, commas=True, scorable=True),  # Tag list
-    author=TEXT(stored=True),                 # Author field
-    source_url=ID(stored=True),               # Source URL for ingested content
-    created=DATETIME(stored=True),            # Creation date
+    author=TEXT(stored=True),  # Author field
+    source_url=ID(stored=True),  # Source URL for ingested content
+    created=DATETIME(stored=True),  # Creation date
 )
 ```
 
