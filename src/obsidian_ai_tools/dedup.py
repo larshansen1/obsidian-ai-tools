@@ -84,7 +84,7 @@ def find_note_by_source(vault_path: Path, url: str) -> ExistingNote | None:
             continue
         try:
             metadata, _content = VaultStore.parse_frontmatter(md_file)
-        except Exception:
+        except Exception:  # nosec B112
             continue
         if not isinstance(metadata, dict):
             metadata = {}

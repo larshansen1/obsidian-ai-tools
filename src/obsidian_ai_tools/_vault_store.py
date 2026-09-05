@@ -8,8 +8,9 @@ calls on vault paths outside of this file.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import yaml
 
@@ -58,9 +59,7 @@ class VaultStore:
         resolved = self.validate_path(path)
         return self.parse_frontmatter(resolved)
 
-    def write_markdown(
-        self, path: Path, frontmatter: dict[str, Any], content: str
-    ) -> None:
+    def write_markdown(self, path: Path, frontmatter: dict[str, Any], content: str) -> None:
         """Write a markdown file with YAML frontmatter."""
         resolved = self.validate_path(path)
         resolved.parent.mkdir(parents=True, exist_ok=True)
