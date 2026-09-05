@@ -258,7 +258,7 @@ class TestWebProviderIngest:
         from obsidian_ai_tools.providers.web import WebProvider
 
         db = ObservabilityDB(tmp_path / "obs.db")
-        with patch("obsidian_ai_tools.providers.web.get_db", return_value=db):
+        with patch("obsidian_ai_tools.providers.get_db", return_value=db):
             provider = WebProvider()
             provider._ingest(
                 "https://chatgpt.com/c/example",

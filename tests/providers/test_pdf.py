@@ -10,7 +10,8 @@ import requests
 from pypdf import PdfWriter
 
 from obsidian_ai_tools.models import ArticleMetadata
-from obsidian_ai_tools.providers.pdf import PDFProvider, _record_attempt
+from obsidian_ai_tools.providers import _record_attempt
+from obsidian_ai_tools.providers.pdf import PDFProvider
 
 
 def create_pdf_with_text(path: Path, text: str, metadata: dict | None = None) -> None:
@@ -351,8 +352,8 @@ class TestRecordAttempt:
     def test_forwards_exact_args_to_observability_db(self) -> None:
         """Every argument must reach record_provider_attempt unchanged."""
         url = "https://example.com/doc.pdf"
-        with patch("obsidian_ai_tools.providers.pdf.get_db") as mock_get_db:
-            _record_attempt("primary", "success", 1.5, "ValueError", url)
+        with patch("obsidian_ai_tools.providers.get_db") as mock_get_db:
+            _record_attempt("pdf", "primary", "success", 1.5, "ValueError", url)
 
         mock_get_db.return_value.record_provider_attempt.assert_called_once_with(
             "pdf", "primary", "success", 1.5, "ValueError", url
@@ -360,8 +361,8 @@ class TestRecordAttempt:
 
     def test_swallows_db_failures(self) -> None:
         """A broken observability DB must not break ingestion."""
-        with patch("obsidian_ai_tools.providers.pdf.get_db", side_effect=RuntimeError("db down")):
-            _record_attempt("primary", "failure", 0.5)  # must not raise
+        with patch("obsidian_ai_tools.providers.get_db", side_effect=RuntimeError("db down")):
+            _record_attempt("pdf", "primary", "failure", 0.5)  # must not raise
 
 
 # ---------------------------------------------------------------------------
@@ -483,7 +484,7 @@ class TestIngestLocalMetrics:
                 result = provider._ingest(str(pdf))
 
         assert result is mock_metadata
-        mock_attempt.assert_called_once_with("primary", "success", 0.0, url=str(pdf))
+        mock_attempt.assert_called_once_with("pdf", "primary", "success", 0.0, url=str(pdf))
         assert any("Extracting text from local PDF" in rec.message for rec in caplog.records)
 
     def test_ingest_local_records_failure(
@@ -504,7 +505,9 @@ class TestIngestLocalMetrics:
                 with pytest.raises(ValueError, match="boom"):
                     provider._ingest(str(pdf))
 
-        mock_attempt.assert_called_once_with("primary", "failure", 1.0, "ValueError", str(pdf))
+        mock_attempt.assert_called_once_with(
+            "pdf", "primary", "failure", 1.0, "ValueError", str(pdf)
+        )
 
     def test_ingest_local_small_file_has_no_size_warning(
         self,
@@ -883,7 +886,7 @@ class TestIngestRemoteDirect:
         assert mock_extract.call_args.kwargs == {"original_url": url}
 
         mock_ntf.assert_called_once_with(suffix=".pdf", delete=False)
-        mock_attempt.assert_called_once_with("primary", "success", 0.0, url=url)
+        mock_attempt.assert_called_once_with("pdf", "primary", "success", 0.0, url=url)
         ctx_file.write.assert_has_calls([call(b"chunk-one"), call(b"chunk-two")])
         response.iter_content.assert_called_once_with(chunk_size=8192)
 
@@ -1081,8 +1084,8 @@ class TestIngestRemoteFallback:
         assert result.content == "Supadata body"
         assert result.title == "Supadata Title"
         assert mock_attempt.call_args_list == [
-            call("primary", "failure", 1.0, "ConnectionError", url),
-            call("fallback", "success", 0.0, url=url),
+            call("pdf", "primary", "failure", 1.0, "ConnectionError", url),
+            call("pdf", "fallback", "success", 0.0, url=url),
         ]
         assert any("Direct PDF download failed" in rec.message for rec in caplog.records)
 
@@ -1117,6 +1120,6 @@ class TestIngestRemoteFallback:
                 provider._ingest(url)
 
         assert mock_attempt.call_args_list == [
-            call("primary", "failure", 1.0, "ConnectionError", url),
-            call("fallback", "failure", 0.0, "HTTPError", url),
+            call("pdf", "primary", "failure", 1.0, "ConnectionError", url),
+            call("pdf", "fallback", "failure", 0.0, "HTTPError", url),
         ]
