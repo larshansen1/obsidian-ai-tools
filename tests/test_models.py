@@ -2,33 +2,7 @@
 
 from datetime import datetime
 
-import pytest
-
 from obsidian_ai_tools.models import Note
-
-SPECIAL_YAML_CHARS = [
-    ":",
-    "#",
-    "{",
-    "}",
-    "[",
-    "]",
-    ",",
-    "&",
-    "*",
-    "?",
-    "|",
-    "-",
-    "<",
-    ">",
-    "=",
-    "!",
-    "%",
-    "@",
-    "`",
-    '"',
-    "'",
-]
 
 
 class TestNote:
@@ -194,28 +168,6 @@ class TestNote:
         assert "[GitHub Repository](https://github.com/user/repo)" in markdown
 
 
-class TestYamlEscape:
-    """Tests for YAML frontmatter value escaping."""
-
-    @pytest.mark.parametrize("char", SPECIAL_YAML_CHARS)
-    def test_quotes_value_containing_only_special_char(self, char: str) -> None:
-        """Any single special character on its own still forces quoting."""
-        note = Note(title="T", summary="S", source_url="u", model="m")
-        value = f"head{char}tail"
-        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-        assert note._yaml_escape(value) == f'"{escaped}"'
-
-    def test_escapes_backslash_before_quote(self) -> None:
-        """Backslashes are doubled first so escaped quotes stay intact."""
-        note = Note(title="T", summary="S", source_url="u", model="m")
-        assert note._yaml_escape('a"b\\c: d') == '"a\\"b\\\\c: d"'
-
-    def test_leaves_plain_values_unquoted(self) -> None:
-        """Values without special characters pass through untouched."""
-        note = Note(title="T", summary="S", source_url="u", model="m")
-        assert note._yaml_escape("plain value") == "plain value"
-
-
 class TestNoteExactMarkdown:
     """Tests pinning the exact rendered markdown for each source type."""
 
@@ -239,12 +191,12 @@ class TestNoteExactMarkdown:
 
         frontmatter = (
             "---\n"
-            'title: "Web: \\"Quoted\\" Note"\n'
+            "title: 'Web: \"Quoted\" Note'\n"
             "tags:\n"
             "  - ai\n"
             "  - testing\n"
-            "created: 2025-01-01T12:30:45\n"
-            'author: "Author \\"Name\\""\n'
+            "created: '2025-01-01T12:30:45'\n"
+            'author: Author "Name"\n'
             "type: source-note\n"
             "source_type: web\n"
             "source_url: https://example.com/article\n"
@@ -302,7 +254,7 @@ class TestNoteExactMarkdown:
             "title: Video Note\n"
             "tags:\n"
             "  - x\n"
-            "created: 2025-02-03T04:05:06\n"
+            "created: '2025-02-03T04:05:06'\n"
             "type: source-note\n"
             "source_type: youtube\n"
             "source_url: https://youtube.com/watch?v=abc\n"
@@ -346,7 +298,7 @@ class TestNoteExactMarkdown:
             "title: Test Repo\n"
             "tags:\n"
             "  - github\n"
-            "created: 2025-03-04T10:00:00\n"
+            "created: '2025-03-04T10:00:00'\n"
             "type: source-note\n"
             "source_type: github\n"
             "source_url: https://github.com/user/repo\n"

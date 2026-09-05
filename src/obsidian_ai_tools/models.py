@@ -74,43 +74,6 @@ class Note(BaseModel):
     model: str = Field(..., description="LLM model used for generation")
     prompt_version: str = Field(default="youtube_v1", description="Prompt template version")
 
-    def _yaml_escape(self, value: str) -> str:
-        """Escape a string value for YAML.
-
-        Quotes the value if it contains special characters that would break YAML parsing.
-        """
-        # Characters that require quoting in YAML
-        if any(
-            char in value
-            for char in [
-                ":",
-                "#",
-                "{",
-                "}",
-                "[",
-                "]",
-                ",",
-                "&",
-                "*",
-                "?",
-                "|",
-                "-",
-                "<",
-                ">",
-                "=",
-                "!",
-                "%",
-                "@",
-                "`",
-                '"',
-                "'",
-            ]
-        ):
-            # Use double quotes and escape any existing double quotes
-            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-            return f'"{escaped}"'
-        return value
-
     def _github_sections(self) -> dict[str, list[str]]:
         section_aliases = {
             "purpose": "Purpose",
@@ -198,33 +161,22 @@ class Note(BaseModel):
 
     def to_markdown(self) -> str:
         """Convert note to Obsidian-formatted markdown with frontmatter."""
-        # Format tags for frontmatter (list format)
-        tags_yaml = "\n".join(f"  - {tag}" for tag in self.tags)
-
-        # Escape title for YAML (may contain colons, etc.)
-        escaped_title = self._yaml_escape(self.title)
-
-        # Build frontmatter with title, tags, created as first three attributes
-        frontmatter = f"""---
-title: {escaped_title}
-tags:
-{tags_yaml}
-created: {self.created_at.isoformat()}
-"""
-
-        # Add author if available (also needs escaping)
+        fm = {
+            "title": self.title,
+            "tags": self.tags,
+            "created": self.created_at.isoformat(),
+        }
         if self.author:
-            escaped_author = self._yaml_escape(self.author)
-            frontmatter += f"author: {escaped_author}\n"
+            fm["author"] = self.author
+        fm["type"] = "source-note"
+        fm["source_type"] = self.source_type
+        fm["source_url"] = self.source_url
+        fm["model"] = self.model
+        fm["prompt_version"] = self.prompt_version
 
-        # Add remaining metadata
-        frontmatter += f"""type: source-note
-source_type: {self.source_type}
-source_url: {self.source_url}
-model: {self.model}
-prompt_version: {self.prompt_version}
----
-"""
+        from ._vault_store import VaultStore
+
+        frontmatter = VaultStore.format_frontmatter(fm)
 
         if self.source_type == "github":
             return frontmatter + "\n" + self._github_body()

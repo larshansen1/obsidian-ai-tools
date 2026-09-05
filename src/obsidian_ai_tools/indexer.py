@@ -6,7 +6,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import frontmatter
 from pydantic import BaseModel, Field
 
 
@@ -48,7 +47,7 @@ class VaultIndex(BaseModel):
             "last_updated": self.last_updated.isoformat(),
         }
 
-        self.index_path.write_text(json.dumps(data, indent=2))
+        self.index_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     @classmethod
     def load(cls, index_path: Path) -> "VaultIndex | None":
@@ -57,7 +56,7 @@ class VaultIndex(BaseModel):
             return None
 
         try:
-            data = json.loads(index_path.read_text())
+            data = json.loads(index_path.read_text(encoding="utf-8"))
             notes = [
                 NoteMetadata(
                     **{
@@ -98,11 +97,13 @@ def parse_frontmatter(file_path: Path) -> dict[str, Any]:
     Raises:
         Exception: If file cannot be read or parsed
     """
+    from ._vault_store import VaultStore
+
     try:
-        post = frontmatter.load(file_path)
+        fm, content = VaultStore.parse_frontmatter(file_path)
         return {
-            "frontmatter": dict(post.metadata),
-            "content": post.content,
+            "frontmatter": fm,
+            "content": content,
         }
     except Exception as e:
         raise Exception(f"Failed to parse frontmatter from {file_path}: {e}") from e

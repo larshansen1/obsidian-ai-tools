@@ -262,7 +262,7 @@ def save_to_reading_list(entry: ReadingListEntry, vault_path: Path) -> None:
     list_path = _get_reading_list_path(vault_path)
 
     try:
-        with open(list_path, "a", encoding="utf-8") as f:
+        with open(list_path, "a") as f:
             f.write(entry.model_dump_json() + "\n")
         logger.info(f"Saved to reading list: {entry.url}")
     except Exception as e:

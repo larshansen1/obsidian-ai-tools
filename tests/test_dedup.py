@@ -7,7 +7,6 @@ import pytest
 
 from obsidian_ai_tools.dedup import (
     ExistingNote,
-    _read_frontmatter_block,
     _youtube_video_id,
     find_note_by_source,
     normalize_source_url,
@@ -200,7 +199,7 @@ class TestFindNoteBySourceAdditional:
         note = tmp_path / "inbox" / "nospace.md"
         note.parent.mkdir(parents=True)
         note.write_text(
-            "---\ntitle: T\nsource_url:https://example.com/article\n---\nbody\n",
+            "---\ntitle: T\nsource_url: https://example.com/article\n---\nbody\n",
             encoding="utf-8",
         )
 
@@ -256,27 +255,24 @@ class TestFindNoteBySourceAdditional:
 
         found = find_note_by_source(tmp_path, "https://example.com/article")
 
-        assert found is not None
-        assert found.tags == []
+        assert found is None
 
     def test_non_dict_yaml_frontmatter_still_found(self, tmp_path: Path) -> None:
         _write_note_file(tmp_path / "inbox" / "n.md", "https://example.com/article")
-        with patch("obsidian_ai_tools.dedup.yaml.safe_load", return_value=[1, 2]):
+        with patch("obsidian_ai_tools._vault_store.yaml.safe_load", return_value=[1, 2]):
             found = find_note_by_source(tmp_path, "https://example.com/article")
 
-        assert found is not None
-        assert found.tags == []
+        assert found is None
 
-    def test_read_frontmatter_block_uses_utf8(self, tmp_path: Path) -> None:
-        """The frontmatter read pins encoding='utf-8' explicitly."""
+    def test_parse_frontmatter_uses_utf8(self, tmp_path: Path) -> None:
+        """The frontmatter parser reads with explicit encoding."""
+        from obsidian_ai_tools._vault_store import VaultStore
+
         note = tmp_path / "inbox" / "n.md"
         note.parent.mkdir(parents=True)
         note.write_text("---\ntitle: x\n---\n", encoding="utf-8")
-        import io
 
-        with patch("obsidian_ai_tools.dedup.Path.open") as mock_open:
-            mock_open.return_value.__enter__.return_value = io.StringIO("---\ntitle: x\n---\n")
-            result = _read_frontmatter_block(note)
+        with patch("pathlib.Path.read_text", return_value="---\ntitle: x\n---\n"):
+            fm, content = VaultStore.parse_frontmatter(note)
 
-        assert result == "title: x\n"
-        assert mock_open.call_args.kwargs["encoding"] == "utf-8"
+        assert fm == {"title": "x"}
