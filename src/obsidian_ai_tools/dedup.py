@@ -10,17 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse
 
-import yaml
-
 # Query parameters that identify a marketing campaign or share event, not the
 # content itself.
 _TRACKING_PARAMS = {"fbclid", "gclid", "igshid", "mc_cid", "mc_eid", "si", "ref_src"}
 
 _YOUTUBE_HOSTS = {"youtube.com", "m.youtube.com", "music.youtube.com"}
-
-# Frontmatter must appear at the top of the file; cap how far we read so a
-# malformed file cannot make the scan read megabytes.
-_MAX_FRONTMATTER_LINES = 100
 
 
 @dataclass(frozen=True)
@@ -75,56 +69,28 @@ def normalize_source_url(url: str) -> str:
     return f"{host}{path}" + (f"?{query}" if query else "")
 
 
-def _read_frontmatter_block(file_path: Path) -> str | None:
-    """Return the raw YAML between the opening and closing '---', or None."""
-    try:
-        with file_path.open(encoding="utf-8") as fh:
-            first = fh.readline()
-            if first.strip() != "---":
-                return None
-            lines: list[str] = []
-            for _ in range(_MAX_FRONTMATTER_LINES):
-                line = fh.readline()
-                if not line or line.strip() == "---":
-                    return "".join(lines)
-                lines.append(line)
-    except OSError:
-        return None
-    return None
-
-
-def _source_url_line(frontmatter_text: str) -> str | None:
-    for line in frontmatter_text.splitlines():
-        if line.startswith("source_url:"):
-            return line.split(":", 1)[1].strip().strip("\"'")
-    return None
-
-
 def find_note_by_source(vault_path: Path, url: str) -> ExistingNote | None:
     """Find the first vault note whose frontmatter source_url matches url.
 
     Reads only frontmatter blocks and parses YAML only for the matching file,
     so the scan stays cheap relative to the fetch + LLM pipeline it guards.
     """
+    from ._vault_store import VaultStore
+
     target = normalize_source_url(url)
     for md_file in sorted(vault_path.rglob("*.md")):
         relative_parts = md_file.relative_to(vault_path).parts
         if any(part.startswith(".") for part in relative_parts):
             continue
-        frontmatter_text = _read_frontmatter_block(md_file)
-        if not frontmatter_text:
-            continue
-        candidate = _source_url_line(frontmatter_text)
-        if candidate is None or normalize_source_url(candidate) != target:
-            continue
         try:
-            metadata = yaml.safe_load(frontmatter_text) or {}
-        except yaml.YAMLError:
-            # pragma: no mutate
-            # None here is overwritten by the isinstance guard below: equivalent.
-            metadata = {}  # pragma: no mutate  # equivalent (rescue by isinstance guard)
+            metadata, _content = VaultStore.parse_frontmatter(md_file)
+        except Exception:
+            continue
         if not isinstance(metadata, dict):
             metadata = {}
+        candidate = metadata.get("source_url")
+        if candidate is None or normalize_source_url(str(candidate)) != target:
+            continue
         raw_tags = metadata.get("tags") or []
         tags = [str(tag) for tag in raw_tags] if isinstance(raw_tags, list) else []
         source_type = metadata.get("source_type")

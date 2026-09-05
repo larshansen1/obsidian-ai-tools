@@ -338,14 +338,24 @@ class ObservabilityDB:
 _db: Optional["ObservabilityDB"] = None
 
 
-def get_db() -> "ObservabilityDB":
-    """Return the shared ObservabilityDB singleton, creating it on first call."""
+def get_db(vault_path: Path | None = None) -> "ObservabilityDB":
+    """Return the shared ObservabilityDB singleton, creating it on first call.
+
+    Args:
+        vault_path: Override the vault root used to derive the database path.
+            When omitted, falls back to ``settings.obsidian_vault_path``.
+    """
     global _db
     if _db is None:
-        from .config import get_settings
+        if vault_path is None:
+            from .config import get_settings
 
-        settings = get_settings()
-        _db = ObservabilityDB(settings.obsidian_vault_path / ".kai" / "observability.duckdb")
+            settings = get_settings()
+            vault_path = settings.obsidian_vault_path
+        from ._vault_store import VaultStore
+
+        store = VaultStore(vault_path)
+        _db = ObservabilityDB(store.vault_path / ".kai" / "observability.duckdb")
     return _db
 
 

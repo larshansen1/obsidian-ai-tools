@@ -119,46 +119,43 @@ def write_note(
         FileWriteError: If note cannot be written
         PathTraversalError: If path traversal is detected
     """
+    from ._vault_store import VaultStore
+
+    try:
+        store = VaultStore(vault_path)
+    except Exception as e:
+        raise FileWriteError(f"Path validation failed: {e}") from e
+
     if target_path is not None:
         try:
             resolved_target = target_path.resolve()
-            resolved_vault = vault_path.resolve()
         except Exception as e:
             raise FileWriteError(f"Path validation failed: {e}") from e
-        if not str(resolved_target).startswith(str(resolved_vault)):
+        if not str(resolved_target).startswith(str(store.vault_path)):
             raise PathTraversalError(f"Update target outside vault: {target_path}")
         try:
-            # utf-8 is the default codec; omitted/None/UTF-8 variants produce
-            # byte-identical output for any content on this platform.
-            target_path.write_text(note.to_markdown(), encoding="utf-8")  # pragma: no mutate
+            target_path.write_text(note.to_markdown(), encoding="utf-8")
             return target_path
         except Exception as e:
             raise FileWriteError(f"Failed to write note to {target_path}: {e}") from e
 
-    # Build target directory path
     inbox_path = vault_path / inbox_folder
 
-    # Create inbox directory if it doesn't exist
     try:
         inbox_path.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         raise FileWriteError(f"Failed to create inbox directory: {e}") from e
 
-    # Build filename
     filename = build_filename(note.source_type, note.title)
 
-    # Validate filename doesn't contain path separators (prevent path traversal)
     if "/" in filename or "\\" in filename:
         raise PathTraversalError(f"Filename contains path separators: {filename}")
 
-    # Build full file path
     file_path = inbox_path / filename
 
-    # Additional security: ensure resolved path is within inbox
     try:
         resolved_file = file_path.resolve()
         resolved_inbox = inbox_path.resolve()
-
         if not str(resolved_file).startswith(str(resolved_inbox)):
             raise PathTraversalError(f"Path traversal detected: {file_path} -> {resolved_file}")
     except Exception as e:
@@ -166,17 +163,8 @@ def write_note(
             raise
         raise FileWriteError(f"Path validation failed: {e}") from e
 
-    # Check if file already exists (MVP: overwrite with warning)
-    # TODO: In future, add options for: skip, rename, prompt user
-    if file_path.exists():
-        # For MVP, we'll overwrite
-        # In production, you might want different behavior
-        pass
-
-    # Convert note to markdown
     markdown_content = note.to_markdown()
 
-    # Write file
     try:
         file_path.write_text(markdown_content, encoding="utf-8")
         return file_path

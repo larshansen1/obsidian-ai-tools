@@ -126,16 +126,19 @@ def load_folder_rules(vault_path: Path) -> dict[str, str]:
         InvalidRulesError: If rules file doesn't exist or is invalid
         PathTraversalError: If any folder path is unsafe
     """
+    from ._vault_store import VaultStore
+
+    store = VaultStore(vault_path)
     rules_path = vault_path / "folder_rules.json"
 
-    if not rules_path.exists():
+    if not store.note_exists(rules_path):
         raise InvalidRulesError(
             f"No folder_rules.json found at {rules_path}. "
             "Create this file in your vault root with tag-to-folder mappings."
         )
 
     try:
-        rules = json.loads(rules_path.read_text())
+        rules = store.read_json(rules_path)
         if not isinstance(rules, dict):
             raise InvalidRulesError("folder_rules.json must contain a JSON object (dict)")
 
@@ -504,11 +507,9 @@ def track_move(result: MoveResult, vault_path: Path) -> None:
     tracking_file = vault_path / ".kai" / "folder_mappings.jsonl"
 
     try:
-        # Create .kai directory if needed
         tracking_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # Append as single JSON line (JSONL format)
-        with tracking_file.open("a", encoding="utf-8") as f:
+        with open(tracking_file, "a", encoding="utf-8") as f:
             json.dump(
                 {
                     "file": result.file,
