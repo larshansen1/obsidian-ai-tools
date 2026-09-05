@@ -27,8 +27,7 @@ def disable_retry_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     """Exercise retry attempts without production backoff delays."""
     retrying_ingest = cast(Any, BaseProvider.ingest).retry_with(wait=wait_none())
     monkeypatch.setattr(BaseProvider, "ingest", retrying_ingest)
-    monkeypatch.setattr("obsidian_ai_tools.providers.pdf._limiter.wait", lambda _: None)
-    monkeypatch.setattr("obsidian_ai_tools.providers.web._limiter.wait", lambda _: None)
+    monkeypatch.setattr("obsidian_ai_tools.providers._limiter.wait", lambda _: None)
 
 
 class TestPDFProviderNetworkErrors:

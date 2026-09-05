@@ -11,27 +11,10 @@ from pypdf import PdfReader
 
 from ..config import get_settings
 from ..models import ArticleMetadata
-from ..observability import get_db
-from ..utils.rate_limiter import RateLimiter
+from . import _limiter, _record_attempt
 from .base import BaseProvider
 
 logger = logging.getLogger(__name__)
-
-# Global rate limiter to share state across instances
-_limiter = RateLimiter(delay=2.0)
-
-
-def _record_attempt(
-    strategy: str,
-    outcome: str,
-    duration: float,
-    error_type: str | None = None,
-    url: str | None = None,
-) -> None:
-    try:
-        get_db().record_provider_attempt("pdf", strategy, outcome, duration, error_type, url)
-    except Exception:  # nosec B110
-        pass
 
 
 class PDFProvider(BaseProvider):
@@ -131,11 +114,11 @@ class PDFProvider(BaseProvider):
         _t0 = time.monotonic()
         try:
             result = self._extract_text_from_pdf(path, max_pages)
-            _record_attempt("primary", "success", time.monotonic() - _t0, url=file_path)
+            _record_attempt("pdf", "primary", "success", time.monotonic() - _t0, url=file_path)
             return result
         except Exception as exc:
             _record_attempt(
-                "primary", "failure", time.monotonic() - _t0, type(exc).__name__, file_path
+                "pdf", "primary", "failure", time.monotonic() - _t0, type(exc).__name__, file_path
             )
             raise
 
@@ -183,7 +166,7 @@ class PDFProvider(BaseProvider):
             try:
                 # Extract text from downloaded PDF
                 result = self._extract_text_from_pdf(tmp_path, max_pages, original_url=url)
-                _record_attempt("primary", "success", time.monotonic() - _t0, url=url)
+                _record_attempt("pdf", "primary", "success", time.monotonic() - _t0, url=url)
                 return result
             finally:
                 # Clean up temporary file
@@ -191,18 +174,25 @@ class PDFProvider(BaseProvider):
 
         except Exception as e:
             logger.warning(f"Direct PDF download failed: {e}. Attempting fallback.")
-            _record_attempt("primary", "failure", time.monotonic() - _t0, type(e).__name__, url)
+            _record_attempt(
+                "pdf", "primary", "failure", time.monotonic() - _t0, type(e).__name__, url
+            )
 
             # Fall back to Supadata
             if self.supadata_key:
                 _t1 = time.monotonic()
                 try:
                     result = self._fetch_supadata(url)
-                    _record_attempt("fallback", "success", time.monotonic() - _t1, url=url)
+                    _record_attempt("pdf", "fallback", "success", time.monotonic() - _t1, url=url)
                     return result
                 except Exception as exc:
                     _record_attempt(
-                        "fallback", "failure", time.monotonic() - _t1, type(exc).__name__, url
+                        "pdf",
+                        "fallback",
+                        "failure",
+                        time.monotonic() - _t1,
+                        type(exc).__name__,
+                        url,
                     )
                     raise
             else:

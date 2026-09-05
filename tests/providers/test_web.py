@@ -403,7 +403,7 @@ class TestWebProviderIngest:
         """Browser-captured content skips fetching and is recorded as captured."""
         db = _mock_db()
         with (
-            patch("obsidian_ai_tools.providers.web.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch,
         ):
             result = provider._ingest(
@@ -425,7 +425,7 @@ class TestWebProviderIngest:
         """Captured content without a title gets the default Captured Chat title."""
         db = _mock_db()
         with (
-            patch("obsidian_ai_tools.providers.web.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url"),
         ):
             result = provider._ingest(SRC, captured_content="hello")
@@ -448,7 +448,7 @@ class TestWebProviderIngest:
             "url": RAW_URL,
         }
         with (
-            patch("obsidian_ai_tools.providers.web.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter") as mock_limiter,
             patch.object(provider, "_check_raw_content", return_value=raw),
         ):
@@ -466,7 +466,7 @@ class TestWebProviderIngest:
         caplog.set_level(logging.INFO, logger=WEB_LOGGER)
         db = _mock_db()
         with (
-            patch("obsidian_ai_tools.providers.web.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
             patch(
                 "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
@@ -491,7 +491,7 @@ class TestWebProviderIngest:
         provider.supadata_key = None
         db = _mock_db()
         with (
-            patch("obsidian_ai_tools.providers.web.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
             patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None),
         ):
@@ -513,7 +513,7 @@ class TestWebProviderIngest:
         caplog.set_level(logging.WARNING, logger=WEB_LOGGER)
         db = _mock_db()
         with (
-            patch("obsidian_ai_tools.providers.web.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
             patch(
                 "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
@@ -536,7 +536,7 @@ class TestWebProviderIngest:
         caplog.set_level(logging.INFO, logger=WEB_LOGGER)
         db = _mock_db()
         with (
-            patch("obsidian_ai_tools.providers.web.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
             patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None),
             patch("obsidian_ai_tools.providers.web.requests.get") as mock_get,
@@ -572,7 +572,7 @@ class TestWebProviderIngest:
         caplog.set_level(logging.ERROR, logger=WEB_LOGGER)
         db = _mock_db()
         with (
-            patch("obsidian_ai_tools.providers.web.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
             patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None),
             patch(

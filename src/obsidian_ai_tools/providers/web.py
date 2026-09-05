@@ -10,28 +10,10 @@ from trafilatura.settings import use_config
 
 from ..config import get_settings
 from ..models import ArticleMetadata
-from ..observability import get_db
-from ..utils.rate_limiter import RateLimiter
+from . import _limiter, _record_attempt
 from .base import BaseProvider
 
 logger = logging.getLogger(__name__)
-
-# Global rate limiter to share state across instances
-_limiter = RateLimiter(delay=2.0)
-
-
-def _record_attempt(
-    provider: str,
-    strategy: str,
-    outcome: str,
-    duration: float,
-    error_type: str | None = None,
-    url: str | None = None,
-) -> None:
-    try:
-        get_db().record_provider_attempt(provider, strategy, outcome, duration, error_type, url)
-    except Exception:  # nosec B110
-        pass
 
 
 class WebProvider(BaseProvider):
