@@ -10,60 +10,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
 
-      - name: Install Bandit
-        run: pip install bandit==1.9.4
+      - name: Sync dependencies
+        run: uv sync
 
-      - name: Run Bandit
-        run: bandit -c pyproject.toml -r src/
-
-      - name: Install Gitleaks
-        run: |
-          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz \
-            | tar -xz gitleaks
-          sudo mv gitleaks /usr/local/bin/gitleaks
-
-      - name: Run Gitleaks
-        run: gitleaks detect --source . --no-git --redact -c .gitleaks.toml
+      - name: Pre-commit (all checks)
+        run: uv run pre-commit run --all-files
 
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
-          pip install types-requests types-PyYAML
+      - name: Sync dependencies
+        run: uv sync
 
-      - name: Install package
-        run: pip install -e .
-
-      - name: README command reference
-        run: python scripts/check_readme_commands.py
-
-      - name: Lint (ruff)
-        run: make lint
-
-      - name: Format check (ruff)
-        run: ruff format --check .
+      - name: Pre-commit (lint, format, radon, fast tests)
+        run: uv run pre-commit run --all-files
 
       - name: Typecheck (mypy)
-        run: make typecheck
-
-      - name: Complexity (radon)
-        run: make radon
+        run: uv run mypy src --config-file mypy.ini
 
       - name: Full tests with coverage enforcement
-        run: make coverage
+        run: COVERAGE=1 uv run pytest --cov --cov-report=term-missing --disable-warnings
