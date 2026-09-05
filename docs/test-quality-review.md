@@ -96,6 +96,7 @@ breaker._save_state()  # Calling private method
 ```python
 from freezegun import freeze_time
 
+
 @freeze_time("2026-01-01 12:00:00")
 def test_circuit_moves_to_half_open_after_timeout():
     # ... open circuit ...
@@ -141,18 +142,20 @@ def test_circuit_moves_to_half_open_after_timeout():
 ```python
 def test_refresh_handles_network_timeout() -> None:
     """Test refresh handles network timeout gracefully."""
-    with patch('requests.get', side_effect=requests.Timeout):
+    with patch("requests.get", side_effect=requests.Timeout):
         result = refresh_note(candidate, vault_path, model, api_key)
         assert result.success is False
         assert "timeout" in result.error.lower()
         # Should NOT have modified original file
 
+
 def test_refresh_handles_llm_rate_limit() -> None:
     """Test refresh handles LLM rate limit (429)."""
-    with patch('llm.generate_note', side_effect=RateLimitError):
+    with patch("llm.generate_note", side_effect=RateLimitError):
         result = refresh_note(candidate, vault_path, model, api_key)
         assert result.success is False
         assert "rate limit" in result.error.lower()
+
 
 def test_refresh_handles_readonly_file() -> None:
     """Test refresh handles file permission errors."""
@@ -161,6 +164,7 @@ def test_refresh_handles_readonly_file() -> None:
     result = refresh_note(candidate, vault_path, model, api_key)
     assert result.success is False
     assert "permission" in result.error.lower()
+
 
 def test_refresh_rollback_on_failure() -> None:
     """Test refresh restores backup if write fails."""
@@ -185,8 +189,10 @@ def test_concurrent_note_updates() -> None:
     """Test multiple processes updating same note."""
     # Use multiprocessing to simulate concurrent updates
 
+
 def test_concurrent_index_rebuilds() -> None:
     """Test multiple processes rebuilding index simultaneously."""
+
 
 def test_reading_list_concurrent_status_updates() -> None:
     """Test concurrent status updates on reading list."""
@@ -217,6 +223,7 @@ def test_refresh_workflow_end_to_end() -> None:
     # Verify backup created
     # Verify note updated
     # Verify LLM called with correct prompt
+
 
 def test_tag_hygiene_plus_folder_organizer_workflow() -> None:
     """Test tag cleaning followed by folder reorganization."""
@@ -274,21 +281,25 @@ def test_tag_hygiene_plus_folder_organizer_workflow() -> None:
 # Disk full during write operations
 def test_write_note_disk_full() -> None:
     """Test handling when disk is full during write."""
-    with patch('builtins.open', side_effect=OSError("No space left on device")):
+    with patch("builtins.open", side_effect=OSError("No space left on device")):
         result = write_note(...)
         assert result.success is False
+
 
 # File locked by another process
 def test_backup_file_already_locked() -> None:
     """Test backup creation when file is locked."""
 
+
 # UTF-8 encoding errors in note content
 def test_parse_frontmatter_invalid_utf8() -> None:
     """Test handling of files with encoding errors."""
 
+
 # Very long file paths (>255 chars)
 def test_create_note_with_long_path() -> None:
     """Test handling of paths exceeding OS limits."""
+
 
 # Files disappearing during operation
 def test_refresh_file_deleted_during_operation() -> None:
@@ -309,17 +320,21 @@ def test_refresh_file_deleted_during_operation() -> None:
 def test_web_provider_handles_partial_response() -> None:
     """Test handling when connection drops during download."""
 
+
 # Malformed HTTP headers
 def test_web_provider_handles_malformed_headers() -> None:
     """Test handling of invalid HTTP headers."""
+
 
 # Redirect loops
 def test_web_provider_handles_redirect_loop() -> None:
     """Test detection and handling of redirect loops."""
 
+
 # DNS resolution failures
 def test_web_provider_handles_dns_failure() -> None:
     """Test handling when DNS lookup fails."""
+
 
 # SSL certificate errors
 def test_web_provider_handles_ssl_error() -> None:
@@ -340,9 +355,11 @@ def test_web_provider_handles_ssl_error() -> None:
 def test_tfidf_with_10000_notes() -> None:
     """Test TF-IDF computation with large vault."""
 
+
 # Memory limits during TF-IDF computation
 def test_index_rebuild_memory_efficient() -> None:
     """Verify index rebuild doesn't exhaust memory."""
+
 
 # Disk space validation before operations
 def test_validates_disk_space_before_backup() -> None:
@@ -363,6 +380,7 @@ def test_validates_disk_space_before_backup() -> None:
 # Concurrent state transitions
 def test_circuit_breaker_concurrent_state_changes() -> None:
     """Test thread-safe state transitions."""
+
 
 # State file corruption during write
 def test_circuit_breaker_handles_corrupted_state_file() -> None:
@@ -438,7 +456,7 @@ All duplicate OpenRouter mocking setup.
 @pytest.fixture
 def mock_openrouter_llm():
     """Shared OpenRouter mock setup."""
-    with patch('llm.OpenRouterLLM') as mock:
+    with patch("llm.OpenRouterLLM") as mock:
         mock.return_value.generate.return_value = {...}
         yield mock
 ```
@@ -502,7 +520,8 @@ Uses real timestamps, could fail if test runs at midnight or if clock changes.
 from unittest.mock import patch
 from datetime import datetime
 
-@patch('refresh.datetime')
+
+@patch("refresh.datetime")
 def test_create_backup_naming(mock_datetime, tmp_path):
     mock_datetime.now.return_value = datetime(2026, 1, 7, 12, 0, 0)
     backup_path = create_backup(note)
@@ -545,14 +564,17 @@ def sample_vault_index(tmp_path: Path) -> VaultIndex:
 @pytest.fixture
 def note_factory(tmp_path):
     """Factory for creating test notes with minimal boilerplate."""
+
     def _make_note(**kwargs):
         return NoteMetadata(
-            file_path=kwargs.get('file_path', tmp_path / "test.md"),
-            title=kwargs.get('title', "Test Note"),
-            tags=kwargs.get('tags', []),
-            content=kwargs.get('content', "Test content"),
+            file_path=kwargs.get("file_path", tmp_path / "test.md"),
+            title=kwargs.get("title", "Test Note"),
+            tags=kwargs.get("tags", []),
+            content=kwargs.get("content", "Test content"),
         )
+
     return _make_note
+
 
 # Usage:
 def test_something(note_factory):
@@ -585,6 +607,7 @@ def test_digest_includes_tags_from_all_notes():
     """Test that tags from all notes are included."""
     # Only test presence of tags
 
+
 def test_digest_sorts_tags_by_frequency():
     """Test that tags are sorted by frequency descending."""
     # Only test sorting order
@@ -598,9 +621,7 @@ def test_digest_sorts_tags_by_frequency():
 **Location:** `tests/test_concept_linking.py` (lines 268-295)
 
 ```python
-def test_insert_wikilinks_modifies_file(
-    self, vault_index: VaultIndex, tmp_path: Path
-) -> None:
+def test_insert_wikilinks_modifies_file(self, vault_index: VaultIndex, tmp_path: Path) -> None:
     vault_root = vault_index.index_path.parent.parent  # Complex navigation
     # Tests actual file modification - good
     # But relies on vault_index fixture structure - brittle
@@ -616,8 +637,8 @@ def test_insert_wikilinks_modifies_file(
 def vault_with_root(tmp_path):
     """Provide vault with explicit root path."""
     return {
-        'root': tmp_path,
-        'index': VaultIndex(...),
+        "root": tmp_path,
+        "index": VaultIndex(...),
     }
 ```
 
@@ -635,6 +656,7 @@ def vault_with_root(tmp_path):
 # Current:
 def test_similarity_threshold():
     assert similarity > 0.7  # Why 0.7?
+
 
 # Better:
 def test_similarity_threshold():
@@ -664,11 +686,14 @@ def test_similarity_threshold():
 def test_refresh_handles_network_timeout() -> None:
     """Test refresh handles network timeout gracefully."""
 
+
 def test_refresh_handles_llm_rate_limit() -> None:
     """Test refresh handles LLM rate limit (429)."""
 
+
 def test_refresh_handles_readonly_file() -> None:
     """Test refresh handles file permission errors."""
+
 
 def test_refresh_rollback_on_failure() -> None:
     """Test refresh restores backup if write fails."""
@@ -688,6 +713,7 @@ def test_refresh_rollback_on_failure() -> None:
 def test_refresh_workflow_end_to_end() -> None:
     """Complete workflow: find candidates → backup → re-fetch → LLM → update."""
 
+
 def test_tag_hygiene_plus_folder_organizer_workflow() -> None:
     """Test tag cleaning followed by folder reorganization."""
 ```
@@ -706,8 +732,10 @@ def test_tag_hygiene_plus_folder_organizer_workflow() -> None:
 def test_write_note_disk_full() -> None:
     """Test handling when disk is full during write."""
 
+
 def test_parse_frontmatter_invalid_utf8() -> None:
     """Test handling of files with encoding errors."""
+
 
 def test_backup_file_already_locked() -> None:
     """Test backup creation when file is locked."""
@@ -749,8 +777,10 @@ assert suggestions[0].similarity_score > 0
 def test_concurrent_note_updates() -> None:
     """Test multiple processes updating same note."""
 
+
 def test_concurrent_index_rebuilds() -> None:
     """Test multiple processes rebuilding index simultaneously."""
+
 
 def test_reading_list_concurrent_status_updates() -> None:
     """Test concurrent status updates on reading list."""
@@ -768,6 +798,7 @@ def test_reading_list_concurrent_status_updates() -> None:
 **Recommendation:** Use `freezegun` or similar:
 ```python
 from freezegun import freeze_time
+
 
 @freeze_time("2026-01-01 12:00:00")
 def test_circuit_moves_to_half_open_after_timeout():
@@ -857,7 +888,7 @@ def reset_circuit_breaker(tmp_path):
 ```python
 @pytest.fixture
 def vault_with_root(tmp_path):
-    return {'root': tmp_path, 'index': VaultIndex(...)}
+    return {"root": tmp_path, "index": VaultIndex(...)}
 ```
 
 **File:** `tests/test_concept_linking.py` (lines 268-295)

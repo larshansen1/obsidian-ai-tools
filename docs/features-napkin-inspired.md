@@ -175,12 +175,15 @@ def search_notes(
 
 Add parameter:
 ```python
-no_boost: Annotated[bool, typer.Option("--no-boost", help="Disable backlink score boosting")] = False,
+no_boost: Annotated[bool, typer.Option("--no-boost", help="Disable backlink score boosting")] = (
+    False,
+)
 ```
 
 After `build_whoosh_index(...)`:
 ```python
 from .wikilinks import count_backlinks
+
 backlinks = count_backlinks(vault_index)
 ```
 
