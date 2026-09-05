@@ -25,6 +25,7 @@ src/obsidian_ai_tools/
 │   ├── web.py                # WebProvider: Trafilatura → Supadata fallback
 │   ├── pdf.py                # PDFProvider: local pypdf → remote download → Supadata fallback
 │   ├── youtube.py            # YouTubeProvider: delegates to YouTubeClient
+│   ├── github.py             # GitHubProvider: repo docs ingestion via GitHub API
 │   └── file.py               # FileProvider: local markdown/text files
 │
 ├── server/
@@ -57,7 +58,7 @@ src/obsidian_ai_tools/
 
 prompts/                      # Versioned LLM prompt templates (Markdown)
     youtube_v1.md, youtube_v2.md, article_v1.md, pdf_v1.md,
-    markdown_v1.md, flashcard_v1.md
+    markdown_v1.md, github_repo_v1.md
 ```
 
 ---
@@ -86,7 +87,7 @@ Entry point
         ├─ ProviderFactory.get_provider(url)
         │         │
         │         ▼
-        │   providers/{web,pdf,youtube,file}.py
+        │   providers/{web,pdf,youtube,github,file}.py
         │   → primary attempt
         │   → fallback attempt (web: Supadata, pdf: Supadata)
         │   → record_provider_attempt() ──────────────────────┐
