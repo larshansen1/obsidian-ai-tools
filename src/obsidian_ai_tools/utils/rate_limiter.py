@@ -7,13 +7,15 @@ from urllib.parse import urlparse
 class RateLimiter:
     """Simple rate limiter tracking access limits per domain."""
 
-    def __init__(self, delay: float = 2.0) -> None:
+    def __init__(self, delay: float = 2.0, domain_delays: dict[str, float] | None = None) -> None:
         """Initialize rate limiter.
 
         Args:
             delay: Minimum seconds between requests to the same domain.
+            domain_delays: Per-domain override of the minimum gap between requests.
         """
         self.delay = delay
+        self.domain_delays = domain_delays or {}
         self.last_access: dict[str, float] = {}
 
     def wait(self, url: str) -> None:
@@ -28,9 +30,10 @@ class RateLimiter:
 
         now = time.time()
         last = self.last_access.get(domain, 0.0)
+        delay = self.domain_delays.get(domain, self.delay)
 
         elapsed = now - last
-        if elapsed < self.delay:
-            time.sleep(self.delay - elapsed)
+        if elapsed < delay:
+            time.sleep(delay - elapsed)
 
         self.last_access[domain] = time.time()

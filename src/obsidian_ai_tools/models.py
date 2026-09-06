@@ -52,6 +52,21 @@ class ArticleMetadata(BaseModel):
     )
 
 
+class ArxivMetadata(ArticleMetadata):
+    """arXiv paper metadata from the export API.
+
+    Subclasses ArticleMetadata so the existing pipeline (build_prompt,
+    generate_note) reads .content/.url/.title/.author/.site_name as usual.
+    """
+
+    authors: list[str] = Field(default_factory=list, description="Paper authors")
+    abstract: str = Field(default="", description="Paper abstract text")
+    categories: list[str] = Field(default_factory=list, description="arXiv subject categories")
+    updated_date: str | None = Field(None, description="arXiv last-updated timestamp")
+    doi: str | None = Field(None, description="Digital Object Identifier of the paper")
+    source_type: str = Field(default="arxiv", description="Content source type")
+
+
 class Note(BaseModel):
     """Structured note for Obsidian."""
 

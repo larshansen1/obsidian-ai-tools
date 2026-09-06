@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `kai ingest` now accepts arXiv papers via abs/pdf URLs or bare arXiv IDs
+  (`2404.12345`, `hep-th/9901001`). Metadata and abstract are fetched from the
+  arXiv export API; the provider also supports full-text extraction (abstract
+  swapped for PDF text) via `full_text=True`. New `arxiv` provider,
+  `ArxivMetadata` model, and `arxiv_v1` prompt template. Issue #72.
+
 ### Removed
 
 - Pruned 13 unused CLI commands flagged by `kai usage` (zero invocations over the
