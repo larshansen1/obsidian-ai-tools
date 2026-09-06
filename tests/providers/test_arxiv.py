@@ -7,7 +7,7 @@ import requests
 
 from obsidian_ai_tools.ingestion import default_prompt_version
 from obsidian_ai_tools.llm import generate_note, load_prompt_template
-from obsidian_ai_tools.models import ArxivMetadata, ArticleMetadata
+from obsidian_ai_tools.models import ArticleMetadata, ArxivMetadata
 from obsidian_ai_tools.providers.arxiv import ArxivProvider
 
 API_URL = "https://export.arxiv.org/api/query?id_list=2404.12345"
