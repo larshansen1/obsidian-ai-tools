@@ -8,8 +8,9 @@ from ..utils.rate_limiter import RateLimiter
 logger = logging.getLogger(__name__)
 
 # Shared rate limiter - one instance for all HTTP providers so concurrent
-# web+pdf requests don't race past each other's delay.
-_limiter = RateLimiter(delay=2.0)
+# web+pdf requests don't race past each other's delay. arXiv's public API
+# asks for ~1 req / 3s, so export.arxiv.org gets its own slower slot.
+_limiter = RateLimiter(delay=2.0, domain_delays={"export.arxiv.org": 3.0})
 
 
 def _record_attempt(

@@ -1,5 +1,6 @@
 """Factory for creating content providers."""
 
+from .arxiv import ArxivProvider
 from .base import BaseProvider
 from .file import FileProvider
 from .github import GitHubProvider
@@ -13,6 +14,7 @@ class ProviderFactory:
 
     _providers: list[type[BaseProvider]] = [
         YouTubeProvider,
+        ArxivProvider,  # Arxiv before PDF so arxiv.org/pdf/X.pdf uses ArxivProvider
         PDFProvider,  # PDF before File so .pdf files use PDF provider
         FileProvider,
         GitHubProvider,  # GitHub repo URLs before Web catch-all

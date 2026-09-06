@@ -30,6 +30,47 @@ def test_init_accepts_custom_delay() -> None:
     assert limiter.delay == 5.0
 
 
+def test_init_accepts_per_domain_delay_overrides() -> None:
+    limiter = RateLimiter(delay=2.0, domain_delays={"export.arxiv.org": 3.0})
+    assert limiter.delay == 2.0
+    assert limiter.domain_delays == {"export.arxiv.org": 3.0}
+
+
+def test_wait_uses_domain_override_when_set() -> None:
+    """A second request 0.5s later on an overridden domain must sleep the
+    remaining 2.5s of the 3s gap, not the global 2s gap."""
+    limiter = RateLimiter(delay=2.0, domain_delays={"export.arxiv.org": 3.0})
+    clock = _Clock(1000.0)
+    with (
+        patch("time.time", side_effect=clock),
+        patch("time.sleep") as mock_sleep,
+    ):
+        limiter.wait("https://export.arxiv.org/api/query?id_list=2404.12345")
+        clock.now = 1000.5
+        limiter.wait("https://export.arxiv.org/api/query?id_list=2404.12346")
+    mock_sleep.assert_called_once_with(2.5)
+    assert limiter.last_access["export.arxiv.org"] == 1000.5
+
+
+def test_wait_uses_global_delay_for_other_domains() -> None:
+    """Domains without an override keep the global delay; slots stay separate."""
+    limiter = RateLimiter(delay=2.0, domain_delays={"export.arxiv.org": 3.0})
+    clock = _Clock(1000.0)
+    with (
+        patch("time.time", side_effect=clock),
+        patch("time.sleep") as mock_sleep,
+    ):
+        limiter.wait("https://example.com/article-a")
+        limiter.wait("https://export.arxiv.org/api/query?id_list=2404.12345")
+        clock.now = 1001.5
+        limiter.wait("https://example.com/article-b")
+    mock_sleep.assert_called_once_with(0.5)
+    assert limiter.last_access == {
+        "example.com": 1001.5,
+        "export.arxiv.org": 1000.0,
+    }
+
+
 def test_wait_ignores_urls_without_a_domain() -> None:
     """A relative URL has an empty netloc, so no domain is tracked or slept on."""
     limiter = RateLimiter()
