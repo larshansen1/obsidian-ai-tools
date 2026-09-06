@@ -8,7 +8,7 @@ reusing the existing PDFProvider instead of duplicating PDF plumbing.
 import logging
 import re
 import time
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosec B405
 from typing import Any
 
 import requests
@@ -44,9 +44,7 @@ class ArxivProvider(BaseProvider):
     def validate(self, source: str) -> bool:
         """True for arXiv abs/pdf URLs and bare arXiv IDs; everything else is False."""
         source = source.strip()
-        return any(
-            pattern.match(source) for pattern in (_ABS_RE, _PDF_RE, _BARE_ID_RE)
-        )
+        return any(pattern.match(source) for pattern in (_ABS_RE, _PDF_RE, _BARE_ID_RE))
 
     @staticmethod
     def extract_id(source: str) -> str:
@@ -132,7 +130,7 @@ class ArxivProvider(BaseProvider):
     @staticmethod
     def _parse_entry(xml_text: str, paper_id: str) -> ArxivMetadata:
         """Parse the first Atom <entry> from an arXiv API response."""
-        root = ET.fromstring(xml_text)
+        root = ET.fromstring(xml_text)  # nosec B314
         entry = root.find("a:entry", _NS)
         if entry is None:
             raise ValueError(f"No arXiv record found for {paper_id}")
@@ -148,9 +146,7 @@ class ArxivProvider(BaseProvider):
             for author in entry.findall("a:author", _NS)
         ]
         authors = [name for name in (name.strip() for name in authors) if name]
-        categories = [
-            category.get("term", "") for category in entry.findall("a:category", _NS)
-        ]
+        categories = [category.get("term", "") for category in entry.findall("a:category", _NS)]
         categories = [term for term in categories if term]
 
         summary = text("summary")

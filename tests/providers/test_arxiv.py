@@ -173,9 +173,7 @@ class TestArxivIngest:
             ) as mock_get,
             patch("obsidian_ai_tools.providers.arxiv._limiter") as mock_limiter,
             patch("obsidian_ai_tools.providers.arxiv._record_attempt") as mock_attempt,
-            patch(
-                "obsidian_ai_tools.providers.arxiv.time.monotonic", side_effect=[100.0, 100.0]
-            ),
+            patch("obsidian_ai_tools.providers.arxiv.time.monotonic", side_effect=[100.0, 100.0]),
         ):
             result = provider._ingest("https://arxiv.org/abs/2404.12345")
 
@@ -253,9 +251,7 @@ class TestArxivIngest:
             ),
             patch("obsidian_ai_tools.providers.arxiv._limiter"),
             patch("obsidian_ai_tools.providers.arxiv._record_attempt") as mock_attempt,
-            patch(
-                "obsidian_ai_tools.providers.arxiv.time.monotonic", side_effect=[100.0, 101.0]
-            ),
+            patch("obsidian_ai_tools.providers.arxiv.time.monotonic", side_effect=[100.0, 101.0]),
         ):
             with pytest.raises(RuntimeError, match="arXiv API request failed for 2404.12345"):
                 provider._ingest("2404.12345")
@@ -273,9 +269,7 @@ class TestArxivIngest:
             patch("obsidian_ai_tools.providers.arxiv.requests.get", return_value=response),
             patch("obsidian_ai_tools.providers.arxiv._limiter"),
             patch("obsidian_ai_tools.providers.arxiv._record_attempt") as mock_attempt,
-            patch(
-                "obsidian_ai_tools.providers.arxiv.time.monotonic", side_effect=[100.0, 101.0]
-            ),
+            patch("obsidian_ai_tools.providers.arxiv.time.monotonic", side_effect=[100.0, 101.0]),
         ):
             with pytest.raises(RuntimeError, match="invalid XML"):
                 provider._ingest("2404.12345")
