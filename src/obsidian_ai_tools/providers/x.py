@@ -62,8 +62,9 @@ class XThreadProvider(BaseProvider):
         captured_content = kwargs.get("captured_content")
         if isinstance(captured_content, str) and captured_content.strip():
             _t0 = time.monotonic()
+            result = self._from_capture(source, kwargs)
             _record_attempt("x", "extension", "success", time.monotonic() - _t0, url=source)
-            return self._from_capture(source, kwargs)
+            return result
 
         # Enforce rate limit before any network call
         _limiter.wait(source)
