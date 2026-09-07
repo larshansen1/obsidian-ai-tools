@@ -3,6 +3,7 @@
 import logging
 import time
 from typing import Any, cast
+from urllib.parse import urlparse
 
 import requests
 import trafilatura
@@ -39,12 +40,13 @@ class WebProvider(BaseProvider):
 
     def validate(self, source: str) -> bool:
         """Check if source is a valid web URL."""
+        host = urlparse(source).hostname or ""
         return (
             source.startswith(("http://", "https://"))
             and "youtube.com" not in source
             and "youtu.be" not in source
-            and "x.com" not in source
-            and "twitter.com" not in source
+            and host not in ("x.com", "twitter.com")
+            and not host.endswith((".x.com", ".twitter.com"))
         )
 
     def _ingest(self, source: str, **kwargs: Any) -> ArticleMetadata:
