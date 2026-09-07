@@ -11,12 +11,13 @@ All tests are hermetic: HTTP, clock, database and rate limiter are mocked.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 import requests
 
 from obsidian_ai_tools.ingestion import default_prompt_version
+from obsidian_ai_tools.models import ArticleMetadata
 from obsidian_ai_tools.providers.factory import ProviderFactory
 from obsidian_ai_tools.providers.web import WebProvider
 from obsidian_ai_tools.providers.x import XThreadProvider
@@ -356,6 +357,214 @@ class TestXProviderSupadata:
         mock_limiter.wait.assert_called_once_with(SRC)
         mock_get.assert_not_called()
         db.record_provider_attempt.assert_not_called()
+
+
+class TestXProviderLinkOnly:
+    """Bare-link content (X Articles/Longform) expands via WebProvider."""
+
+    LINK = "https://t.co/oxa2EB0xtY"
+    RESOLVED = "https://x.com/i/article/2095378321588826112"
+    BODY = "Applied AI Doesn't Work - full article body"
+
+    def _article(self) -> ArticleMetadata:
+        """ArticleMetadata as WebProvider returns it for the resolved target."""
+        return ArticleMetadata(
+            content=self.BODY,
+            title="Applied AI Doesn't Work",
+            author="Unknown Author",
+            url=self.RESOLVED,
+        )
+
+    def _redirect_response(self) -> MagicMock:
+        """Fake requests.Response carrying the resolved URL after redirects."""
+        response = MagicMock()
+        response.url = self.RESOLVED
+        return response
+
+    def test_captured_bare_link_expands_via_web(
+        self, provider: XThreadProvider, fake_clock: None
+    ) -> None:
+        """Extension-captured content that is only a link fetches the target."""
+        db = _mock_db()
+        redirect_response = self._redirect_response()
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.x._limiter") as mock_limiter,
+            patch(
+                "obsidian_ai_tools.providers.x.requests.get",
+                return_value=redirect_response,
+            ) as mock_get,
+            patch("obsidian_ai_tools.providers.x.WebProvider") as mock_web,
+        ):
+            mock_web.return_value.ingest.return_value = self._article()
+            result = provider._ingest(SRC, captured_content=self.LINK, captured_author="handle")
+
+        mock_get.assert_called_once_with(self.LINK, allow_redirects=True, stream=True, timeout=30)
+        mock_limiter.wait.assert_called_once_with(self.LINK)
+        redirect_response.raise_for_status.assert_called_once_with()
+        mock_web.assert_called_once_with()
+        mock_web.return_value.ingest.assert_called_once_with(self.RESOLVED)
+        assert result.content == self.BODY
+        assert result.title == "Applied AI Doesn't Work"
+        assert result.author == "handle"
+        assert result.url == SRC
+        assert result.site_name == "X"
+        assert result.fetch_method == "web-expand"
+        assert result.source_type == "x"
+        assert [tweet.text for tweet in result.tweets] == [self.BODY]
+        db.record_provider_attempt.assert_has_calls(
+            [
+                call("x", "extension", "success", 1.0, None, SRC),
+                call("x", "expand", "success", 1.0, None, SRC),
+            ]
+        )
+
+    def test_supadata_bare_link_expands_via_web(
+        self, provider: XThreadProvider, fake_clock: None
+    ) -> None:
+        """Supadata description that is only a link fetches the target."""
+        db = _mock_db()
+        payload = {
+            "id": "123456789",
+            "title": None,
+            "description": self.LINK,
+            "author": {"username": "handle", "displayName": "Display Name"},
+            "createdAt": "2026-09-07T09:00:00.000Z",
+        }
+        redirect_response = self._redirect_response()
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.x._limiter") as mock_limiter,
+            patch(
+                "obsidian_ai_tools.providers.x.requests.get",
+                side_effect=[_json_response(payload), redirect_response],
+            ) as mock_get,
+            patch("obsidian_ai_tools.providers.x.WebProvider") as mock_web,
+        ):
+            mock_web.return_value.ingest.return_value = self._article()
+            result = provider._ingest(SRC)
+
+        mock_get.assert_has_calls(
+            [
+                call(
+                    "https://api.supadata.ai/v1/metadata",
+                    headers={"x-api-key": "test-supadata-key"},
+                    params={"url": SRC},
+                    timeout=30,
+                ),
+                call(self.LINK, allow_redirects=True, stream=True, timeout=30),
+            ]
+        )
+        mock_limiter.wait.assert_has_calls([call(SRC), call(self.LINK)])
+        redirect_response.raise_for_status.assert_called_once_with()
+        mock_web.assert_called_once_with()
+        mock_web.return_value.ingest.assert_called_once_with(self.RESOLVED)
+        assert result.content == self.BODY
+        assert result.title == "Applied AI Doesn't Work"
+        assert result.author == "handle"
+        assert result.url == SRC
+        assert result.site_name == "X"
+        assert result.fetch_method == "web-expand"
+        assert [tweet.text for tweet in result.tweets] == [self.BODY]
+        db.record_provider_attempt.assert_has_calls(
+            [
+                call("x", "expand", "success", 1.0, None, SRC),
+                call("x", "supadata", "success", 3.0, None, SRC),
+            ]
+        )
+
+    def test_captured_bare_link_http_error_surfaces_404(
+        self, provider: XThreadProvider, fake_clock: None
+    ) -> None:
+        """HTTP error on the resolving GET raises the exact expand error."""
+        db = _mock_db()
+        error_response = MagicMock()
+        error_response.url = self.LINK
+        error_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "404 Client Error"
+        )
+        expected = f"Failed to fetch X article content from {self.LINK}: 404 Client Error"
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.x._limiter"),
+            patch(
+                "obsidian_ai_tools.providers.x.requests.get",
+                return_value=error_response,
+            ),
+            pytest.raises(RuntimeError) as excinfo,
+        ):
+            provider._ingest(SRC, captured_content=self.LINK)
+
+        assert str(excinfo.value) == expected
+        error_response.raise_for_status.assert_called_once_with()
+        db.record_provider_attempt.assert_has_calls(
+            [
+                call("x", "extension", "success", 1.0, None, SRC),
+                call("x", "expand", "failure", 1.0, "HTTPError", SRC),
+            ]
+        )
+
+    def test_captured_bare_link_web_failure_raises_exact_message(
+        self, provider: XThreadProvider, fake_clock: None
+    ) -> None:
+        """Failed target fetch in the captured path raises a clear error."""
+        db = _mock_db()
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch(
+                "obsidian_ai_tools.providers.x.requests.get",
+                return_value=self._redirect_response(),
+            ),
+            patch("obsidian_ai_tools.providers.x.WebProvider") as mock_web,
+            pytest.raises(RuntimeError) as excinfo,
+        ):
+            mock_web.return_value.ingest.side_effect = RuntimeError("no fallback configured")
+            provider._ingest(SRC, captured_content=self.LINK)
+
+        assert str(excinfo.value) == (
+            f"Failed to fetch X article content from {self.RESOLVED}: no fallback configured"
+        )
+        db.record_provider_attempt.assert_has_calls(
+            [
+                call("x", "extension", "success", 1.0, None, SRC),
+                call("x", "expand", "failure", 1.0, "RuntimeError", SRC),
+            ]
+        )
+
+    def test_supadata_bare_link_web_failure_raises_exact_message(
+        self, provider: XThreadProvider, fake_clock: None
+    ) -> None:
+        """Failed target fetch in the metadata path is wrapped by _ingest."""
+        db = _mock_db()
+        payload = {
+            "id": "123456789",
+            "title": None,
+            "description": self.LINK,
+            "author": {"username": "handle", "displayName": "Display Name"},
+        }
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.x._limiter"),
+            patch(
+                "obsidian_ai_tools.providers.x.requests.get",
+                side_effect=[_json_response(payload), self._redirect_response()],
+            ),
+            patch("obsidian_ai_tools.providers.x.WebProvider") as mock_web,
+            pytest.raises(RuntimeError) as excinfo,
+        ):
+            mock_web.return_value.ingest.side_effect = ValueError("scrape blocked")
+            provider._ingest(SRC)
+
+        assert str(excinfo.value) == (
+            f"Failed to fetch X thread from {SRC}: "
+            f"Failed to fetch X article content from {self.RESOLVED}: scrape blocked"
+        )
+        db.record_provider_attempt.assert_has_calls(
+            [
+                call("x", "expand", "failure", 1.0, "ValueError", SRC),
+                call("x", "supadata", "failure", 3.0, "RuntimeError", SRC),
+            ]
+        )
 
 
 class TestXRouting:
