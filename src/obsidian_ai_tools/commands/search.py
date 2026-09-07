@@ -1,13 +1,49 @@
 """search command."""
 
+import re
+from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
 from ..config import get_settings
 from ..observability import track_command
 from ..obsidian import build_obsidian_url
+
+
+def _parse_date(value: str, flag_name: str) -> datetime | None:
+    """Parse a date string, exiting with the standard message on invalid input."""
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        typer.echo(f"❌ Invalid date format for --{flag_name}: {value}", err=True)
+        typer.echo("💡 Use format: YYYY-MM-DD", err=True)
+        raise typer.Exit(1) from None
+
+
+def _render_result(index: int, result: Any, vault_path: Path) -> None:
+    """Print a single search result."""
+    note = result.note
+    obsidian_url = build_obsidian_url(vault_path, note.file_path)
+
+    typer.echo(f"{index}. {note.title}")
+    typer.echo(f"   Tags: {', '.join(note.tags) if note.tags else 'none'}")
+    if note.created:
+        typer.echo(f"   Created: {note.created.strftime('%Y-%m-%d')}")
+    if note.author:
+        typer.echo(f"   Author: {note.author}")
+    typer.echo(f"   Path: {note.file_path}")
+    typer.echo(f"   Open: {obsidian_url}")
+    if result.highlights:
+        clean_preview = re.sub(r"<[^>]+>", "", result.highlights)
+        typer.echo(f"   Preview: {clean_preview[:100]}...")
+    if result.explanation:
+        typer.echo(f"   {result.explanation}")
+    if result.outgoing_links:
+        links_str = "  ".join(f"[[{link}]]" for link in result.outgoing_links)
+        typer.echo(f"   Links: {links_str}")
+    typer.echo()
 
 
 def register(app: typer.Typer) -> None:
@@ -56,8 +92,6 @@ def search(
         kai search --keyword agents --tag llm
         kai search --after 2026-01-01
     """
-    from datetime import datetime
-
     from ..indexer import build_index
     from ..search import SearchQuery, build_whoosh_index, search_notes
     from ..wikilinks import count_backlinks
@@ -70,24 +104,8 @@ def search(
 
     vault_path = vault or settings.obsidian_vault_path
 
-    after_date = None
-    before_date = None
-
-    if after:
-        try:
-            after_date = datetime.fromisoformat(after)
-        except ValueError:
-            typer.echo(f"❌ Invalid date format for --after: {after}", err=True)
-            typer.echo("💡 Use format: YYYY-MM-DD", err=True)
-            raise typer.Exit(1) from None
-
-    if before:
-        try:
-            before_date = datetime.fromisoformat(before)
-        except ValueError:
-            typer.echo(f"❌ Invalid date format for --before: {before}", err=True)
-            typer.echo("💡 Use format: YYYY-MM-DD", err=True)
-            raise typer.Exit(1) from None
+    after_date = _parse_date(after, "after") if after else None
+    before_date = _parse_date(before, "before") if before else None
 
     if not any([keyword, tag, after_date, before_date]):
         typer.echo("❌ No search criteria provided", err=True)
@@ -120,25 +138,4 @@ def search(
     typer.echo(f"   Found {len(results)} result(s):\n")
 
     for i, result in enumerate(results, 1):
-        note = result.note
-        obsidian_url = build_obsidian_url(vault_path, note.file_path)
-
-        typer.echo(f"{i}. {note.title}")
-        typer.echo(f"   Tags: {', '.join(note.tags) if note.tags else 'none'}")
-        if note.created:
-            typer.echo(f"   Created: {note.created.strftime('%Y-%m-%d')}")
-        if note.author:
-            typer.echo(f"   Author: {note.author}")
-        typer.echo(f"   Path: {note.file_path}")
-        typer.echo(f"   Open: {obsidian_url}")
-        if result.highlights:
-            import re
-
-            clean_preview = re.sub(r"<[^>]+>", "", result.highlights)
-            typer.echo(f"   Preview: {clean_preview[:100]}...")
-        if result.explanation:
-            typer.echo(f"   {result.explanation}")
-        if result.outgoing_links:
-            links_str = "  ".join(f"[[{link}]]" for link in result.outgoing_links)
-            typer.echo(f"   Links: {links_str}")
-        typer.echo()
+        _render_result(i, result, vault_path)
