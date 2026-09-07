@@ -9,11 +9,11 @@ from ..config import get_settings
 from ..dedup import ExistingNote
 from ..ingestion import (
     ContentFetchError,
+    IngestionError,
     IngestionProgress,
     IngestionRequest,
     NoteGenerationStageError,
     ProviderSelectionError,
-    VaultWriteError,
     ingest_content,
 )
 from ..logging import setup_logging
@@ -24,6 +24,83 @@ from ..youtube import (
     InvalidYouTubeURLError,
     TranscriptUnavailableError,
 )
+
+_FETCH_ERROR_MESSAGES: dict[type[Exception], tuple[str, str | None]] = {
+    InvalidYouTubeURLError: ("❌ Invalid URL: {}", None),
+    TranscriptUnavailableError: (
+        "❌ Transcript unavailable: {}",
+        "💡 This video may not have English captions or may be private.",
+    ),
+    FileNotFoundError: ("❌ File not found: {}", None),
+}
+
+
+def _show_progress(progress: IngestionProgress, url: str, model: str) -> None:
+    """Echo one progress line per stage reached by the ingestion pipeline."""
+    if progress.stage == "provider_selected":
+        typer.echo(f"🌐 Ingesting {progress.provider_name} content...")
+        typer.echo(f"   Source: {url}")
+    elif progress.stage == "fetching":
+        typer.echo(f"📥 Fetching content using {progress.provider_name} provider...")
+        if progress.provider_name == "youtube" and progress.transcript_providers:
+            providers_list = progress.transcript_providers.replace(",", ", ")
+            typer.echo(f"   🔍 Trying transcript providers: {providers_list}")
+    elif progress.stage == "content_fetched":
+        metadata = progress.metadata
+        if isinstance(metadata, VideoMetadata):
+            if progress.provider_name == "youtube" and metadata.provider_used:
+                typer.echo(
+                    f"   ✓ Transcript via {metadata.provider_used} "
+                    f"({len(metadata.transcript)} chars)"
+                )
+            else:
+                typer.echo(f"   ✓ Transcript fetched ({len(metadata.transcript)} chars)")
+        elif isinstance(metadata, ArticleMetadata):
+            typer.echo(f"   ✓ Content fetched: '{metadata.title}' ({len(metadata.content)} chars)")
+            if progress.provider_name == "pdf" and "Only the first" in metadata.content:
+                typer.echo("   ⚠️  PDF truncated due to page limit", err=False)
+    elif progress.stage == "generating":
+        typer.echo(f"🤖 Generating note with {model} ({progress.prompt_version})...")
+    elif progress.stage == "note_generated" and progress.note is not None:
+        typer.echo(f"   ✓ Note generated: '{progress.note.title}'")
+        typer.echo(f"   ✓ Tags: {', '.join(progress.note.tags)}")
+    elif progress.stage == "writing":
+        typer.echo("💾 Writing note to vault...")
+    elif progress.stage == "note_written":
+        typer.echo(f"   ✓ Note saved to: {progress.file_path}")
+
+
+def _report_fetch_error(e: ContentFetchError) -> None:
+    """Echo the failure message for a content-fetch error and its cause."""
+    cause = e.__cause__
+    message, hint = _FETCH_ERROR_MESSAGES.get(type(cause), ("❌ Failed to fetch content: {}", None))
+    typer.echo(message.format(cause or e), err=True)
+    if hint:
+        typer.echo(hint, err=True)
+
+
+def _report_ingest_error(e: IngestionError) -> None:
+    """Echo the user-facing error message for any ingestion failure."""
+    if isinstance(e, ProviderSelectionError):
+        typer.echo(
+            "❌ Unknown source type. Please provide a valid URL or file path.",
+            err=True,
+        )
+    elif isinstance(e, ContentFetchError):
+        _report_fetch_error(e)
+    elif isinstance(e, NoteGenerationStageError):
+        typer.echo(f"❌ Failed to generate note: {e.__cause__ or e}", err=True)
+        typer.echo("💡 Check your OpenRouter API key and model configuration.", err=True)
+    else:
+        typer.echo(f"❌ Failed to write note: {e.__cause__ or e}", err=True)
+
+
+def _print_open_link(vault_path: Path, file_path: Path) -> None:
+    """Echo the obsidian:// open link, silently skipping notes outside the vault."""
+    try:
+        typer.echo(f"   Open: {build_obsidian_url(vault_path, file_path)}")
+    except ValueError:
+        pass
 
 
 def register(app: typer.Typer) -> None:
@@ -105,43 +182,6 @@ def ingest(
         typer.echo("💡 Make sure you have a .env file with required settings.", err=True)
         raise typer.Exit(1) from e
 
-    def show_progress(progress: IngestionProgress) -> None:
-        if progress.stage == "provider_selected":
-            typer.echo(f"🌐 Ingesting {progress.provider_name} content...")
-            typer.echo(f"   Source: {url}")
-        elif progress.stage == "fetching":
-            typer.echo(f"📥 Fetching content using {progress.provider_name} provider...")
-            if progress.provider_name == "youtube" and progress.transcript_providers:
-                providers_list = progress.transcript_providers.replace(",", ", ")
-                typer.echo(f"   🔍 Trying transcript providers: {providers_list}")
-        elif progress.stage == "content_fetched":
-            metadata = progress.metadata
-            if isinstance(metadata, VideoMetadata):
-                if progress.provider_name == "youtube" and metadata.provider_used:
-                    typer.echo(
-                        f"   ✓ Transcript via {metadata.provider_used} "
-                        f"({len(metadata.transcript)} chars)"
-                    )
-                else:
-                    typer.echo(f"   ✓ Transcript fetched ({len(metadata.transcript)} chars)")
-            elif isinstance(metadata, ArticleMetadata):
-                typer.echo(
-                    f"   ✓ Content fetched: '{metadata.title}' ({len(metadata.content)} chars)"
-                )
-                if progress.provider_name == "pdf" and "Only the first" in metadata.content:
-                    typer.echo("   ⚠️  PDF truncated due to page limit", err=False)
-        elif progress.stage == "generating":
-            typer.echo(
-                f"🤖 Generating note with {settings.llm_model} ({progress.prompt_version})..."
-            )
-        elif progress.stage == "note_generated" and progress.note is not None:
-            typer.echo(f"   ✓ Note generated: '{progress.note.title}'")
-            typer.echo(f"   ✓ Tags: {', '.join(progress.note.tags)}")
-        elif progress.stage == "writing":
-            typer.echo("💾 Writing note to vault...")
-        elif progress.stage == "note_written":
-            typer.echo(f"   ✓ Note saved to: {progress.file_path}")
-
     request = IngestionRequest(
         url=url,
         vault_path=Path(vault) if vault else None,
@@ -151,31 +191,13 @@ def ingest(
         update=update,
     )
     try:
-        result = ingest_content(request, settings, on_progress=show_progress)
-    except ProviderSelectionError:
-        typer.echo("❌ Unknown source type. Please provide a valid URL or file path.", err=True)
-        raise typer.Exit(1) from None
-    except ContentFetchError as e:
-        cause = e.__cause__
-        if isinstance(cause, InvalidYouTubeURLError):
-            typer.echo(f"❌ Invalid URL: {cause}", err=True)
-        elif isinstance(cause, TranscriptUnavailableError):
-            typer.echo(f"❌ Transcript unavailable: {cause}", err=True)
-            typer.echo(
-                "💡 This video may not have English captions or may be private.",
-                err=True,
-            )
-        elif isinstance(cause, FileNotFoundError):
-            typer.echo(f"❌ File not found: {cause}", err=True)
-        else:
-            typer.echo(f"❌ Failed to fetch content: {cause or e}", err=True)
-        raise typer.Exit(1) from e
-    except NoteGenerationStageError as e:
-        typer.echo(f"❌ Failed to generate note: {e.__cause__ or e}", err=True)
-        typer.echo("💡 Check your OpenRouter API key and model configuration.", err=True)
-        raise typer.Exit(1) from e
-    except VaultWriteError as e:
-        typer.echo(f"❌ Failed to write note: {e.__cause__ or e}", err=True)
+        result = ingest_content(
+            request,
+            settings,
+            on_progress=lambda p: _show_progress(p, url, settings.llm_model),
+        )
+    except IngestionError as e:
+        _report_ingest_error(e)
         raise typer.Exit(1) from e
 
     vault_path = request.vault_path or settings.obsidian_vault_path
@@ -184,15 +206,9 @@ def ingest(
         typer.echo(f"📄 Already in vault: '{result.title}'")
         typer.echo(f"   Tags: {', '.join(result.tags) if result.tags else 'none'}")
         typer.echo(f"   Path: {result.file_path}")
-        try:
-            typer.echo(f"   Open: {build_obsidian_url(vault_path, result.file_path)}")
-        except ValueError:
-            pass
+        _print_open_link(vault_path, result.file_path)
         typer.echo("💡 Re-run with --update to regenerate this note.")
         return
 
     typer.echo("✅ Ingestion complete!")
-    try:
-        typer.echo(f"   Open: {build_obsidian_url(vault_path, result.file_path)}")
-    except ValueError:
-        pass
+    _print_open_link(vault_path, result.file_path)
