@@ -56,6 +56,8 @@ class IngestionRequest:
     max_pages: int | None = None
     captured_content: str | None = None
     captured_title: str | None = None
+    captured_author: str | None = None
+    captured_date: str | None = None
     update: bool = False
 
 
@@ -111,6 +113,7 @@ def default_prompt_version(provider_name: str) -> str:
         "github": "github_repo_v1",
         "pdf": "pdf_v1",
         "arxiv": "arxiv_v1",
+        "x": "twitter_thread_v1",
     }.get(provider_name, "article_v1")
 
 
@@ -177,10 +180,17 @@ def ingest_content(
         kwargs["max_pages"] = request.max_pages
     if provider.name == "youtube" and request.transcript_providers is not None:
         kwargs["provider_order"] = request.transcript_providers
-    if provider.name == "web" and request.captured_content is not None:
+    # Browser-captured content (extension seam) applies to any provider;
+    # only forward the fields that are actually set.
+    if request.captured_content is not None:
         kwargs["captured_content"] = request.captured_content
-        if request.captured_title is not None:
-            kwargs["captured_title"] = request.captured_title
+        for key, value in (
+            ("captured_title", request.captured_title),
+            ("captured_author", request.captured_author),
+            ("captured_date", request.captured_date),
+        ):
+            if value is not None:
+                kwargs[key] = value
 
     try:
         metadata = provider.ingest(request.url, **kwargs)

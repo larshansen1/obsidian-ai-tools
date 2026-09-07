@@ -75,6 +75,26 @@ class TestNormalizeSourceUrl:
     def test_non_http_sources_only_trimmed(self) -> None:
         assert normalize_source_url(" ./documents/paper.pdf ") == "./documents/paper.pdf"
 
+    @pytest.mark.parametrize(
+        "variant",
+        [
+            "https://www.x.com/user/status/123",
+            "https://x.com/user/status/123?s=20",
+            "https://twitter.com/user/status/123",
+            "https://www.twitter.com/user/status/123?t=abc123",
+            "https://twitter.com/user/status/123?s=20&t=abc123&utm_source=x",
+        ],
+    )
+    def test_x_variants_collapse(self, variant: str) -> None:
+        """All X/twitter forms of the same status canonicalize to x.com."""
+        assert normalize_source_url(variant) == "x.com/user/status/123"
+
+    def test_tracking_params_stripped_only_on_x_hosts(self) -> None:
+        """s/t are X noise but meaningful query params on other sites."""
+        assert normalize_source_url("https://example.com/p?s=20&t=42") == (
+            "example.com/p?s=20&t=42"
+        )
+
 
 class TestFindNoteBySource:
     def test_finds_exact_match(self, tmp_path: Path) -> None:

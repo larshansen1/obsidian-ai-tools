@@ -38,6 +38,8 @@ class IngestRequest(BaseModel):
     max_pages: int | None = None
     captured_content: str | None = None
     captured_title: str | None = None
+    captured_author: str | None = None
+    captured_date: str | None = None
     update: bool = False
 
 
@@ -145,6 +147,8 @@ def create_app() -> FastAPI:
                     max_pages=req.max_pages,
                     captured_content=req.captured_content,
                     captured_title=req.captured_title,
+                    captured_author=req.captured_author,
+                    captured_date=req.captured_date,
                     update=req.update,
                 ),
                 settings,
