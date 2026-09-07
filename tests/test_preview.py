@@ -1,11 +1,21 @@
 """Tests for preview functionality."""
 
+import io
 import json
+import logging
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer
+from typer.testing import CliRunner
 
+from obsidian_ai_tools.commands.preview import (
+    _record_preview_metric,
+    _resolve_urls,
+    _run_interactive_action,
+)
 from obsidian_ai_tools.preview import (
     PreviewError,
     PreviewInfo,
@@ -764,7 +774,7 @@ class TestPreviewCommand:
         assert result.exit_code == 1
         assert "No URL provided" in result.output
 
-    @patch("obsidian_ai_tools.preview.generate_preview")
+    @patch("obsidian_ai_tools.commands.preview.generate_preview")
     def test_preview_command_success(
         self,
         mock_generate: MagicMock,
@@ -784,7 +794,7 @@ class TestPreviewCommand:
         assert result.exit_code == 0
         assert "Preview" in result.output
 
-    @patch("obsidian_ai_tools.preview.generate_preview")
+    @patch("obsidian_ai_tools.commands.preview.generate_preview")
     def test_preview_command_json_format(
         self,
         mock_generate: MagicMock,
@@ -806,7 +816,7 @@ class TestPreviewCommand:
         assert result.exit_code == 0
         assert "{" in result.output
 
-    @patch("obsidian_ai_tools.preview.generate_preview")
+    @patch("obsidian_ai_tools.commands.preview.generate_preview")
     def test_preview_command_unsupported_url(
         self,
         mock_generate: MagicMock,
@@ -825,8 +835,8 @@ class TestPreviewCommand:
         # Should handle gracefully (not crash)
         assert "Unsupported" in result.output or "Cannot determine" in result.output
 
-    @patch("obsidian_ai_tools.preview.generate_preview")
-    @patch("obsidian_ai_tools.observability.get_db")
+    @patch("obsidian_ai_tools.commands.preview.generate_preview")
+    @patch("obsidian_ai_tools.commands.preview.get_db")
     def test_preview_command_batch_reports_summary(
         self,
         mock_get_db: MagicMock,
@@ -853,9 +863,9 @@ class TestPreviewCommand:
         assert "Total estimated cost" in result.output
         assert mock_get_db.return_value.record_metric.call_count == 2
 
-    @patch("obsidian_ai_tools.preview.generate_preview")
-    @patch("obsidian_ai_tools.preview.save_to_reading_list")
-    @patch("obsidian_ai_tools.observability.get_db")
+    @patch("obsidian_ai_tools.commands.preview.generate_preview")
+    @patch("obsidian_ai_tools.commands.preview.save_to_reading_list")
+    @patch("obsidian_ai_tools.commands.preview.get_db")
     def test_preview_command_interactive_save(
         self,
         mock_get_db: MagicMock,
@@ -880,3 +890,196 @@ class TestPreviewCommand:
         assert result.exit_code == 0
         assert "Saved to reading list" in result.output
         mock_save.assert_called_once()
+
+
+# =============================================================================
+# Tests for preview command helpers
+# =============================================================================
+
+
+class TestResolveUrls:
+    """Direct tests for _resolve_urls (exit-guard arms not reachable via CliRunner)."""
+
+    def test_batch_with_tty_stdin_raises(self, monkeypatch, capsys) -> None:
+        """Batch mode with a TTY stdin exits with the no-input guidance."""
+
+        class TTYStdin:
+            def isatty(self) -> bool:
+                return True
+
+        monkeypatch.setattr(sys, "stdin", TTYStdin())
+
+        with pytest.raises(typer.Exit) as exc:
+            _resolve_urls(None, batch=True)
+
+        assert exc.value.exit_code == 1
+        assert capsys.readouterr().err == (
+            "❌ No input provided for batch mode\n"
+            "💡 Pipe URLs to stdin: pbpaste | kai preview --batch\n"
+        )
+
+    def test_batch_without_valid_urls_raises(self, monkeypatch, capsys) -> None:
+        """Batch mode with only non-http lines exits with an error."""
+        monkeypatch.setattr(sys, "stdin", io.StringIO("invalid\nftp://x.com\n"))
+
+        with pytest.raises(typer.Exit) as exc:
+            _resolve_urls(None, batch=True)
+
+        assert exc.value.exit_code == 1
+        assert capsys.readouterr().err == "❌ No valid URLs found in input\n"
+
+    def test_batch_filters_and_counts_urls(self, monkeypatch, capsys) -> None:
+        """Batch mode keeps only http(s) lines, preserving order."""
+        monkeypatch.setattr(
+            sys,
+            "stdin",
+            io.StringIO("https://a.com\ninvalid\n  https://b.com  \n"),
+        )
+
+        result = _resolve_urls(None, batch=True)
+
+        assert result == ["https://a.com", "https://b.com"]
+        assert capsys.readouterr().out == "📋 Processing 2 URL(s)...\n"
+
+
+class TestRecordPreviewMetric:
+    """Direct tests for _record_preview_metric telemetry helper."""
+
+    @pytest.mark.parametrize(
+        ("source_type", "outcome", "error_type", "message"),
+        [
+            ("web", "success", None, "Failed to record successful preview metric"),
+            (
+                "unknown",
+                "failure",
+                "UnsupportedURLError",
+                "Failed to record unsupported preview metric",
+            ),
+            ("unknown", "failure", "PreviewError", "Failed to record failed preview metric"),
+        ],
+    )
+    @patch("obsidian_ai_tools.commands.preview.get_db")
+    def test_swallows_db_failure_with_exact_warning(
+        self,
+        mock_get_db: MagicMock,
+        caplog,
+        source_type: str,
+        outcome: str,
+        error_type: str | None,
+        message: str,
+    ) -> None:
+        """A record_metric failure logs the exact warning and does not propagate."""
+        mock_get_db.return_value.record_metric.side_effect = RuntimeError("db down")
+
+        with caplog.at_level(logging.WARNING, logger="obsidian_ai_tools.commands.preview"):
+            _record_preview_metric(source_type, outcome, 1.5, error_type)  # must not raise
+
+        mock_get_db.return_value.record_metric.assert_called_once_with(
+            source_type=source_type,
+            outcome=outcome,
+            duration_seconds=1.5,
+            error_type=error_type,
+            provider_used="preview",
+        )
+        assert len(caplog.records) == 1
+        assert caplog.records[0].message == message
+        assert caplog.records[0].exc_info is not None
+        assert caplog.records[0].exc_info[0] is RuntimeError
+
+
+class TestRunInteractiveAction:
+    """Direct tests for the interactive action menu helper."""
+
+    def test_skip_prints_confirmation(
+        self, tmp_path: Path, sample_preview: PreviewInfo, capsys
+    ) -> None:
+        """Choice 'x' prints the skip confirmation and nothing else."""
+        with patch("obsidian_ai_tools.commands.preview.typer.prompt", return_value="x"):
+            _run_interactive_action(sample_preview, sample_preview.url, tmp_path)
+
+        assert capsys.readouterr().out == (
+            "\n  Actions:\n"
+            "    [i] Ingest now\n"
+            "    [s] Save to reading list\n"
+            "    [x] Skip\n"
+            "  ✓ Skipped\n"
+        )
+
+    @patch("obsidian_ai_tools.commands.preview._app")
+    @patch("obsidian_ai_tools.commands.preview.CliRunner")
+    def test_ingest_reinvokes_app_via_cli_runner(
+        self,
+        mock_runner: MagicMock,
+        mock_app: MagicMock,
+        tmp_path: Path,
+        sample_preview: PreviewInfo,
+        capsys,
+    ) -> None:
+        """Choice 'i' re-enters the app through CliRunner with exact ingest args."""
+        mock_runner.return_value.invoke.return_value.output = "fake ingest output"
+
+        with patch("obsidian_ai_tools.commands.preview.typer.prompt", return_value="i"):
+            _run_interactive_action(sample_preview, sample_preview.url, tmp_path)
+
+        mock_runner.return_value.invoke.assert_called_once_with(
+            mock_app, ["ingest", sample_preview.url, "--vault", str(tmp_path)]
+        )
+        assert "fake ingest output" in capsys.readouterr().out
+
+
+class TestPreviewCommandFailureMetrics:
+    """CLI-level failure arms must record exactly one failure metric per URL."""
+
+    @patch("obsidian_ai_tools.commands.preview.time.time", return_value=100.0)
+    @patch("obsidian_ai_tools.commands.preview.get_db")
+    @patch("obsidian_ai_tools.commands.preview.generate_preview")
+    def test_unsupported_url_records_failure_metric(
+        self,
+        mock_generate: MagicMock,
+        mock_get_db: MagicMock,
+        mock_time: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Unsupported URLs record one failure metric with UnsupportedURLError."""
+        from obsidian_ai_tools.cli import app
+
+        mock_generate.side_effect = UnsupportedURLError("Cannot determine source type")
+
+        result = CliRunner().invoke(app, ["preview", "ftp://invalid.com", "--vault", str(tmp_path)])
+
+        assert result.exit_code == 0
+        mock_get_db.return_value.record_metric.assert_called_once_with(
+            source_type="unknown",
+            outcome="failure",
+            duration_seconds=0.0,
+            error_type="UnsupportedURLError",
+            provider_used="preview",
+        )
+
+    @patch("obsidian_ai_tools.commands.preview.time.time", return_value=100.0)
+    @patch("obsidian_ai_tools.commands.preview.get_db")
+    @patch("obsidian_ai_tools.commands.preview.generate_preview")
+    def test_preview_error_records_failure_metric(
+        self,
+        mock_generate: MagicMock,
+        mock_get_db: MagicMock,
+        mock_time: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Preview failures record one failure metric with PreviewError."""
+        from obsidian_ai_tools.cli import app
+
+        mock_generate.side_effect = PreviewError("fetch failed")
+
+        result = CliRunner().invoke(
+            app, ["preview", "https://example.com", "--vault", str(tmp_path)]
+        )
+
+        assert result.exit_code == 0
+        mock_get_db.return_value.record_metric.assert_called_once_with(
+            source_type="unknown",
+            outcome="failure",
+            duration_seconds=0.0,
+            error_type="PreviewError",
+            provider_used="preview",
+        )
