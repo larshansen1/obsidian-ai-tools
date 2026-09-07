@@ -72,8 +72,12 @@ def _show_progress(progress: IngestionProgress, url: str, model: str) -> None:
 
 def _report_fetch_error(e: ContentFetchError) -> None:
     """Echo the failure message for a content-fetch error and its cause."""
+    default = ("❌ Failed to fetch content: {}", None)
     cause = e.__cause__
-    message, hint = _FETCH_ERROR_MESSAGES.get(type(cause), ("❌ Failed to fetch content: {}", None))
+    if isinstance(cause, Exception):
+        message, hint = _FETCH_ERROR_MESSAGES.get(type(cause), default)
+    else:
+        message, hint = default
     typer.echo(message.format(cause or e), err=True)
     if hint:
         typer.echo(hint, err=True)
