@@ -52,6 +52,37 @@ class ArticleMetadata(BaseModel):
     )
 
 
+class ThreadTweet(BaseModel):
+    """A single tweet within an X (Twitter) thread."""
+
+    text: str = Field(..., description="Tweet text")
+    timestamp: str | None = Field(None, description="Tweet timestamp (ISO 8601 if known)")
+    tweet_id: str | None = Field(None, description="X status id when known")
+
+
+class ThreadMetadata(ArticleMetadata):
+    """X (Twitter) thread metadata.
+
+    Subclasses ArticleMetadata so the existing pipeline (build_prompt,
+    generate_note) reads .content/.url/.title/.author/.site_name as usual.
+    """
+
+    tweets: list[ThreadTweet] = Field(
+        default_factory=list, description="Ordered tweets in the thread"
+    )
+    engagement: dict[str, int] | None = Field(
+        None, description="Engagement stats (likes/replies/retweets) when available"
+    )
+    media_presence: str | None = Field(
+        None,
+        description="Media attachment type as text (video/image/carousel) - no OCR",
+    )
+    fetch_method: str | None = Field(
+        None, description="How the thread was captured (extension/supadata)"
+    )
+    source_type: str = Field(default="x", description="Content source type")
+
+
 class ArxivMetadata(ArticleMetadata):
     """arXiv paper metadata from the export API.
 

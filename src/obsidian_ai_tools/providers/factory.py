@@ -6,6 +6,7 @@ from .file import FileProvider
 from .github import GitHubProvider
 from .pdf import PDFProvider
 from .web import WebProvider
+from .x import XThreadProvider
 from .youtube import YouTubeProvider
 
 
@@ -18,6 +19,7 @@ class ProviderFactory:
         PDFProvider,  # PDF before File so .pdf files use PDF provider
         FileProvider,
         GitHubProvider,  # GitHub repo URLs before Web catch-all
+        XThreadProvider,  # X before Web catch-all
         WebProvider,  # Web is catch-all for URLs, so put last
     ]
 

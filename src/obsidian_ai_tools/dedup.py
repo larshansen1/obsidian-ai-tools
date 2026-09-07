@@ -14,6 +14,12 @@ from urllib.parse import parse_qsl, urlencode, urlparse
 # content itself.
 _TRACKING_PARAMS = {"fbclid", "gclid", "igshid", "mc_cid", "mc_eid", "si", "ref_src"}
 
+# X share links (s=20) and in-thread position markers (t=...) are tracking
+# noise; they are stripped only for X hosts so real t=/s= params on other
+# sites are preserved.
+_X_HOSTS = {"x.com", "twitter.com"}
+_X_TRACKING_PARAMS = {"s", "t"}
+
 _YOUTUBE_HOSTS = {"youtube.com", "m.youtube.com", "music.youtube.com"}
 
 
@@ -53,11 +59,15 @@ def normalize_source_url(url: str) -> str:
     host = parsed.netloc.lower()
     host = host.removeprefix("www.")
     host = host.removesuffix(":80").removesuffix(":443")
+    # twitter.com and x.com are the same site; canonicalize to x.com
+    if host in _X_HOSTS:
+        host = "x.com"
 
+    excluded = _TRACKING_PARAMS | (_X_TRACKING_PARAMS if host in _X_HOSTS else set())
     query_pairs = [
         (k, v)
         for k, v in parse_qsl(parsed.query, keep_blank_values=True)
-        if k not in _TRACKING_PARAMS and not k.startswith("utm_")
+        if k not in excluded and not k.startswith("utm_")
     ]
 
     video_id = _youtube_video_id(host, parsed.path, query_pairs)

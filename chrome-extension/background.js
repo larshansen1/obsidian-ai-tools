@@ -1,4 +1,4 @@
-import { captureChatPage } from "./capture.js";
+import { capturePage } from "./capture.js";
 
 const SERVER = "http://127.0.0.1:8765";
 
@@ -39,7 +39,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   const capture =
     info.menuItemId === "kai-ingest-page"
-      ? await captureChatPage(tab?.id, url)
+      ? await capturePage(tab?.id, url)
       : {};
   ingestUrl(url, capture);
 });

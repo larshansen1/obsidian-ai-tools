@@ -1,4 +1,4 @@
-import { captureChatPage } from "./capture.js";
+import { capturePage } from "./capture.js";
 
 const SERVER = "http://127.0.0.1:8765";
 
@@ -139,7 +139,7 @@ btn.addEventListener("click", async () => {
   resultEl.className = "result";
 
   try {
-    const capture = await captureChatPage(currentTabId, currentUrl);
+    const capture = await capturePage(currentTabId, currentUrl);
     const r = await fetch(`${SERVER}/ingest`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

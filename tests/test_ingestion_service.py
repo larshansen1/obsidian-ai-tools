@@ -175,6 +175,20 @@ def test_ingest_content_runs_shared_pipeline_and_emits_progress(tmp_path: Path) 
                 "captured_title": "ChatGPT - Example",
             },
         ),
+        (
+            "x",
+            IngestionRequest(
+                url="https://x.com/user/status/123",
+                captured_content="tweet one\n\n---\n\ntweet two",
+                captured_author="handle",
+                captured_date="2026-09-07T09:00:00.000Z",
+            ),
+            {
+                "captured_content": "tweet one\n\n---\n\ntweet two",
+                "captured_author": "handle",
+                "captured_date": "2026-09-07T09:00:00.000Z",
+            },
+        ),
     ],
 )
 def test_ingest_content_forwards_provider_specific_options(
@@ -390,6 +404,44 @@ def test_http_ingest_delegates_to_shared_pipeline(tmp_path: Path) -> None:
         max_pages=12,
         captured_content="User: question\nAssistant: answer",
         captured_title="ChatGPT - Example",
+    )
+
+
+def test_http_ingest_forwards_captured_author_and_date(tmp_path: Path) -> None:
+    """The webhook adapter forwards new captured-metadata fields."""
+    metadata = _metadata()
+    note = _note()
+    result = IngestionResult(
+        provider_name="x",
+        prompt_version="twitter_thread_v1",
+        metadata=metadata,
+        note=note,
+        file_path=tmp_path / "inbox" / "x-generated-note.md",
+    )
+
+    with (
+        patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+        patch("obsidian_ai_tools.server.app.ingest_content", return_value=result) as mock_ingest,
+    ):
+        response = TestClient(create_app()).post(
+            "/ingest",
+            json={
+                "url": metadata.url,
+                "vault_path": str(tmp_path),
+                "captured_content": "tweet one",
+                "captured_author": "handle",
+                "captured_date": "2026-09-07T09:00:00.000Z",
+            },
+        )
+
+    assert response.status_code == 200
+    request = mock_ingest.call_args.args[0]
+    assert request == IngestionRequest(
+        url=metadata.url,
+        vault_path=tmp_path,
+        captured_content="tweet one",
+        captured_author="handle",
+        captured_date="2026-09-07T09:00:00.000Z",
     )
 
 

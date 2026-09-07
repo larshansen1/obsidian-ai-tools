@@ -43,6 +43,8 @@ class WebProvider(BaseProvider):
             source.startswith(("http://", "https://"))
             and "youtube.com" not in source
             and "youtu.be" not in source
+            and "x.com" not in source
+            and "twitter.com" not in source
         )
 
     def _ingest(self, source: str, **kwargs: Any) -> ArticleMetadata:
@@ -64,11 +66,11 @@ class WebProvider(BaseProvider):
             return ArticleMetadata(
                 content=captured_content.strip(),
                 title=kwargs.get("captured_title") or "Captured Chat",
-                author="Unknown Author",
+                author=kwargs.get("captured_author") or "Unknown Author",
                 # pragma: no mutate - removing "published_date=None" is equivalent
                 # (ArticleMetadata.published_date defaults to None); assert instead on
                 # the resolved value (result.published_date is None) in tests.
-                published_date=None,
+                published_date=kwargs.get("captured_date"),
                 site_name="Browser Capture",
                 url=source,
             )
