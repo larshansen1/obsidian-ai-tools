@@ -200,6 +200,24 @@ class TestXProviderCaptured:
         assert result.fetch_method == "supadata"
         assert result.content == "Tweet body"
 
+    def test_capture_parse_failure_records_no_success(
+        self, provider: XThreadProvider, fake_clock: None
+    ) -> None:
+        """Failing capture parse must not record a fake ~0ms success."""
+        db = _mock_db()
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch.object(
+                provider, "_from_capture", side_effect=RuntimeError("parse failed")
+            ) as mock_parse,
+            pytest.raises(RuntimeError) as excinfo,
+        ):
+            provider._ingest(SRC, captured_content="some captured text")
+
+        assert str(excinfo.value) == "parse failed"
+        mock_parse.assert_called_once_with(SRC, {"captured_content": "some captured text"})
+        assert db.record_provider_attempt.call_args_list == []
+
 
 class TestXProviderSupadata:
     """URL-only fallback via the Supadata metadata endpoint."""
@@ -414,8 +432,8 @@ class TestXProviderLinkOnly:
         assert [tweet.text for tweet in result.tweets] == [self.BODY]
         db.record_provider_attempt.assert_has_calls(
             [
-                call("x", "extension", "success", 1.0, None, SRC),
                 call("x", "expand", "success", 1.0, None, SRC),
+                call("x", "extension", "success", 3.0, None, SRC),
             ]
         )
 
@@ -497,12 +515,9 @@ class TestXProviderLinkOnly:
 
         assert str(excinfo.value) == expected
         error_response.raise_for_status.assert_called_once_with()
-        db.record_provider_attempt.assert_has_calls(
-            [
-                call("x", "extension", "success", 1.0, None, SRC),
-                call("x", "expand", "failure", 1.0, "HTTPError", SRC),
-            ]
-        )
+        assert db.record_provider_attempt.call_args_list == [
+            call("x", "expand", "failure", 1.0, "HTTPError", SRC)
+        ]
 
     def test_captured_bare_link_web_failure_raises_exact_message(
         self, provider: XThreadProvider, fake_clock: None
@@ -524,12 +539,9 @@ class TestXProviderLinkOnly:
         assert str(excinfo.value) == (
             f"Failed to fetch X article content from {self.RESOLVED}: no fallback configured"
         )
-        db.record_provider_attempt.assert_has_calls(
-            [
-                call("x", "extension", "success", 1.0, None, SRC),
-                call("x", "expand", "failure", 1.0, "RuntimeError", SRC),
-            ]
-        )
+        assert db.record_provider_attempt.call_args_list == [
+            call("x", "expand", "failure", 1.0, "RuntimeError", SRC)
+        ]
 
     def test_supadata_bare_link_web_failure_raises_exact_message(
         self, provider: XThreadProvider, fake_clock: None
