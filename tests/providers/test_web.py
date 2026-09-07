@@ -115,6 +115,30 @@ class TestWebProviderValidate:
         """'youtube.com' is only blocked in the exact lowercase form."""
         assert provider.validate("https://YOUTUBE.COM/watch?v=abc123")
 
+    def test_x_twitter_substring_in_path_is_accepted(self, provider: WebProvider) -> None:
+        """X/Twitter substrings in the path do not reject the URL."""
+        assert provider.validate("https://example.com/blog/why-i-left-twitter.com-posting") is True
+
+    def test_x_twitter_substring_in_query_is_accepted(self, provider: WebProvider) -> None:
+        """X/Twitter substrings in the query string do not reject the URL."""
+        assert provider.validate("https://example.com/?next=https://x.com/user") is True
+
+    def test_lookalike_domain_is_accepted(self, provider: WebProvider) -> None:
+        """Domains merely resembling x.com/twitter.com are accepted."""
+        assert provider.validate("https://examplex.com/") is True
+
+    def test_rejects_x_twitter_hostnames(self, provider: WebProvider) -> None:
+        """x.com/twitter.com and their subdomains are rejected, case-insensitively."""
+        for source in (
+            "https://x.com/user/status/1",
+            "https://twitter.com/user/status/1",
+            "https://www.x.com/anything",
+            "https://mobile.twitter.com/anything",
+            "https://sub.x.com/anything",
+            "https://X.COM/user/status/1",
+        ):
+            assert provider.validate(source) is False
+
 
 class TestWebProviderFetchRaw:
     """Direct raw-content fetching."""
