@@ -17,7 +17,13 @@ from conftest import patched_openai
 from typer.testing import CliRunner
 
 from obsidian_ai_tools.cli import app
+from obsidian_ai_tools.ingestion import (
+    ContentFetchError,
+    NoteGenerationStageError,
+    VaultWriteError,
+)
 from obsidian_ai_tools.models import ArticleMetadata
+from obsidian_ai_tools.youtube import InvalidYouTubeURLError, TranscriptUnavailableError
 
 runner = CliRunner()
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -26,6 +32,13 @@ ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 def strip_ansi(text: str) -> str:
     """Remove terminal styling added by Rich/Typer in colored CI environments."""
     return ANSI_ESCAPE_RE.sub("", text)
+
+
+def _content_fetch_error(cause: type[Exception], message: str) -> ContentFetchError:
+    """Build a ContentFetchError chained to the given cause, as providers raise it."""
+    error = ContentFetchError("fetch failed")
+    error.__cause__ = cause(message)
+    return error
 
 
 class TestFileProviderIngest:
@@ -541,6 +554,149 @@ class TestCLIIngestCommand:
 
             assert result.exit_code == 1
             assert "Unknown source type" in result.stderr or "Unknown source" in result.stderr
+
+    @pytest.mark.parametrize(
+        "error,expected_stderr",
+        [
+            (
+                _content_fetch_error(InvalidYouTubeURLError, "bad video id"),
+                "❌ Invalid URL: bad video id",
+            ),
+            (
+                _content_fetch_error(TranscriptUnavailableError, "captions unavailable"),
+                "❌ Transcript unavailable: captions unavailable\n"
+                "💡 This video may not have English captions or may be private.",
+            ),
+            (
+                _content_fetch_error(FileNotFoundError, "/missing/note.md"),
+                "❌ File not found: /missing/note.md",
+            ),
+            (ContentFetchError("network timeout"), "❌ Failed to fetch content: network timeout"),
+            (
+                NoteGenerationStageError("llm call failed"),
+                "❌ Failed to generate note: llm call failed\n"
+                "💡 Check your OpenRouter API key and model configuration.",
+            ),
+            (VaultWriteError("disk full"), "❌ Failed to write note: disk full"),
+        ],
+    )
+    def test_ingest_command_error_messages(
+        self, temp_vault: Path, error: Exception, expected_stderr: str
+    ) -> None:
+        """Each ingestion failure prints its exact message and exits 1."""
+        with (
+            patch("obsidian_ai_tools.commands.ingest.get_settings") as mock_settings,
+            patch(
+                "obsidian_ai_tools.commands.ingest.ingest_content",
+                side_effect=error,
+            ),
+        ):
+            mock_settings.return_value.obsidian_vault_path = temp_vault
+            mock_settings.return_value.llm_model = "test-model"
+
+            result = runner.invoke(
+                app,
+                ["ingest", "https://example.com/video", "--vault", str(temp_vault)],
+            )
+
+            assert result.exit_code == 1
+            assert strip_ansi(result.stderr) == expected_stderr + "\n"
+
+
+class TestShowProgress:
+    """Direct tests for extracted progress-reporter branches not hit end-to-end."""
+
+    def test_show_progress_transcript_provider_list(self, capsys: object) -> None:
+        """Fetching stage lists comma-separated transcript providers."""
+        from obsidian_ai_tools.commands.ingest import _show_progress
+        from obsidian_ai_tools.ingestion import IngestionProgress
+
+        _show_progress(
+            IngestionProgress(
+                stage="fetching",
+                provider_name="youtube",
+                prompt_version="youtube_v2",
+                transcript_providers="direct,supadata,decodo",
+            ),
+            url="https://youtube.com/watch?v=abc",
+            model="test-model",
+        )
+        assert capsys.readouterr().out == (
+            "📥 Fetching content using youtube provider...\n"
+            "   🔍 Trying transcript providers: direct, supadata, decodo\n"
+        )
+
+    def test_show_progress_video_metadata_transcript_via(self, capsys: object) -> None:
+        """Content-fetched stage for YouTube names the provider that supplied it."""
+        from obsidian_ai_tools.commands.ingest import _show_progress
+        from obsidian_ai_tools.ingestion import IngestionProgress
+        from obsidian_ai_tools.models import VideoMetadata
+
+        _show_progress(
+            IngestionProgress(
+                stage="content_fetched",
+                provider_name="youtube",
+                prompt_version="youtube_v2",
+                metadata=VideoMetadata(
+                    title="T",
+                    url="https://youtube.com/watch?v=abc",
+                    transcript="hello world",
+                    channel_name="C",
+                    video_id="abc",
+                    provider_used="supadata",
+                ),
+            ),
+            url="https://youtube.com/watch?v=abc",
+            model="test-model",
+        )
+        assert capsys.readouterr().out == ("   ✓ Transcript via supadata (11 chars)\n")
+
+    def test_show_progress_video_metadata_plain_transcript(self, capsys: object) -> None:
+        """Content-fetched stage falls back to a generic transcript line."""
+        from obsidian_ai_tools.commands.ingest import _show_progress
+        from obsidian_ai_tools.ingestion import IngestionProgress
+        from obsidian_ai_tools.models import VideoMetadata
+
+        _show_progress(
+            IngestionProgress(
+                stage="content_fetched",
+                provider_name="youtube",
+                prompt_version="youtube_v2",
+                metadata=VideoMetadata(
+                    title="T",
+                    url="https://youtube.com/watch?v=abc",
+                    transcript="hello world",
+                    channel_name="C",
+                    video_id="abc",
+                ),
+            ),
+            url="https://youtube.com/watch?v=abc",
+            model="test-model",
+        )
+        assert capsys.readouterr().out == ("   ✓ Transcript fetched (11 chars)\n")
+
+    def test_show_progress_pdf_truncation_warning(self, capsys: object) -> None:
+        """PDF content capped by the page limit prints a truncation warning."""
+        from obsidian_ai_tools.commands.ingest import _show_progress
+        from obsidian_ai_tools.ingestion import IngestionProgress
+
+        _show_progress(
+            IngestionProgress(
+                stage="content_fetched",
+                provider_name="pdf",
+                prompt_version="pdf_v1",
+                metadata=ArticleMetadata(
+                    url="https://example.com/paper.pdf",
+                    title="Paper",
+                    content="Only the first 10 pages were extracted.",
+                ),
+            ),
+            url="https://example.com/paper.pdf",
+            model="test-model",
+        )
+        assert capsys.readouterr().out == (
+            "   ✓ Content fetched: 'Paper' (39 chars)\n   ⚠️  PDF truncated due to page limit\n"
+        )
 
 
 class TestIngestNoteGeneration:
