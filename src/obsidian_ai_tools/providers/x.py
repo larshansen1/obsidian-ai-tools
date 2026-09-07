@@ -166,8 +166,10 @@ class XThreadProvider(BaseProvider):
         resolved_url = link
         _t0 = time.monotonic()
         try:
+            _limiter.wait(link)
             response = requests.get(link, allow_redirects=True, stream=True, timeout=30)
             resolved_url = response.url
+            response.raise_for_status()
             response.close()
             article = cast(ArticleMetadata, WebProvider().ingest(resolved_url))
         except Exception as exc:

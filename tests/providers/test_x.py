@@ -386,11 +386,13 @@ class TestXProviderLinkOnly:
     ) -> None:
         """Extension-captured content that is only a link fetches the target."""
         db = _mock_db()
+        redirect_response = self._redirect_response()
         with (
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.x._limiter") as mock_limiter,
             patch(
                 "obsidian_ai_tools.providers.x.requests.get",
-                return_value=self._redirect_response(),
+                return_value=redirect_response,
             ) as mock_get,
             patch("obsidian_ai_tools.providers.x.WebProvider") as mock_web,
         ):
@@ -398,6 +400,8 @@ class TestXProviderLinkOnly:
             result = provider._ingest(SRC, captured_content=self.LINK, captured_author="handle")
 
         mock_get.assert_called_once_with(self.LINK, allow_redirects=True, stream=True, timeout=30)
+        mock_limiter.wait.assert_called_once_with(self.LINK)
+        redirect_response.raise_for_status.assert_called_once_with()
         mock_web.assert_called_once_with()
         mock_web.return_value.ingest.assert_called_once_with(self.RESOLVED)
         assert result.content == self.BODY
@@ -427,12 +431,13 @@ class TestXProviderLinkOnly:
             "author": {"username": "handle", "displayName": "Display Name"},
             "createdAt": "2026-09-07T09:00:00.000Z",
         }
+        redirect_response = self._redirect_response()
         with (
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.x._limiter") as mock_limiter,
             patch(
                 "obsidian_ai_tools.providers.x.requests.get",
-                side_effect=[_json_response(payload), self._redirect_response()],
+                side_effect=[_json_response(payload), redirect_response],
             ) as mock_get,
             patch("obsidian_ai_tools.providers.x.WebProvider") as mock_web,
         ):
@@ -450,7 +455,8 @@ class TestXProviderLinkOnly:
                 call(self.LINK, allow_redirects=True, stream=True, timeout=30),
             ]
         )
-        mock_limiter.wait.assert_called_once_with(SRC)
+        mock_limiter.wait.assert_has_calls([call(SRC), call(self.LINK)])
+        redirect_response.raise_for_status.assert_called_once_with()
         mock_web.assert_called_once_with()
         mock_web.return_value.ingest.assert_called_once_with(self.RESOLVED)
         assert result.content == self.BODY
@@ -464,6 +470,37 @@ class TestXProviderLinkOnly:
             [
                 call("x", "expand", "success", 1.0, None, SRC),
                 call("x", "supadata", "success", 3.0, None, SRC),
+            ]
+        )
+
+    def test_captured_bare_link_http_error_surfaces_404(
+        self, provider: XThreadProvider, fake_clock: None
+    ) -> None:
+        """HTTP error on the resolving GET raises the exact expand error."""
+        db = _mock_db()
+        error_response = MagicMock()
+        error_response.url = self.LINK
+        error_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "404 Client Error"
+        )
+        expected = f"Failed to fetch X article content from {self.LINK}: 404 Client Error"
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.x._limiter"),
+            patch(
+                "obsidian_ai_tools.providers.x.requests.get",
+                return_value=error_response,
+            ),
+            pytest.raises(RuntimeError) as excinfo,
+        ):
+            provider._ingest(SRC, captured_content=self.LINK)
+
+        assert str(excinfo.value) == expected
+        error_response.raise_for_status.assert_called_once_with()
+        db.record_provider_attempt.assert_has_calls(
+            [
+                call("x", "extension", "success", 1.0, None, SRC),
+                call("x", "expand", "failure", 1.0, "HTTPError", SRC),
             ]
         )
 
