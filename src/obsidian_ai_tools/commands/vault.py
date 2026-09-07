@@ -1,7 +1,7 @@
 """rebuild-index, process-inbox, usage commands."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
@@ -10,6 +10,80 @@ from ..observability import get_db, track_command
 
 if TYPE_CHECKING:
     from ..folder_organizer import NoteToMove
+
+
+# Keep in sync with tests/test_vault_usage.py::KNOWN_COMMANDS
+_KNOWN_COMMANDS = [
+    "ingest",
+    "preview",
+    "rebuild-index",
+    "process-inbox",
+    "usage",
+    "search",
+    "serve:ingest",
+]
+
+
+def _render_command_table(rows: list[dict[str, Any]], days: int, show_all: bool) -> None:
+    """Print the invocation summary table, with empty-state guidance."""
+    typer.echo(f"Command usage — last {days} day(s)")
+    typer.echo("━" * 60)
+
+    if not rows:
+        typer.echo("No command invocations recorded yet.")
+        if show_all:
+            typer.echo("(All commands shown below have never been run)")
+        else:
+            typer.echo("Run some commands, then check back — or use --all to see all commands.")
+        typer.echo()
+
+    header = f"{'command':<24} {'calls':>6}  {'success':>8}  {'last used':>12}"
+    typer.echo(header)
+    typer.echo("-" * 60)
+
+    for row in rows:
+        success_str = f"{row['success_pct']:.0f}%"
+        typer.echo(
+            f"{row['command']:<24} {row['calls']:>6}  {success_str:>8}  {row['last_used']:>12}"
+        )
+
+
+def _render_never_used(seen: set[str], show_all: bool) -> None:
+    """Print zero-invocation rows for --all."""
+    if not show_all:
+        return
+    for cmd in _KNOWN_COMMANDS:
+        if cmd not in seen:
+            typer.echo(f"{cmd:<24} {'0':>6}  {'—':>8}  {'never':>12}  <- never used")
+
+
+def _render_provider_table(days: int) -> None:
+    """Print the provider attempt table with fallback rates."""
+    provider_rows = get_db().get_provider_summary(days=days)
+    if not provider_rows:
+        return
+
+    typer.echo()
+    typer.echo(f"Provider attempts — last {days} day(s)")
+    typer.echo("━" * 60)
+    p_header = f"{'provider':<10} {'strategy':<10} {'attempts':>8}  {'success':>8}"
+    typer.echo(p_header)
+    typer.echo("-" * 60)
+
+    by_provider: dict[str, dict[str, int]] = {}
+    for row in provider_rows:
+        by_provider.setdefault(row["provider"], {})[row["strategy"]] = row["attempts"]
+
+    for row in provider_rows:
+        prov = row["provider"]
+        strat = row["strategy"]
+        success_str = f"{row['success_pct']:.0f}%"
+        line = f"{prov:<10} {strat:<10} {row['attempts']:>8}  {success_str:>8}"
+        if strat == "fallback":
+            total = sum(by_provider[prov].values())
+            fallback_rate = row["attempts"] / total * 100 if total else 0
+            line += f"  ({fallback_rate:.0f}% fallback rate)"
+        typer.echo(line)
 
 
 def register(app: typer.Typer) -> None:
@@ -214,68 +288,8 @@ def usage(
         raise typer.Exit(1) from e
 
     rows = get_db().get_invocation_summary(days=days)
-
-    typer.echo(f"Command usage — last {days} day(s)")
-    typer.echo("━" * 60)
-
-    if not rows:
-        typer.echo("No command invocations recorded yet.")
-        if show_all:
-            typer.echo("(All commands shown below have never been run)")
-        else:
-            typer.echo("Run some commands, then check back — or use --all to see all commands.")
-        typer.echo()
-
-    known_commands = [
-        "ingest",
-        "preview",
-        "rebuild-index",
-        "process-inbox",
-        "usage",
-        "search",
-        "serve:ingest",
-    ]
-
     seen = {r["command"] for r in rows}
 
-    header = f"{'command':<24} {'calls':>6}  {'success':>8}  {'last used':>12}"
-    typer.echo(header)
-    typer.echo("-" * 60)
-
-    for row in rows:
-        success_str = f"{row['success_pct']:.0f}%"
-        typer.echo(
-            f"{row['command']:<24} {row['calls']:>6}  {success_str:>8}  {row['last_used']:>12}"
-        )
-
-    if show_all:
-        for cmd in known_commands:
-            if cmd not in seen:
-                typer.echo(f"{cmd:<24} {'0':>6}  {'—':>8}  {'never':>12}  <- never used")
-
-    provider_rows = get_db().get_provider_summary(days=days)
-    if provider_rows:
-        typer.echo()
-        typer.echo(f"Provider attempts — last {days} day(s)")
-        typer.echo("━" * 60)
-        p_header = f"{'provider':<10} {'strategy':<10} {'attempts':>8}  {'success':>8}"
-        typer.echo(p_header)
-        typer.echo("-" * 60)
-
-        # Calculate fallback rates per provider
-        by_provider: dict[str, dict[str, int]] = {}
-        for row in provider_rows:
-            prov = row["provider"]
-            by_provider.setdefault(prov, {})
-            by_provider[prov][row["strategy"]] = row["attempts"]
-
-        for row in provider_rows:
-            prov = row["provider"]
-            strat = row["strategy"]
-            success_str = f"{row['success_pct']:.0f}%"
-            line = f"{prov:<10} {strat:<10} {row['attempts']:>8}  {success_str:>8}"
-            if strat == "fallback":
-                total = sum(by_provider[prov].values())
-                fallback_rate = row["attempts"] / total * 100 if total else 0
-                line += f"  ({fallback_rate:.0f}% fallback rate)"
-            typer.echo(line)
+    _render_command_table(rows, days, show_all)
+    _render_never_used(seen, show_all)
+    _render_provider_table(days)
