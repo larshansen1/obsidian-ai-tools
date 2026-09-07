@@ -10,8 +10,8 @@ Targets every branch of ``providers/x.py``:
 All tests are hermetic: HTTP, clock, database and rate limiter are mocked.
 """
 
-from unittest.mock import MagicMock, patch
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
@@ -215,9 +215,7 @@ class TestXProviderSupadata:
         "createdAt": "2026-09-07T09:00:00.000Z",
     }
 
-    def test_success_maps_all_fields(
-        self, provider: XThreadProvider, fake_clock: None
-    ) -> None:
+    def test_success_maps_all_fields(self, provider: XThreadProvider, fake_clock: None) -> None:
         """Full metadata mapping from the Supadata response."""
         db = _mock_db()
         with (
@@ -272,9 +270,7 @@ class TestXProviderSupadata:
 
         assert result.title == "@handle on X"
 
-    def test_null_stats_and_video_media(
-        self, provider: XThreadProvider, fake_clock: None
-    ) -> None:
+    def test_null_stats_and_video_media(self, provider: XThreadProvider, fake_clock: None) -> None:
         """All-null stats produce no engagement; video media is noted as text."""
         db = _mock_db()
         payload = dict(
@@ -384,9 +380,7 @@ class TestXRouting:
 class TestXEndToEnd:
     """Real provider through the shared ingestion pipeline (mocked LLM)."""
 
-    def test_ingest_content_writes_x_note(
-        self, tmp_path: Path, fake_clock: None
-    ) -> None:
+    def test_ingest_content_writes_x_note(self, tmp_path: Path, fake_clock: None) -> None:
         """Captured thread flows through routing, prompt selection and vault write."""
         from types import SimpleNamespace
 
@@ -430,9 +424,7 @@ class TestXEndToEnd:
             patch(
                 "obsidian_ai_tools.ingestion.generate_note", return_value=(note, cost)
             ) as mock_generate,
-            patch(
-                "obsidian_ai_tools.ingestion.write_note", return_value=note_path
-            ) as mock_write,
+            patch("obsidian_ai_tools.ingestion.write_note", return_value=note_path) as mock_write,
         ):
             result = ingest_content(
                 IngestionRequest(

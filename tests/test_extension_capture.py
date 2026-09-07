@@ -16,6 +16,7 @@ EXTENSION_DIR = Path(__file__).resolve().parents[1] / "chrome-extension"
 
 pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
+
 def test_extension_capture_tests_pass() -> None:
     """Run the node:test suite for the extension's capture logic."""
     result = subprocess.run(

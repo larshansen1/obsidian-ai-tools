@@ -32,6 +32,7 @@ _STATUS_RE = re.compile(
     r"^https?://(?:www\.)?(?:x\.com|twitter\.com)/[^/]+/status/\d+", re.IGNORECASE
 )
 
+
 class XThreadProvider(BaseProvider):
     """Provider for X (Twitter) threads."""
 
@@ -64,9 +65,7 @@ class XThreadProvider(BaseProvider):
             _t1 = time.monotonic()
             try:
                 metadata = self._fetch_supadata(source)
-                _record_attempt(
-                    "x", "supadata", "success", time.monotonic() - _t1, url=source
-                )
+                _record_attempt("x", "supadata", "success", time.monotonic() - _t1, url=source)
                 return metadata
             except Exception as exc:
                 logger.error(f"Supadata X fetch failed: {exc}")
@@ -81,9 +80,7 @@ class XThreadProvider(BaseProvider):
         """Build ThreadMetadata from extension-captured content (no network)."""
         content = cast(str, kwargs.get("captured_content")).strip()
         author = kwargs.get("captured_author")
-        title = kwargs.get("captured_title") or (
-            f"@{author} on X" if author else "X Thread"
-        )
+        title = kwargs.get("captured_title") or (f"@{author} on X" if author else "X Thread")
         tweets = [
             ThreadTweet(text=part.strip())
             for part in content.split(_TWEET_SEPARATOR)
@@ -135,9 +132,7 @@ class XThreadProvider(BaseProvider):
             site_name="X",
             url=url,
             tweets=[
-                ThreadTweet(
-                    text=content, timestamp=data.get("createdAt"), tweet_id=data.get("id")
-                )
+                ThreadTweet(text=content, timestamp=data.get("createdAt"), tweet_id=data.get("id"))
             ],
             engagement=stats,
             media_presence=media_presence,
