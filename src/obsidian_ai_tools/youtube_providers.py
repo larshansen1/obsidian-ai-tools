@@ -102,6 +102,16 @@ class DecodoTranscriptProvider(TranscriptProvider):
         self.api_key = api_key
         self.base_url = "https://scraper-api.decodo.com/v2/scrape"
 
+    def _extract_segments(self, events: Any) -> list[str]:
+        """Extract non-empty text from all segments in all events."""
+        text_segments = []
+        for event in events:
+            for seg in event.get("segs", []):
+                utf8_text = seg.get("utf8", "").strip()
+                if utf8_text:
+                    text_segments.append(utf8_text)
+        return text_segments
+
     def fetch_transcript(self, video_id: str) -> tuple[str, str]:
         """Fetch transcript using Decodo Scraper API (via subtitles)."""
         try:
@@ -124,30 +134,24 @@ class DecodoTranscriptProvider(TranscriptProvider):
             data = response.json()
 
             # Decodo returns nested structure: {results: {data: {subtitles: {events: [...]}}}}
-            if isinstance(data, dict) and "results" in data:
-                results = data["results"]
+            if not isinstance(data, dict) or "results" not in data:
+                raise TranscriptUnavailableError(f"Decodo response has no results for {video_id}")
+            results = data["results"]
+            if not isinstance(results, dict):
+                raise TranscriptUnavailableError(f"Decodo results not an object for {video_id}")
 
-                # Navigate to subtitle events
-                if isinstance(results, dict):
-                    subtitles_data = results.get("data", {}).get("subtitles", {})
-                    events = subtitles_data.get("events", [])
+            # Navigate to subtitle events
+            subtitles_data = results.get("data", {}).get("subtitles", {})
+            events = subtitles_data.get("events", [])
 
-                    # Extract text from all segments in all events
-                    text_segments = []
-                    for event in events:
-                        segs = event.get("segs", [])
-                        for seg in segs:
-                            utf8_text = seg.get("utf8", "").strip()
-                            if utf8_text and utf8_text != "\n":
-                                text_segments.append(utf8_text)
+            text_segments = self._extract_segments(events)
+            if not text_segments:
+                raise TranscriptUnavailableError(
+                    f"No transcript content found in Decodo response for {video_id}"
+                )
 
-                    if text_segments:
-                        full_transcript = " ".join(text_segments)
-                        return full_transcript.strip(), "en"
-
-            raise TranscriptUnavailableError(
-                f"No transcript content found in Decodo response for {video_id}"
-            )
+            full_transcript = " ".join(text_segments)
+            return full_transcript.strip(), "en"
 
         except httpx.HTTPStatusError as e:
             raise TranscriptUnavailableError(
