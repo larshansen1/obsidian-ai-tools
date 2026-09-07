@@ -429,6 +429,12 @@ class TestUnofficialTranscriptProviderExact:
         assert str(exc.value) == expected
 
 
+NO_CONTENT_MESSAGE = (
+    "Failed to fetch transcript from Decodo for vidX: "
+    "No transcript content found in Decodo response for vidX"
+)
+
+
 class TestDecodoTranscriptProviderExactCalls:
     """Exact request construction and messages for the Decodo provider."""
 
@@ -469,19 +475,48 @@ class TestDecodoTranscriptProviderExactCalls:
         assert language == "en"
 
     @pytest.mark.parametrize(
-        "payload",
+        ("payload", "expected_message"),
         [
-            {"results": {"data": {"subtitles": {"events": []}}}},  # empty events
-            {"results": {"data": {"subtitles": {"events": [{}]}}}},  # no segs key
-            {"results": {"data": {"subtitles": {"events": [{"segs": [{}]}]}}}},  # no utf8
-            {"results": {"data": {"subtitles": {"events": [{"segs": [{"utf8": "\n"}]}]}}}},
-            {"results": {"data": {"subtitles": {}}}},  # no events key
-            {"results": {}},  # no data/subtitles keys at all
-            {},  # no results key at all
+            (
+                {"results": {"data": {"subtitles": {"events": []}}}},
+                NO_CONTENT_MESSAGE,
+            ),  # empty events
+            (
+                {"results": {"data": {"subtitles": {"events": [{}]}}}},
+                NO_CONTENT_MESSAGE,
+            ),  # no segs key
+            (
+                {"results": {"data": {"subtitles": {"events": [{"segs": [{}]}]}}}},
+                NO_CONTENT_MESSAGE,
+            ),  # no utf8
+            (
+                {"results": {"data": {"subtitles": {"events": [{"segs": [{"utf8": "\n"}]}]}}}},
+                NO_CONTENT_MESSAGE,
+            ),  # whitespace-only utf8
+            (
+                {"results": {"data": {"subtitles": {}}}},
+                NO_CONTENT_MESSAGE,
+            ),  # no events key
+            (
+                {"results": {}},
+                NO_CONTENT_MESSAGE,
+            ),  # no data/subtitles keys at all
+            (
+                {},
+                "Failed to fetch transcript from Decodo for vidX: "
+                "Decodo response has no results for vidX",
+            ),  # no results key at all
+            (
+                {"results": []},
+                "Failed to fetch transcript from Decodo for vidX: "
+                "Decodo results not an object for vidX",
+            ),  # results present but not an object
         ],
     )
-    def test_fetch_transcript_no_content_exact_message(self, payload: dict) -> None:
-        """Contentless responses all produce the same exact no-content error."""
+    def test_fetch_transcript_no_content_exact_message(
+        self, payload: dict, expected_message: str
+    ) -> None:
+        """Contentless responses produce the exact message for their failure shape."""
         with patch(
             "obsidian_ai_tools.youtube_providers.httpx.post",
             return_value=self.make_response(payload),
@@ -489,10 +524,7 @@ class TestDecodoTranscriptProviderExactCalls:
             with pytest.raises(TranscriptUnavailableError) as exc:
                 DecodoTranscriptProvider("key").fetch_transcript("vidX")
 
-        assert str(exc.value) == (
-            "Failed to fetch transcript from Decodo for vidX: "
-            "No transcript content found in Decodo response for vidX"
-        )
+        assert str(exc.value) == expected_message
 
     def test_fetch_transcript_http_status_exact_message(self) -> None:
         request = httpx.Request("POST", "https://decodo.example")
