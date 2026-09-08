@@ -20,7 +20,7 @@ pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
 def test_extension_capture_tests_pass() -> None:
     """Run the node:test suite for the extension's capture logic."""
     result = subprocess.run(
-        [NODE, "--test", "capture.test.mjs"],
+        [NODE, "--test", "--test-reporter=tap", "capture.test.mjs"],
         capture_output=True,
         text=True,
         cwd=EXTENSION_DIR,
