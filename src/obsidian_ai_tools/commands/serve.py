@@ -36,7 +36,9 @@ def _get_running_server_pid() -> int | None:
     return pid
 
 
-def _start_background_server(host: str, port: int, reload: bool) -> None:
+def _start_background_server(
+    host: str, port: int, reload: bool, i_know_what_im_doing: bool = False
+) -> None:
     pid_path, log_path = _server_state_paths()
     running_pid = _get_running_server_pid()
     if running_pid is not None:
@@ -59,6 +61,8 @@ def _start_background_server(host: str, port: int, reload: bool) -> None:
     ]
     if reload:
         command.append("--reload")
+    if i_know_what_im_doing:
+        command.append("--i-know-what-im-doing")
 
     with log_path.open("a", encoding="utf-8") as log_file:
         process = subprocess.Popen(  # nosec B603
@@ -129,12 +133,26 @@ def serve(
         bool,
         typer.Option("--log", help="With --status, show the last 20 server log lines"),
     ] = False,
+    i_know_what_im_doing: Annotated[
+        bool,
+        typer.Option(
+            "--i-know-what-im-doing",
+            help="Acknowledge exposing the unauthenticated server beyond loopback",
+        ),
+    ] = False,
 ) -> None:
     """Run kai as a local HTTP service for the Chrome extension.
 
-    Exposes two endpoints:
-      GET  /status  — health check, returns vault/model config
+    Exposes three endpoints:
+      GET  /status  — health check, returns running: true only
+      GET  /lookup  — read-only duplicate check
       POST /ingest  — full ingest pipeline (fetch → LLM → vault write)
+
+    Security posture: the server has no authentication and is local-only by
+    default (binds to 127.0.0.1). Non-loopback hosts require
+    --i-know-what-im-doing as an explicit acknowledgment. /status returns
+    nothing but the running flag. This is an accepted risk for same-user
+    local processes: any local process can already read ~/.kai/.env.
 
     Install server dependencies first:
         pip install "obsidian-ai-tools[server]"
@@ -148,6 +166,7 @@ def serve(
         kai serve --status --log
         kai serve --stop
         kai serve --port 9000
+        kai serve --host 0.0.0.0 --i-know-what-im-doing
     """
     if log and not status:
         typer.echo("❌ --log must be used with --status.", err=True)
@@ -172,8 +191,17 @@ def serve(
             _show_background_server_log()
         return
 
+    if host not in ("127.0.0.1", "localhost") and not i_know_what_im_doing:
+        typer.echo(
+            f"❌ Refusing to bind to {host}: the kai server is unauthenticated and "
+            "local-only by default. Re-run with --i-know-what-im-doing to bind "
+            "beyond loopback.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
     if background:
-        _start_background_server(host, port, reload)
+        _start_background_server(host, port, reload, i_know_what_im_doing)
         return
 
     try:
@@ -184,13 +212,6 @@ def serve(
         raise typer.Exit(1) from None
 
     from ..server.app import create_app as _create_app
-
-    if host not in ("127.0.0.1", "localhost"):
-        typer.echo(
-            f"⚠️  Binding to {host} exposes the unauthenticated ingest API "
-            "beyond this machine. Use 127.0.0.1 unless you know what you're doing.",
-            err=True,
-        )
 
     typer.echo(f"🚀 kai server starting on http://{host}:{port}")
     typer.echo("   Chrome extension → load chrome-extension/ as an unpacked extension")

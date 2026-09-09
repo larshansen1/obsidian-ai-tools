@@ -63,9 +63,6 @@ class LookupResponse(BaseModel):
 
 class StatusResponse(BaseModel):
     running: bool = True
-    vault: str
-    inbox: str
-    model: str
 
 
 # ---------------------------------------------------------------------------
@@ -96,12 +93,7 @@ def create_app() -> FastAPI:
 
     @app.get("/status", response_model=StatusResponse)
     def status() -> StatusResponse:
-        settings = get_settings()
-        return StatusResponse(
-            vault=str(settings.obsidian_vault_path),
-            inbox=settings.obsidian_inbox_folder,
-            model=settings.llm_model,
-        )
+        return StatusResponse()
 
     # Read-only duplicate check for the extension popup: it runs on popup open,
     # so it must stay a frontmatter scan — no fetch, no LLM, no vault write.
