@@ -535,6 +535,21 @@ class TestMoveNoteSecurity:
         assert result.to_folder == "../escape"
         assert note.file_path.exists()
 
+    def test_move_note_rejects_sibling_dir_sharing_vault_name_prefix(self, tmp_path: Path) -> None:
+        """A destination in a sibling dir sharing the vault name prefix is
+        rejected — a string-prefix check would let it through."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        note = self._make_note(vault, "../vault-evil")
+
+        result = move_note(note, vault)
+
+        assert result.success is False
+        assert result.error == "Path traversal detected"
+        assert result.file == "note.md"
+        assert result.to_folder == "../vault-evil"
+        assert note.file_path.exists()
+
     def test_move_note_wraps_path_validation_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -982,6 +997,23 @@ class TestValidateFolderPathMessages:
             "Failed to validate folder path 'link/secret': Folder path escapes vault: link/secret"
         )
         assert "resolves outside" in message
+
+    def test_rejects_sibling_dir_sharing_vault_name_prefix(self, tmp_path: Path) -> None:
+        """A symlink into a sibling dir sharing the vault name prefix is
+        rejected — a string-prefix check would let it through."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        vault_evil = tmp_path / "vault-evil"
+        vault_evil.mkdir()
+        (vault / "link").symlink_to(vault_evil, target_is_directory=True)
+
+        with pytest.raises(PathTraversalError) as exc_info:
+            validate_folder_path("link/secret", vault)
+
+        assert str(exc_info.value) == (
+            "Failed to validate folder path 'link/secret': "
+            f"Folder path escapes vault: link/secret resolves outside {vault}"
+        )
 
     def test_resolve_failure_exact_message(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

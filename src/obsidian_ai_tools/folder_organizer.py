@@ -105,7 +105,7 @@ def validate_folder_path(folder: str, vault_path: Path, max_depth: int = 4) -> N
         test_path = (vault_path / folder).resolve()
         vault_resolved = vault_path.resolve()
 
-        if not str(test_path).startswith(str(vault_resolved)):
+        if not test_path.is_relative_to(vault_resolved):
             raise PathTraversalError(
                 f"Folder path escapes vault: {folder} resolves outside {vault_path}"
             )
@@ -467,7 +467,7 @@ def move_note(note: NoteToMove, vault_path: Path, dry_run: bool = False) -> Move
         resolved_dest = dest_file.resolve()
         resolved_vault = vault_path.resolve()
 
-        if not str(resolved_dest).startswith(str(resolved_vault)):
+        if not resolved_dest.is_relative_to(resolved_vault):
             return _create_move_result(
                 note, vault_path, success=False, error="Path traversal detected"
             )
