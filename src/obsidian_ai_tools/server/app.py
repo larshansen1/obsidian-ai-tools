@@ -4,12 +4,14 @@ Intended as a local-only daemon (127.0.0.1) consumed by the Chrome extension.
 Start with: kai serve
 """
 
+import math
 import time
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from ..config import get_settings
 from ..dedup import ExistingNote, find_note_by_source
@@ -35,7 +37,15 @@ class IngestRequest(BaseModel):
     prompt_version: str | None = None
     vault_path: str | None = None
     transcript_providers: str | None = None
-    max_pages: int | None = None
+    max_pages: int | None = Field(default=None, ge=1, le=1000)
+
+    @field_validator("max_pages", mode="before")
+    @classmethod
+    def _reject_non_finite_max_pages(cls, v: Any) -> Any:
+        if isinstance(v, float) and not math.isfinite(v):
+            return "NaN"
+        return v
+
     captured_content: str | None = None
     captured_title: str | None = None
     captured_author: str | None = None
