@@ -33,8 +33,8 @@ def sanitize_filename(title: str, max_length: int = 100) -> str:
         Sanitized filename-safe string
     """
     # Remove or replace invalid filesystem characters
-    # Invalid: < > : " / \ | ? *
-    sanitized = re.sub(r'[<>:"/\\|?*]', "", title)
+    # Invalid: control chars (\x00-\x1f, \x7f) and < > : " / \ | ? *
+    sanitized = re.sub(r'[\x00-\x1f\x7f<>:"/\\|?*]', "", title)
 
     # Replace spaces and multiple spaces with single hyphen
     sanitized = re.sub(r"\s+", "-", sanitized)

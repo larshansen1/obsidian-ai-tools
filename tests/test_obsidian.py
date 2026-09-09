@@ -60,6 +60,14 @@ class TestSanitizeFilename:
         """Leading hyphens are stripped from the sanitized name."""
         assert sanitize_filename("-foo") == "foo"
 
+    def test_strips_control_characters(self) -> None:
+        """Control characters (NUL, unit separator, DEL) are removed."""
+        assert sanitize_filename("a\x00b\x1fc\x7f") == "abc"
+
+    def test_removes_newline_and_tab(self) -> None:
+        """Newline and tab are removed, not replaced with a hyphen."""
+        assert sanitize_filename("a\nb\tc") == "abc"
+
 
 class TestBuildFilename:
     """Tests for build_filename function."""
@@ -80,6 +88,10 @@ class TestBuildFilename:
     def test_exact_filename(self) -> None:
         """The filename follows the documented format exactly."""
         assert build_filename("youtube", "My Video Title") == "youtube-my-video-title.md"
+
+    def test_strips_nul_byte(self) -> None:
+        """A NUL byte in the title is removed without raising ValueError."""
+        assert build_filename("web", "note\x00.md") == "web-note.md.md"
 
 
 class TestWriteNote:
