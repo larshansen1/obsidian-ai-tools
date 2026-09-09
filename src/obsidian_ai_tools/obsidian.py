@@ -52,7 +52,7 @@ def sanitize_filename(title: str, max_length: int = 100) -> str:
         sanitized = sanitized[:max_length].rstrip("-")
 
     # Ensure we have something (fallback to "note" if empty)
-    if not sanitized:
+    if not sanitized or set(sanitized) <= {"."}:
         sanitized = "untitled-note"
 
     return sanitized

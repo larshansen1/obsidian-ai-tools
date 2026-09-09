@@ -38,6 +38,8 @@ class TestSanitizeFilename:
         """Test fallback for empty input."""
         assert sanitize_filename("") == "untitled-note"
         assert sanitize_filename("   ") == "untitled-note"
+        assert sanitize_filename(".") == "untitled-note"
+        assert sanitize_filename("..") == "untitled-note"
 
     def test_default_max_length(self) -> None:
         """The default maximum length is 100 characters."""
