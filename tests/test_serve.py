@@ -32,6 +32,11 @@ runner = CliRunner()
 EXACT_LOG_ERROR = "❌ --log must be used with --status.\n"
 EXACT_ACTION_ERROR = "❌ Use only one of --background, --stop, or --status.\n"
 EXACT_NOT_RUNNING = "kai server is not running in the background.\n"
+EXACT_NON_LOOPBACK_REFUSAL = (
+    "❌ Refusing to bind to 0.0.0.0: the kai server is unauthenticated and "
+    "local-only by default. Re-run with --i-know-what-im-doing to bind "
+    "beyond loopback.\n"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +273,47 @@ def test_serve_background_creates_missing_state_dir_hierarchy(tmp_path: Path) ->
     assert pid_path.read_text(encoding="utf-8") == "4321\n"
 
 
-def test_serve_background_with_reload_adds_the_flag(tmp_path: Path) -> None:
+def test_serve_background_refuses_non_loopback_without_ack(
+    tmp_path: Path,
+) -> None:
+    """The background path must refuse non-loopback binds without the ack."""
+    with (
+        patch("obsidian_ai_tools.commands.serve.Path.home", return_value=tmp_path),
+        patch("obsidian_ai_tools.commands.serve.subprocess.Popen") as mock_popen,
+    ):
+        result = runner.invoke(cli_app, ["serve", "--background", "--host", "0.0.0.0"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr == EXACT_NON_LOOPBACK_REFUSAL
+    mock_popen.assert_not_called()
+    assert not (tmp_path / ".kai" / "server.pid").exists()
+
+
+def test_serve_background_ack_appends_the_flag_after_reload(
+    tmp_path: Path,
+) -> None:
+    """_start_background_server must pass the ack through to the child command."""
+    with (
+        patch("obsidian_ai_tools.commands.serve.Path.home", return_value=tmp_path),
+        patch("obsidian_ai_tools.commands.serve.subprocess.Popen") as mock_popen,
+    ):
+        mock_popen.return_value.pid = 4321
+        serve_cmd._start_background_server("0.0.0.0", 9876, reload=True, i_know_what_im_doing=True)
+
+    command = mock_popen.call_args.args[0]
+    assert command == [
+        sys.executable,
+        "-m",
+        "obsidian_ai_tools.cli",
+        "serve",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "9876",
+        "--reload",
+        "--i-know-what-im-doing",
+    ]
     """serve forwards its --reload flag into the child command line."""
     with (
         patch("obsidian_ai_tools.commands.serve.Path.home", return_value=tmp_path),
@@ -377,21 +422,49 @@ def test_serve_foreground_uses_defaults_and_launches_uvicorn(
     mock_popen.assert_not_called()
 
 
-def test_serve_foreground_warns_on_non_loopback_host(
-    capsys: pytest.CaptureFixture[str],
+def test_serve_foreground_refuses_non_loopback_without_ack(
+    tmp_path: Path,
 ) -> None:
-    """Binding beyond loopback must warn on stderr before starting uvicorn."""
+    """Binding beyond loopback without --i-know-what-im-doing must exit 1."""
 
     fake_run = MagicMock()
-    with patch("uvicorn.run", fake_run):
-        serve_cmd.serve(host="0.0.0.0", port=9000)
+    with (
+        patch("obsidian_ai_tools.commands.serve.Path.home", return_value=tmp_path),
+        patch("uvicorn.run", fake_run),
+        patch("obsidian_ai_tools.commands.serve.subprocess.Popen") as mock_popen,
+    ):
+        result = runner.invoke(cli_app, ["serve", "--host", "0.0.0.0"])
 
-    captured = capsys.readouterr()
-    assert "⚠️  Binding to 0.0.0.0 exposes the unauthenticated ingest API" in captured.err
-    assert "beyond this machine. Use 127.0.0.1 unless you know what you're doing." in captured.err
-    assert "XX" not in captured.err
-    assert "🚀 kai server starting on http://0.0.0.0:9000" in captured.out
-    assert fake_run.call_args.kwargs == {"host": "0.0.0.0", "port": 9000, "reload": False}
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr == EXACT_NON_LOOPBACK_REFUSAL
+    fake_run.assert_not_called()
+    mock_popen.assert_not_called()
+
+
+def test_serve_foreground_ack_allows_non_loopback_bind(
+    tmp_path: Path,
+) -> None:
+    """--i-know-what-im-doing must let uvicorn bind beyond loopback."""
+
+    fake_run = MagicMock()
+    with (
+        patch("obsidian_ai_tools.commands.serve.Path.home", return_value=tmp_path),
+        patch("uvicorn.run", fake_run),
+        patch("obsidian_ai_tools.commands.serve.subprocess.Popen") as mock_popen,
+    ):
+        result = runner.invoke(cli_app, ["serve", "--host", "0.0.0.0", "--i-know-what-im-doing"])
+
+    assert result.exit_code == 0
+    assert result.stderr == ""
+    assert result.stdout == (
+        "🚀 kai server starting on http://0.0.0.0:8765\n"
+        "   Chrome extension → load chrome-extension/ as an unpacked extension\n"
+        "   Press Ctrl+C to stop\n\n"
+    )
+    fake_run.assert_called_once()
+    assert fake_run.call_args.kwargs == {"host": "0.0.0.0", "port": 8765, "reload": False}
+    mock_popen.assert_not_called()
 
 
 def test_serve_foreground_does_not_warn_on_loopback_hosts(
@@ -437,6 +510,14 @@ def test_version_prints_exact_metadata() -> None:
 # ---------------------------------------------------------------------------
 # server/app.py create_app factory
 # ---------------------------------------------------------------------------
+
+
+def test_status_returns_only_the_running_flag() -> None:
+    """/status must disclose nothing but the running flag — no vault, inbox, or model."""
+    client = TestClient(create_app())
+    response = client.get("/status")
+    assert response.status_code == 200
+    assert response.json() == {"running": True}
 
 
 def test_create_app_exposes_docs_and_metadata() -> None:

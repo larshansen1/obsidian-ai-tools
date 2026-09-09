@@ -215,10 +215,13 @@ The server binds to `127.0.0.1:8765` by default and exposes:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/status` | Report the configured vault, inbox, and model |
+| `GET` | `/status` | Health check — returns `{"running": true}` only |
 | `GET` | `/lookup?url=` | Read-only duplicate check — is this source already in the vault? |
 | `POST` | `/ingest` | Run the full ingestion pipeline |
 | `GET` | `/docs` | OpenAPI documentation |
+
+The server is local-only by default (`127.0.0.1`) and has no authentication; binding beyond loopback
+requires an explicit `--i-know-what-im-doing` acknowledgment.
 
 To use the browser extension, start the server and load `chrome-extension/` as an unpacked extension in Chrome.
 Reload the unpacked extension after updating it. When ingesting an open ChatGPT or Claude conversation,
