@@ -44,7 +44,7 @@ class VaultStore:
         """
         resolved = path.resolve()
         vault_resolved = self._vault_path
-        if not str(resolved).startswith(str(vault_resolved)):
+        if not resolved.is_relative_to(vault_resolved):
             raise PathTraversalError(f"Path escapes vault: {path}")
         return resolved
 

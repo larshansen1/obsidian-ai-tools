@@ -131,7 +131,7 @@ def write_note(
             resolved_target = target_path.resolve()
         except Exception as e:
             raise FileWriteError(f"Path validation failed: {e}") from e
-        if not str(resolved_target).startswith(str(store.vault_path)):
+        if not resolved_target.is_relative_to(store.vault_path):
             raise PathTraversalError(f"Update target outside vault: {target_path}")
         try:
             target_path.write_text(note.to_markdown(), encoding="utf-8")
@@ -156,7 +156,7 @@ def write_note(
     try:
         resolved_file = file_path.resolve()
         resolved_inbox = inbox_path.resolve()
-        if not str(resolved_file).startswith(str(resolved_inbox)):
+        if not resolved_file.is_relative_to(resolved_inbox):
             raise PathTraversalError(f"Path traversal detected: {file_path} -> {resolved_file}")
     except Exception as e:
         if isinstance(e, PathTraversalError):

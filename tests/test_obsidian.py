@@ -226,7 +226,7 @@ class TestWriteNote:
             inbox_resolved = inbox_path.resolve()
             result_resolved = result_path.resolve()
 
-            assert str(result_resolved).startswith(str(inbox_resolved)), (
+            assert result_resolved.is_relative_to(inbox_resolved), (
                 "Symlink attack allowed file outside inbox"
             )
 
@@ -234,6 +234,34 @@ class TestWriteNote:
             # PathTraversalError = blocked correctly
             # OSError = symlink creation failed (acceptable on some systems)
             pass
+
+    def test_write_note_rejects_sibling_dir_via_inbox_symlink(self, tmp_path: Path) -> None:
+        """Inbox symlink into a sibling dir sharing the inbox name prefix is
+        rejected — a string-prefix check would let it through."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        inbox = vault / "inbox"
+        inbox.mkdir()
+        symlink = inbox / "web-gone.md"
+        try:
+            symlink.symlink_to(tmp_path / "vault" / "inbox-evil" / "stolen.md")
+        except OSError:
+            pytest.skip("symlinks not supported on this platform")
+
+        note = Note(
+            title="gone",
+            summary="s",
+            tags=[],
+            source_url="u",
+            model="m",
+            source_type="web",
+        )
+
+        with pytest.raises(PathTraversalError) as exc_info:
+            write_note(note, vault)
+
+        assert str(exc_info.value) == (f"Path traversal detected: {symlink} -> {symlink.resolve()}")
+        assert not (tmp_path / "vault" / "inbox-evil" / "stolen.md").exists()
 
     def test_write_note_wraps_directory_creation_error(
         self, temp_vault: Path, sample_note: Note
@@ -397,3 +425,17 @@ class TestWriteNoteTargetPath:
 
         with pytest.raises(PathTraversalError):
             write_note(sample_note, vault, target_path=outside)
+
+    def test_rejects_target_in_sibling_dir_sharing_vault_prefix(
+        self, tmp_path: Path, sample_note: Note
+    ) -> None:
+        """A target in a sibling dir whose name starts with the vault name is
+        rejected with the exact message."""
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        stolen = tmp_path / "vault-evil" / "stolen.md"
+
+        with pytest.raises(PathTraversalError) as exc_info:
+            write_note(sample_note, vault, target_path=stolen)
+
+        assert str(exc_info.value) == f"Update target outside vault: {stolen}"
