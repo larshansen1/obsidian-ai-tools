@@ -627,3 +627,70 @@ def test_ingest_nan_max_pages_never_reaches_ingest_content() -> None:
     for bad in (float("nan"), float("inf"), float("-inf")):
         with pytest.raises(ValidationError):
             IngestRequest(url="http://127.0.0.1", max_pages=bad)
+
+
+def test_ingest_rejects_nan_update_with_422() -> None:
+    """Non-finite floats on bool fields must be rejected with 422, not 500."""
+    client = TestClient(create_app())
+    for literal in ("NaN", "Infinity", "-Infinity", "1e999"):
+        response = client.post(
+            "/ingest",
+            content=f'{{"url": "http://127.0.0.1", "update": {literal}}}',
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert detail[0]["loc"] == ["body", "update"]
+        assert detail[0]["type"] == "bool_parsing"
+
+
+def test_ingest_masks_all_non_finite_fields_in_one_pass() -> None:
+    """Multiple non-finite values in one payload must all be masked so no raw
+    float leaks into the error body and turns the 422 into a 500."""
+    client = TestClient(create_app(), raise_server_exceptions=False)
+    response = client.post(
+        "/ingest",
+        content=(
+            '{"url": "http://127.0.0.1", "update": NaN, '
+            '"max_pages": Infinity, "vault_path": -Infinity}'
+        ),
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 422
+    assert [error["loc"] for error in response.json()["detail"]] == [
+        ["body", "max_pages"],
+        ["body", "update"],
+    ]
+
+
+def test_non_finite_floats_mask_to_nan_string_on_str_fields() -> None:
+    """Every string field must receive the masked literal "NaN" and validate."""
+    names = (
+        "url",
+        "prompt_version",
+        "vault_path",
+        "transcript_providers",
+        "captured_content",
+        "captured_title",
+        "captured_author",
+        "captured_date",
+    )
+    for name in names:
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            kwargs = {"url": "http://127.0.0.1"}
+            kwargs[name] = bad
+            req = IngestRequest(**kwargs)
+            assert getattr(req, name) == "NaN"
+
+
+def test_ingest_non_finite_str_field_never_returns_500() -> None:
+    """A masked str field must pass validation and reach the handler, so the
+    endpoint reacts like any normal request — never a serialization 500."""
+    client = TestClient(create_app(), raise_server_exceptions=False)
+    response = client.post(
+        "/ingest",
+        content='{"url": "http://127.0.0.1", "vault_path": NaN}',
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code != 500
+    assert response.json() is not None
