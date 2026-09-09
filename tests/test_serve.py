@@ -314,7 +314,12 @@ def test_serve_background_ack_appends_the_flag_after_reload(
         "--reload",
         "--i-know-what-im-doing",
     ]
-    """serve forwards its --reload flag into the child command line."""
+
+
+def test_serve_background_with_reload_adds_the_flag(
+    tmp_path: Path,
+) -> None:
+    """The serve CLI must forward its --reload flag into the child command."""
     with (
         patch("obsidian_ai_tools.commands.serve.Path.home", return_value=tmp_path),
         patch("obsidian_ai_tools.commands.serve.subprocess.Popen") as mock_popen,
@@ -323,7 +328,17 @@ def test_serve_background_ack_appends_the_flag_after_reload(
         result = runner.invoke(cli_app, ["serve", "--background", "--reload"])
 
     assert result.exit_code == 0
-    assert "--reload" in mock_popen.call_args.args[0]
+    assert mock_popen.call_args.args[0] == [
+        sys.executable,
+        "-m",
+        "obsidian_ai_tools.cli",
+        "serve",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8765",
+        "--reload",
+    ]
 
 
 def test_serve_background_writes_state_files_as_utf8(
