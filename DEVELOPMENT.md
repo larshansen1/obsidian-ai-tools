@@ -100,7 +100,20 @@ make typecheck   # mypy
 make radon       # complexity
 make bandit      # security
 make coverage    # pytest + coverage threshold
+make crap        # CRAP gate: radon complexity x coverage
 ```
+
+### CRAP gate
+
+`make crap` runs the CRAP (Change Risk Analysis and Prediction, Savoia/crap4j) gate: it merges the existing radon per-function complexity (`cc.json`) with line coverage (`coverage.json`, exported from the `.coverage` file the test run writes) into one per-function risk score
+
+```
+CRAP = complexity**3 * (1 - coverage)**2 + complexity
+```
+
+with `coverage` as a 0..1 fraction. The default threshold is 30 (crap4j convention; override with `CRAP_THRESHOLD` or `--threshold`). The output is a ranked hotspot list, worst first. Read it as change risk: a high-CC function at high coverage can be safer than a mid-CC function at low coverage — cover the uncovered lines of the top rows before simplifying.
+
+CRAP complements, does not replace, the radon CC gates: at 100% coverage CRAP == complexity, so CRAP alone would tolerate complexity up to the threshold. The CC 10/5 gates stay the absolute complexity ceiling; CRAP adds the coverage dimension. Files omitted from coverage are treated as fully covered (missing evidence must not manufacture risk).
 
 Pre-commit hooks run a subset on every commit; the full suite runs on push. See `.pre-commit-config.yaml` and `.github/workflows/ci.yml` for the exact configuration.
 
