@@ -37,7 +37,6 @@ from dataclasses import dataclass
 BASELINE: dict[str, float] = {
     "src/obsidian_ai_tools/commands/vault.py:process_inbox": 755.69,
     "src/obsidian_ai_tools/server/app.py:create_app.<locals>.ingest": 106.31,
-    "src/obsidian_ai_tools/dedup.py:find_note_by_source": 57.84,
     "src/obsidian_ai_tools/_vault_store.py:VaultStore.iter_notes": 48.44,
     "src/obsidian_ai_tools/commands/preview.py:preview": 31.16,
 }
