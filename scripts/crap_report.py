@@ -25,6 +25,7 @@ import json
 import os
 import sys
 from dataclasses import dataclass
+from typing import NoReturn
 
 # Grandfathered pre-existing hotspots, keyed by the report's printed
 # identity "path:name", mapping each to its recorded CRAP value (the cap).
@@ -117,10 +118,19 @@ def _normalize_path(path: str) -> str:
     return path[idx + 1 :] if idx != -1 else path
 
 
+def _fail(message: str) -> NoReturn:
+    """Exit with a distinct usage-error code; gate semantics unchanged."""
+    print(f"crap_report: {message}", file=sys.stderr)
+    sys.exit(2)
+
+
 def _load_coverage(path: str) -> dict[str, dict]:
     """Load coverage.json into {normalized path: file data}."""
-    with open(path) as handle:
-        data = json.load(handle)["files"]
+    try:
+        with open(path) as handle:
+            data = json.load(handle)["files"]
+    except (OSError, json.JSONDecodeError, KeyError) as exc:
+        _fail(f"cannot read coverage evidence from {path}: {exc}")
     return {_normalize_path(key): value for key, value in data.items()}
 
 
@@ -168,7 +178,12 @@ def _resolve_threshold(cli_value: float | None) -> float:
     if cli_value is not None:
         return cli_value
     env = os.environ.get("CRAP_THRESHOLD")
-    return float(env) if env is not None else 30.0
+    if env is None:
+        return 30.0
+    try:
+        return float(env)
+    except ValueError:
+        _fail(f"invalid CRAP_THRESHOLD: {env!r}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -181,8 +196,11 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     threshold = _resolve_threshold(args.threshold)
 
-    with open(args.cc_json) as handle:
-        cc_data = json.load(handle)
+    try:
+        with open(args.cc_json) as handle:
+            cc_data = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        _fail(f"cannot read complexity evidence from {args.cc_json}: {exc}")
     cov_by_path = _load_coverage(args.coverage_json)
     missing_files: set[str] = set()
 
