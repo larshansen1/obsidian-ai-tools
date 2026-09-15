@@ -17,8 +17,9 @@ help:
 	@echo "  test           Run pytest"
 	@echo "  coverage       Run tests with coverage and show report"
 	@echo "  radon          Run radon complexity checks"
+	@echo "  crap           Run CRAP gate (radon complexity x coverage)"
 	@echo "  bandit         Run bandit security checks"
-	@echo "  quality        Run lint, typecheck, radon, bandit, and tests"
+	@echo "  quality        Run lint, typecheck, radon, bandit, coverage, and crap"
 	@echo "  check          Alias for 'quality'"
 	@echo "  pre-commit     Run pre-commit on all files"
 	@echo "  hooks          Install pre-commit git hooks"
@@ -68,6 +69,11 @@ test:
 coverage:
 	COVERAGE=1 ./scripts/test.sh
 
+.PHONY: crap
+crap:
+	$(PYTHON) -m coverage json -o coverage.json
+	$(PYTHON) scripts/crap_report.py
+
 
 # ----------------------------
 # Security & Formatting
@@ -87,7 +93,7 @@ format:
 # ----------------------------
 
 .PHONY: quality
-quality: lint typecheck radon bandit coverage
+quality: lint typecheck radon bandit coverage crap
 
 .PHONY: check
 check: quality

@@ -48,3 +48,9 @@ jobs:
 
       - name: Full tests with coverage enforcement
         run: COVERAGE=1 uv run pytest -q --disable-warnings --cov=src/obsidian_ai_tools --cov-fail-under=80
+
+      - name: CRAP gate (complexity x coverage)
+        run: |
+          uv run radon cc src -s -j > cc.json
+          uv run coverage json -o coverage.json
+          uv run python scripts/crap_report.py
