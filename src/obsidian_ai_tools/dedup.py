@@ -6,9 +6,15 @@ normalized before comparison so trivially different forms of the same source
 (tracking params, youtu.be vs. youtube.com/watch) do not create duplicates.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qsl, urlencode, urlparse
+
+if TYPE_CHECKING:
+    from ._vault_store import VaultStore
 
 # Query parameters that identify a marketing campaign or share event, not the
 # content itself.
@@ -79,6 +85,43 @@ def normalize_source_url(url: str) -> str:
     return f"{host}{path}" + (f"?{query}" if query else "")
 
 
+def _is_ignored_path(md_file: Path, vault_path: Path) -> bool:
+    """True when a note sits under a dot-directory inside the vault."""
+    return any(part.startswith(".") for part in md_file.relative_to(vault_path).parts)
+
+
+def _read_metadata(md_file: Path, vault_store: type[VaultStore]) -> dict | None:
+    """Return frontmatter metadata, or None when the file is skipped.
+
+    Parse failures and non-dict YAML roots both mean "no usable metadata",
+    which the caller treats as "skip this note".
+    """
+    try:
+        metadata, _content = vault_store.parse_frontmatter(md_file)
+    except Exception:  # nosec B112
+        return None
+    return metadata if isinstance(metadata, dict) else None
+
+
+def _matches_source(metadata: dict, target: str) -> bool:
+    """True when the note's normalized source_url equals the target key."""
+    candidate = metadata.get("source_url")
+    return candidate is not None and normalize_source_url(str(candidate)) == target
+
+
+def _note_from_metadata(md_file: Path, metadata: dict) -> ExistingNote:
+    """Build the dedup result from a matching note's frontmatter."""
+    raw_tags = metadata.get("tags") or []
+    tags = [str(tag) for tag in raw_tags] if isinstance(raw_tags, list) else []
+    source_type = metadata.get("source_type")
+    return ExistingNote(
+        file_path=md_file,
+        title=str(metadata.get("title") or md_file.stem),
+        tags=tags,
+        source_type=str(source_type) if source_type is not None else None,
+    )
+
+
 def find_note_by_source(vault_path: Path, url: str) -> ExistingNote | None:
     """Find the first vault note whose frontmatter source_url matches url.
 
@@ -89,25 +132,10 @@ def find_note_by_source(vault_path: Path, url: str) -> ExistingNote | None:
 
     target = normalize_source_url(url)
     for md_file in sorted(vault_path.rglob("*.md")):
-        relative_parts = md_file.relative_to(vault_path).parts
-        if any(part.startswith(".") for part in relative_parts):
+        if _is_ignored_path(md_file, vault_path):
             continue
-        try:
-            metadata, _content = VaultStore.parse_frontmatter(md_file)
-        except Exception:  # nosec B112
+        metadata = _read_metadata(md_file, VaultStore)
+        if metadata is None or not _matches_source(metadata, target):
             continue
-        if not isinstance(metadata, dict):
-            metadata = {}
-        candidate = metadata.get("source_url")
-        if candidate is None or normalize_source_url(str(candidate)) != target:
-            continue
-        raw_tags = metadata.get("tags") or []
-        tags = [str(tag) for tag in raw_tags] if isinstance(raw_tags, list) else []
-        source_type = metadata.get("source_type")
-        return ExistingNote(
-            file_path=md_file,
-            title=str(metadata.get("title") or md_file.stem),
-            tags=tags,
-            source_type=str(source_type) if source_type is not None else None,
-        )
+        return _note_from_metadata(md_file, metadata)
     return None
