@@ -81,9 +81,7 @@ def test_flatten_excludes_closure_ranges_exactly() -> None:
         "outer.<locals>.middle",
         "outer.<locals>.inner",
     }
-    assert by_name["outer"].owned == frozenset(
-        [1, 2, 3, 4, 11, 16, 17, 18, 19, 20]
-    )
+    assert by_name["outer"].owned == frozenset([1, 2, 3, 4, 11, 16, 17, 18, 19, 20])
     assert by_name["outer.<locals>.middle"].owned == frozenset(range(5, 11))
     assert by_name["outer.<locals>.inner"].owned == frozenset(range(12, 16))
 
@@ -168,9 +166,7 @@ def test_coverage_fully_executed() -> None:
 
 def test_coverage_partially_missing_exact_fraction() -> None:
     fn = _func("src/x.py", "f", 2, range(1, 5))
-    cov_by_path = {
-        "src/x.py": {"executed_lines": [1, 2], "missing_lines": [3, 4]}
-    }
+    cov_by_path = {"src/x.py": {"executed_lines": [1, 2], "missing_lines": [3, 4]}}
     missing: set[str] = set()
     assert _coverage_for(fn, cov_by_path, missing) == 0.5
     assert missing == set()
@@ -224,9 +220,7 @@ def _run_report(tmp_path: Path, *, threshold: str | None = None) -> subprocess.C
         cmd += ["--threshold", threshold]
     env = dict(os.environ)
     env.pop("CRAP_THRESHOLD", None)
-    return subprocess.run(
-        cmd, cwd=tmp_path, capture_output=True, text=True, env=env, check=False
-    )
+    return subprocess.run(cmd, cwd=tmp_path, capture_output=True, text=True, env=env, check=False)
 
 
 def _fixture_files(tmp_path: Path, cc: dict, coverage: dict) -> None:
@@ -238,8 +232,18 @@ def test_exit_zero_when_crap_below_threshold(tmp_path: Path) -> None:
     # CC 3 fully covered -> CRAP 3 < 30.
     _fixture_files(
         tmp_path,
-        {"src/x.py": [{"type": "function", "name": "f", "complexity": 3,
-                      "lineno": 1, "endline": 3, "closures": []}]},
+        {
+            "src/x.py": [
+                {
+                    "type": "function",
+                    "name": "f",
+                    "complexity": 3,
+                    "lineno": 1,
+                    "endline": 3,
+                    "closures": [],
+                }
+            ]
+        },
         {"src/x.py": {"executed_lines": [1, 2, 3], "missing_lines": []}},
     )
     result = _run_report(tmp_path)
@@ -251,8 +255,18 @@ def test_exit_zero_at_exact_threshold_boundary(tmp_path: Path) -> None:
     # CC 3, 0% coverage -> CRAP 30 == threshold 30: passes.
     _fixture_files(
         tmp_path,
-        {"src/x.py": [{"type": "function", "name": "f", "complexity": 3,
-                      "lineno": 1, "endline": 3, "closures": []}]},
+        {
+            "src/x.py": [
+                {
+                    "type": "function",
+                    "name": "f",
+                    "complexity": 3,
+                    "lineno": 1,
+                    "endline": 3,
+                    "closures": [],
+                }
+            ]
+        },
         {"src/x.py": {"executed_lines": [], "missing_lines": [1, 2, 3]}},
     )
     result = _run_report(tmp_path)
@@ -264,8 +278,18 @@ def test_exit_one_just_above_threshold(tmp_path: Path) -> None:
     # CC 4, 0% coverage -> CRAP 68 > 30: fails.
     _fixture_files(
         tmp_path,
-        {"src/x.py": [{"type": "function", "name": "f", "complexity": 4,
-                      "lineno": 1, "endline": 3, "closures": []}]},
+        {
+            "src/x.py": [
+                {
+                    "type": "function",
+                    "name": "f",
+                    "complexity": 4,
+                    "lineno": 1,
+                    "endline": 3,
+                    "closures": [],
+                }
+            ]
+        },
         {"src/x.py": {"executed_lines": [], "missing_lines": [1, 2, 3]}},
     )
     result = _run_report(tmp_path)
@@ -277,8 +301,18 @@ def test_exit_one_with_cli_threshold_override(tmp_path: Path) -> None:
     # CC 3, 0% coverage -> CRAP 30; threshold 29 via flag fails.
     _fixture_files(
         tmp_path,
-        {"src/x.py": [{"type": "function", "name": "f", "complexity": 3,
-                      "lineno": 1, "endline": 3, "closures": []}]},
+        {
+            "src/x.py": [
+                {
+                    "type": "function",
+                    "name": "f",
+                    "complexity": 3,
+                    "lineno": 1,
+                    "endline": 3,
+                    "closures": [],
+                }
+            ]
+        },
         {"src/x.py": {"executed_lines": [], "missing_lines": [1, 2, 3]}},
     )
     result = _run_report(tmp_path, threshold="29")
@@ -291,12 +325,24 @@ def test_ranked_table_worst_first(tmp_path: Path) -> None:
         tmp_path,
         {
             "src/a.py": [
-                {"type": "function", "name": "low", "complexity": 1,
-                 "lineno": 1, "endline": 1, "closures": []}
+                {
+                    "type": "function",
+                    "name": "low",
+                    "complexity": 1,
+                    "lineno": 1,
+                    "endline": 1,
+                    "closures": [],
+                }
             ],
             "src/b.py": [
-                {"type": "function", "name": "high", "complexity": 5,
-                 "lineno": 1, "endline": 5, "closures": []}
+                {
+                    "type": "function",
+                    "name": "high",
+                    "complexity": 5,
+                    "lineno": 1,
+                    "endline": 5,
+                    "closures": [],
+                }
             ],
         },
         {
@@ -315,8 +361,18 @@ def test_ranked_table_worst_first(tmp_path: Path) -> None:
 def test_missing_file_note_on_stderr(tmp_path: Path) -> None:
     _fixture_files(
         tmp_path,
-        {"src/__main__.py": [{"type": "function", "name": "f", "complexity": 2,
-                             "lineno": 1, "endline": 2, "closures": []}]},
+        {
+            "src/__main__.py": [
+                {
+                    "type": "function",
+                    "name": "f",
+                    "complexity": 2,
+                    "lineno": 1,
+                    "endline": 2,
+                    "closures": [],
+                }
+            ]
+        },
         {},
     )
     result = _run_report(tmp_path)
@@ -329,11 +385,187 @@ def test_main_function_testable(monkeypatch, tmp_path: Path, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     _fixture_files(
         tmp_path,
-        {"src/x.py": [{"type": "function", "name": "f", "complexity": 1,
-                      "lineno": 1, "endline": 1, "closures": []}]},
+        {
+            "src/x.py": [
+                {
+                    "type": "function",
+                    "name": "f",
+                    "complexity": 1,
+                    "lineno": 1,
+                    "endline": 1,
+                    "closures": [],
+                }
+            ]
+        },
         {"src/x.py": {"executed_lines": [1], "missing_lines": []}},
     )
     assert main([]) == 0
     out = capsys.readouterr()
     assert out.out.splitlines()[0] == "CRAP report (threshold 30.0; worst first)"
     assert out.err == ""
+
+
+# ------------------------- baseline grandfathering -------------------------
+
+
+BASELINE_NOTE = (
+    "note: 1 baselined function(s) grandfathered at their recorded "
+    "CRAP caps; exceeding a cap still fails"
+)
+
+
+def test_baseline_at_recorded_value_passes(tmp_path: Path) -> None:
+    # VaultStore.iter_notes at 1/6 of its lines covered scores 48.4444,
+    # which displays as 48.44 — its recorded cap. The raw float is above
+    # the cap but the reported value equals it, so it passes: the gate
+    # compares at reported precision. The row is tagged in the table.
+    _fixture_files(
+        tmp_path,
+        {
+            "src/obsidian_ai_tools/_vault_store.py": [
+                {
+                    "type": "class",
+                    "name": "VaultStore",
+                    "lineno": 1,
+                    "endline": 6,
+                    "methods": [
+                        {
+                            "type": "method",
+                            "name": "iter_notes",
+                            "complexity": 4,
+                            "lineno": 1,
+                            "endline": 6,
+                            "closures": [],
+                        }
+                    ],
+                }
+            ]
+        },
+        {
+            "src/obsidian_ai_tools/_vault_store.py": {
+                "executed_lines": [1],
+                "missing_lines": [2, 3, 4, 5, 6],
+            }
+        },
+    )
+    result = _run_report(tmp_path)
+    assert result.returncode == 0
+    assert result.stderr == BASELINE_NOTE + "\n"
+    assert (
+        result.stdout.splitlines()[2] == "  4   17%    48.44  "
+        "src/obsidian_ai_tools/_vault_store.py:VaultStore.iter_notes  BASELINE"
+    )
+
+
+def test_baseline_over_threshold_but_under_cap_passes(tmp_path: Path) -> None:
+    # VaultStore.iter_notes (cap 48.44) at CC 4, 2/6 lines covered scores
+    # 32.44: over the 30 threshold, yet passes — grandfathering is what
+    # lets a score in (threshold, cap] through.
+    _fixture_files(
+        tmp_path,
+        {
+            "src/obsidian_ai_tools/_vault_store.py": [
+                {
+                    "type": "class",
+                    "name": "VaultStore",
+                    "lineno": 1,
+                    "endline": 6,
+                    "methods": [
+                        {
+                            "type": "method",
+                            "name": "iter_notes",
+                            "complexity": 4,
+                            "lineno": 1,
+                            "endline": 6,
+                            "closures": [],
+                        }
+                    ],
+                }
+            ]
+        },
+        {
+            "src/obsidian_ai_tools/_vault_store.py": {
+                "executed_lines": [1, 2],
+                "missing_lines": [3, 4, 5, 6],
+            }
+        },
+    )
+    result = _run_report(tmp_path)
+    assert result.returncode == 0
+    assert result.stderr == BASELINE_NOTE + "\n"
+    assert (
+        result.stdout.splitlines()[2] == "  4   33%    32.44  "
+        "src/obsidian_ai_tools/_vault_store.py:VaultStore.iter_notes  BASELINE"
+    )
+
+
+def test_baseline_exceeding_cap_fails(tmp_path: Path) -> None:
+    # Same function at 0% coverage scores CRAP 68.00 > cap 48.44: the cap
+    # still fails, and the FAIL line names the cap as its limit.
+    _fixture_files(
+        tmp_path,
+        {
+            "src/obsidian_ai_tools/_vault_store.py": [
+                {
+                    "type": "class",
+                    "name": "VaultStore",
+                    "lineno": 1,
+                    "endline": 6,
+                    "methods": [
+                        {
+                            "type": "method",
+                            "name": "iter_notes",
+                            "complexity": 4,
+                            "lineno": 1,
+                            "endline": 6,
+                            "closures": [],
+                        }
+                    ],
+                }
+            ]
+        },
+        {
+            "src/obsidian_ai_tools/_vault_store.py": {
+                "executed_lines": [],
+                "missing_lines": [1, 2, 3, 4, 5, 6],
+            }
+        },
+    )
+    result = _run_report(tmp_path)
+    assert result.returncode == 1
+    assert result.stderr == (
+        BASELINE_NOTE + "\nFAIL: src/obsidian_ai_tools/_vault_store.py:VaultStore.iter_notes "
+        "has CRAP 68.00 > 48.44\n"
+    )
+
+
+def test_baseline_exact_cap_passes_and_epsilon_fails(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.delenv("CRAP_THRESHOLD", raising=False)
+    monkeypatch.chdir(tmp_path)
+    _fixture_files(
+        tmp_path,
+        {
+            "src/x.py": [
+                {
+                    "type": "function",
+                    "name": "f",
+                    "complexity": 4,
+                    "lineno": 1,
+                    "endline": 3,
+                    "closures": [],
+                }
+            ]
+        },
+        {"src/x.py": {"executed_lines": [], "missing_lines": [1, 2, 3]}},
+    )
+    # CC 4 at 0% coverage scores CRAP 68.0: exactly the patched cap -> passes.
+    monkeypatch.setattr(crap_report, "BASELINE", {"src/x.py:f": 68.0})
+    assert main([]) == 0
+    out = capsys.readouterr()
+    assert "FAIL:" not in out.err
+    assert out.out.splitlines()[2].endswith("src/x.py:f  BASELINE")
+    # cap+epsilon: cap a cent below the score -> the same fixture fails.
+    monkeypatch.setattr(crap_report, "BASELINE", {"src/x.py:f": 67.99})
+    assert main([]) == 1
+    out = capsys.readouterr()
+    assert out.err.splitlines()[-1] == "FAIL: src/x.py:f has CRAP 68.00 > 67.99"

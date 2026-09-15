@@ -115,6 +115,8 @@ with `coverage` as a 0..1 fraction. The default threshold is 30 (crap4j conventi
 
 CRAP complements, does not replace, the radon CC gates: at 100% coverage CRAP == complexity, so CRAP alone would tolerate complexity up to the threshold. The CC 10/5 gates stay the absolute complexity ceiling; CRAP adds the coverage dimension. Files omitted from coverage are treated as fully covered (missing evidence must not manufacture risk).
 
+The gate landed on a codebase whose five worst hotspots already exceeded threshold 30 (worst: `process_inbox` at CRAP ~756). Rather than raise the threshold — a single high threshold that cleared 756 would tolerate CRAP up to 756 everywhere and gut the gate — those five are grandfathered through the `BASELINE` dict in `scripts/crap_report.py`: each keeps its recorded CRAP value as a cap, so it passes at or below that value but fails the moment it worsens. Grandfathering is explicitly not a threshold change; fixing the five hotspots is a refactor tracked as a follow-up.
+
 Pre-commit hooks run a subset on every commit; the full suite runs on push. See `.pre-commit-config.yaml` and `.github/workflows/ci.yml` for the exact configuration.
 
 ## Parallel Agent Worktrees

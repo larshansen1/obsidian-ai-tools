@@ -6,6 +6,15 @@ line data (coverage.json) into a CRAP score per function, ranks the
 results worst-first, and exits non-zero when any function exceeds the
 threshold.
 
+Historical hotspots that predate the gate are grandfathered through the
+module-level ``BASELINE`` dict: a baselined function passes at or below
+its recorded CRAP value but fails if it ever exceeds it. This is
+deliberate grandfathering, NOT a threshold raise — a single threshold
+that cleared the worst hotspot (CRAP ~756) would tolerate CRAP up to 756
+everywhere and gut the gate. The recorded caps keep the gate red the
+moment a grandfathered function worsens; fixing the hotspots is a
+refactor tracked as a follow-up.
+
 Stdlib only: intended to work under plain ``python3`` in CI.
 """
 
@@ -16,6 +25,22 @@ import json
 import os
 import sys
 from dataclasses import dataclass
+
+# Grandfathered pre-existing hotspots, keyed by the report's printed
+# identity "path:name", mapping each to its recorded CRAP value (the cap).
+# A baselined function passes at or below its cap and fails only when a
+# score exceeds it — the cap protects against worsening. Deliberate
+# grandfathering, not a threshold raise (see module docstring). Caps are
+# recorded at the same 2-decimal precision the report prints, and the
+# gate compares at that precision, so a score that displays at its cap
+# passes (coverage-iteration drift below a cent must not flip it red).
+BASELINE: dict[str, float] = {
+    "src/obsidian_ai_tools/commands/vault.py:process_inbox": 755.69,
+    "src/obsidian_ai_tools/server/app.py:create_app.<locals>.ingest": 106.31,
+    "src/obsidian_ai_tools/dedup.py:find_note_by_source": 57.84,
+    "src/obsidian_ai_tools/_vault_store.py:VaultStore.iter_notes": 48.44,
+    "src/obsidian_ai_tools/commands/preview.py:preview": 31.16,
+}
 
 
 def crap(complexity: float, coverage: float) -> float:
@@ -45,7 +70,9 @@ class Function:
     owned: frozenset[int]
 
 
-def _walk(entries: list[dict], path: str, prefix: str = "", top_level: bool = True) -> list[Function]:
+def _walk(
+    entries: list[dict], path: str, prefix: str = "", top_level: bool = True
+) -> list[Function]:
     """Flatten radon entries into functions.
 
     Nested closures become their own entries with qualified names
@@ -98,9 +125,7 @@ def _load_coverage(path: str) -> dict[str, dict]:
     return {_normalize_path(key): value for key, value in data.items()}
 
 
-def _coverage_for(
-    fn: Function, cov_by_path: dict[str, dict], missing_files: set[str]
-) -> float:
+def _coverage_for(fn: Function, cov_by_path: dict[str, dict], missing_files: set[str]) -> float:
     """Fraction of the function's owned executable lines that ran (0..1).
 
     A file absent from coverage.json yields 1.0 and is recorded in
@@ -121,7 +146,10 @@ def _coverage_for(
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Fail when any function's CRAP score (complexity x lack of coverage) exceeds the threshold."
+        description=(
+            "Fail when any function's CRAP score (complexity x lack of "
+            "coverage) exceeds the threshold."
+        )
     )
     parser.add_argument("--cc-json", default="cc.json", help="radon -j output (default: cc.json)")
     parser.add_argument(
@@ -145,7 +173,12 @@ def _resolve_threshold(cli_value: float | None) -> float:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Rank functions by CRAP worst-first; exit 1 if any exceeds threshold."""
+    """Rank functions by CRAP worst-first; exit 1 if any exceeds its limit.
+
+    A function's limit is its ``BASELINE`` cap when grandfathered, else
+    the threshold. Comparison happens at the reported 2-decimal precision:
+    a score that displays above its limit fails (equality passes).
+    """
     args = _parse_args(argv)
     threshold = _resolve_threshold(args.threshold)
 
@@ -167,12 +200,32 @@ def main(argv: list[str] | None = None) -> int:
     print(f"CRAP report (threshold {threshold:.1f}; worst first)")
     print(f"{'CC':>3} {'cov%':>5} {'CRAP':>8}  function")
     for score, cov, fn in rows:
-        print(f"{fn.complexity:>3} {cov * 100:>4.0f}% {score:>8.2f}  {fn.path}:{fn.name}")
+        identity = f"{fn.path}:{fn.name}"
+        tag = "  BASELINE" if identity in BASELINE else ""
+        print(f"{fn.complexity:>3} {cov * 100:>4.0f}% {score:>8.2f}  {identity}{tag}")
 
-    violations = [(score, fn) for score, cov, fn in rows if score > threshold]
-    for score, fn in violations:
+    baselined = sum(1 for _score, _cov, fn in rows if f"{fn.path}:{fn.name}" in BASELINE)
+    if baselined:
         print(
-            f"FAIL: {fn.path}:{fn.name} has CRAP {score:.2f} > {threshold:.2f}",
+            f"note: {baselined} baselined function(s) grandfathered at their "
+            "recorded CRAP caps; exceeding a cap still fails",
+            file=sys.stderr,
+        )
+
+    violations: list[tuple[float, Function]] = []
+    for score, _cov, fn in rows:
+        cap = BASELINE.get(f"{fn.path}:{fn.name}")
+        limit = cap if cap is not None else threshold
+        # Compare at reported (2-decimal) precision: recorded caps are
+        # stated in the same units as the table, so float noise and
+        # coverage-iteration drift below a cent must not flip a baseline
+        # red; a score that displays above its limit still fails.
+        if round(score, 2) > limit:
+            violations.append((score, fn))
+    for score, fn in violations:
+        limit = BASELINE.get(f"{fn.path}:{fn.name}", threshold)
+        print(
+            f"FAIL: {fn.path}:{fn.name} has CRAP {score:.2f} > {limit:.2f}",
             file=sys.stderr,
         )
     return 1 if violations else 0
