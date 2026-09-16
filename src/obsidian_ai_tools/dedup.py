@@ -6,6 +6,7 @@ normalized before comparison so trivially different forms of the same source
 (tracking params, youtu.be vs. youtube.com/watch) do not create duplicates.
 """
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse
@@ -79,35 +80,51 @@ def normalize_source_url(url: str) -> str:
     return f"{host}{path}" + (f"?{query}" if query else "")
 
 
+def _iter_note_files(vault_path: Path) -> Iterator[Path]:
+    """Yield every markdown file in the vault, skipping hidden directories."""
+    for md_file in sorted(vault_path.rglob("*.md")):
+        relative_parts = md_file.relative_to(vault_path).parts
+        if any(part.startswith(".") for part in relative_parts):
+            continue
+        yield md_file
+
+
+def _parse_frontmatter(md_file: Path) -> dict:
+    """Return a note's frontmatter as a dict, or {} when it cannot be parsed."""
+    from ._vault_store import VaultStore
+
+    try:
+        metadata, _content = VaultStore.parse_frontmatter(md_file)
+    except Exception:  # nosec B112
+        return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _existing_note(md_file: Path, metadata: dict) -> ExistingNote | None:
+    """Build an ExistingNote from frontmatter, or None when it has no source_url."""
+    if "source_url" not in metadata:
+        return None
+    raw_tags = metadata.get("tags") or []
+    source_type = metadata.get("source_type")
+    return ExistingNote(
+        file_path=md_file,
+        title=str(metadata.get("title") or md_file.stem),
+        tags=[str(tag) for tag in raw_tags] if isinstance(raw_tags, list) else [],
+        source_type=str(source_type) if source_type is not None else None,
+    )
+
+
 def find_note_by_source(vault_path: Path, url: str) -> ExistingNote | None:
     """Find the first vault note whose frontmatter source_url matches url.
 
     Reads only frontmatter blocks and parses YAML only for the matching file,
     so the scan stays cheap relative to the fetch + LLM pipeline it guards.
     """
-    from ._vault_store import VaultStore
-
     target = normalize_source_url(url)
-    for md_file in sorted(vault_path.rglob("*.md")):
-        relative_parts = md_file.relative_to(vault_path).parts
-        if any(part.startswith(".") for part in relative_parts):
-            continue
-        try:
-            metadata, _content = VaultStore.parse_frontmatter(md_file)
-        except Exception:  # nosec B112
-            continue
-        if not isinstance(metadata, dict):
-            metadata = {}
+    for md_file in _iter_note_files(vault_path):
+        metadata = _parse_frontmatter(md_file)
         candidate = metadata.get("source_url")
         if candidate is None or normalize_source_url(str(candidate)) != target:
             continue
-        raw_tags = metadata.get("tags") or []
-        tags = [str(tag) for tag in raw_tags] if isinstance(raw_tags, list) else []
-        source_type = metadata.get("source_type")
-        return ExistingNote(
-            file_path=md_file,
-            title=str(metadata.get("title") or md_file.stem),
-            tags=tags,
-            source_type=str(source_type) if source_type is not None else None,
-        )
+        return _existing_note(md_file, metadata)
     return None
