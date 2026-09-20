@@ -123,6 +123,8 @@ def generate_note(
     max_content_length: int = 50000,
     prompt_version: str = "youtube_v1",
     base_url: str = "https://openrouter.ai/api/v1",
+    timeout: float = 120.0,
+    max_retries: int = 1,
 ) -> tuple[Note, CostInfo]:
     """Generate Obsidian note from content using OpenRouter.
 
@@ -133,6 +135,10 @@ def generate_note(
         existing_tags: Optional formatted string of existing vault tags for prompt context
         max_content_length: Maximum content length to process
         prompt_version: Prompt template version to use
+        base_url: OpenAI-compatible API base URL
+        timeout: Per-request timeout in seconds; a stalled upstream fails
+            fast instead of the SDK default (600 s) silent wait.
+        max_retries: How many times the SDK retries a failed request.
 
     Returns:
         Tuple of (generated Note, LLM cost information)
@@ -165,6 +171,8 @@ def generate_note(
     client = OpenAI(
         base_url=base_url,
         api_key=api_key,
+        timeout=timeout,
+        max_retries=max_retries,
     )
 
     try:

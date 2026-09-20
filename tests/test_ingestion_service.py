@@ -1,5 +1,6 @@
 """Tests for the shared ingestion orchestration service."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
@@ -9,7 +10,7 @@ from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 from obsidian_ai_tools.cli import app
-from obsidian_ai_tools.dedup import ExistingNote
+from obsidian_ai_tools.dedup import ExistingNote, normalize_source_url
 from obsidian_ai_tools.ingestion import (
     ContentFetchError,
     IngestionProgress,
@@ -23,6 +24,7 @@ from obsidian_ai_tools.ingestion import (
     ingest_content,
 )
 from obsidian_ai_tools.models import ArticleMetadata, CostInfo, Note
+from obsidian_ai_tools.server import app as server_app
 from obsidian_ai_tools.server.app import create_app
 
 runner = CliRunner()
@@ -35,6 +37,8 @@ def _settings(vault_path: Path) -> SimpleNamespace:
         llm_model="test-model",
         openrouter_api_key="test-key",
         llm_base_url="https://openrouter.ai/api/v1",
+        llm_request_timeout_seconds=120.0,
+        llm_max_retries=1,
         max_transcript_length=1234,
     )
 
@@ -103,8 +107,10 @@ def test_ingest_content_runs_shared_pipeline_and_emits_progress(tmp_path: Path) 
         ) as mock_generate,
         patch("obsidian_ai_tools.ingestion.write_note", return_value=note_path) as mock_write,
         patch("obsidian_ai_tools.ingestion.logging") as mock_logging,
+        patch("obsidian_ai_tools.ingestion.time") as mock_time,
     ):
         mock_logging.getLogger.return_value = logger
+        mock_time.monotonic.side_effect = [1.0, 6.0]
         result = ingest_content(
             IngestionRequest(url=metadata.url),
             _settings(tmp_path),  # type: ignore[arg-type]
@@ -127,17 +133,29 @@ def test_ingest_content_runs_shared_pipeline_and_emits_progress(tmp_path: Path) 
         max_content_length=1234,
         prompt_version="article_v1",
         base_url="https://openrouter.ai/api/v1",
+        timeout=120.0,
+        max_retries=1,
     )
     mock_write.assert_called_once_with(
         note=note, vault_path=tmp_path, inbox_folder="inbox", target_path=None
     )
-    logger.info.assert_called_once_with(
-        "Note persisted to vault",
-        extra={
-            "file_path": str(note_path),
-            "title": "Generated Note",
-            "url": "https://example.com/article",
-        },
+    assert (
+        call(
+            "LLM note generation completed",
+            extra={"url": "https://example.com/article", "duration_seconds": 5.0},
+        )
+        in logger.info.call_args_list
+    )
+    assert (
+        call(
+            "Note persisted to vault",
+            extra={
+                "file_path": str(note_path),
+                "title": "Generated Note",
+                "url": "https://example.com/article",
+            },
+        )
+        in logger.info.call_args_list
     )
     assert call("obsidian_ai_tools.ingestion") in mock_logging.getLogger.call_args_list
     assert stages == [
@@ -518,6 +536,9 @@ def test_http_lookup_reports_missing_note(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json() == {
         "exists": False,
+        "in_progress": False,
+        "started_at": None,
+        "elapsed_seconds": None,
         "title": None,
         "file_path": None,
         "tags": [],
@@ -532,6 +553,170 @@ def test_http_lookup_requires_url(tmp_path: Path) -> None:
         response = TestClient(create_app()).get("/lookup")
 
     assert response.status_code == 422
+
+
+IN_FLIGHT_URL = "https://in-flight.example/video"
+IN_FLIGHT_KEY = normalize_source_url(IN_FLIGHT_URL)
+STARTED_AT = datetime(2026, 9, 20, 10, 0, 0, tzinfo=UTC)
+NOW = datetime(2026, 9, 20, 10, 0, 5, tzinfo=UTC)
+
+
+def _register_in_flight() -> None:
+    with server_app._in_flight_lock:
+        server_app._in_flight[IN_FLIGHT_KEY] = STARTED_AT
+
+
+def _assert_not_in_flight() -> None:
+    with server_app._in_flight_lock:
+        assert IN_FLIGHT_KEY not in server_app._in_flight
+
+
+def test_http_lookup_reports_in_progress(tmp_path: Path) -> None:
+    """Test /lookup reports an in-flight ingest with exact start info."""
+    _register_in_flight()
+    try:
+        with (
+            patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+            patch("obsidian_ai_tools.server.app._utcnow", return_value=NOW) as mock_utcnow,
+        ):
+            response = TestClient(create_app()).get("/lookup", params={"url": IN_FLIGHT_URL})
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "exists": False,
+            "in_progress": True,
+            "started_at": "2026-09-20T10:00:00+00:00",
+            "elapsed_seconds": 5.0,
+            "title": None,
+            "file_path": None,
+            "tags": [],
+            "source_type": None,
+            "obsidian_url": None,
+        }
+        mock_utcnow.assert_called_once()
+    finally:
+        with server_app._in_flight_lock:
+            server_app._in_flight.pop(IN_FLIGHT_KEY, None)
+
+
+def test_http_ingest_rejects_in_flight_url_with_409(tmp_path: Path) -> None:
+    """Test a second ingest of an in-flight URL is rejected without a rerun."""
+    _register_in_flight()
+    try:
+        with (
+            patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+            patch("obsidian_ai_tools.server.app.ingest_content") as mock_ingest,
+        ):
+            response = TestClient(create_app()).post("/ingest", json={"url": IN_FLIGHT_URL})
+
+        assert response.status_code == 409
+        assert response.json() == {
+            "detail": {
+                "status": "in_progress",
+                "message": "Ingest already in progress for this URL",
+            }
+        }
+        mock_ingest.assert_not_called()
+        with server_app._in_flight_lock:
+            assert IN_FLIGHT_KEY in server_app._in_flight
+    finally:
+        with server_app._in_flight_lock:
+            server_app._in_flight.pop(IN_FLIGHT_KEY, None)
+
+
+def test_http_ingest_clears_registry_after_success(tmp_path: Path) -> None:
+    """Test the registry entry is removed once the ingest succeeds."""
+    result = IngestionResult(
+        provider_name="web",
+        prompt_version="article_v1",
+        metadata=_metadata(),
+        note=_note(),
+        file_path=tmp_path / "note.md",
+    )
+    with (
+        patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+        patch("obsidian_ai_tools.server.app.ingest_content", return_value=result),
+    ):
+        response = TestClient(create_app()).post("/ingest", json={"url": IN_FLIGHT_URL})
+
+    assert response.status_code == 200
+    _assert_not_in_flight()
+
+
+def test_http_ingest_stall_error_clears_registry_and_records_error(
+    tmp_path: Path,
+) -> None:
+    """A stalled LLM (NoteGenerationStageError) returns 500 and clears the entry."""
+    mock_db = MagicMock()
+    with (
+        patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+        patch(
+            "obsidian_ai_tools.server.app.ingest_content",
+            side_effect=NoteGenerationStageError("Note generation failed: timeout"),
+        ),
+        patch("obsidian_ai_tools.observability.get_db", return_value=mock_db),
+    ):
+        response = TestClient(create_app()).post("/ingest", json={"url": IN_FLIGHT_URL})
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Note generation failed: timeout"}
+    _assert_not_in_flight()
+    mock_db.record_invocation.assert_called_once()
+    args = mock_db.record_invocation.call_args.args
+    assert args[0] == "serve:ingest"
+    assert args[1] == "error"
+    assert isinstance(args[2], float)
+    assert args[3] == "NoteGenerationStageError"
+
+
+def test_http_ingest_clears_registry_on_unexpected_exception(tmp_path: Path) -> None:
+    """Even an unexpected crash must not leave a stale in-flight entry."""
+    with (
+        patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+        patch("obsidian_ai_tools.server.app.ingest_content", side_effect=RuntimeError("boom")),
+    ):
+        client = TestClient(create_app(), raise_server_exceptions=False)
+        response = client.post("/ingest", json={"url": IN_FLIGHT_URL})
+
+    assert response.status_code == 500
+    _assert_not_in_flight()
+
+
+def test_http_ingest_emits_structured_log_records(tmp_path: Path) -> None:
+    """Server ingests append exact start/finish records to the shared logger."""
+    result = IngestionResult(
+        provider_name="web",
+        prompt_version="article_v1",
+        metadata=_metadata(),
+        note=_note(),
+        file_path=tmp_path / "note.md",
+    )
+    mock_logger = MagicMock()
+    with (
+        patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+        patch("obsidian_ai_tools.server.app.ingest_content", return_value=result),
+        patch("obsidian_ai_tools.server.app._server_logger", mock_logger),
+        patch("obsidian_ai_tools.server.app.time") as mock_time,
+    ):
+        mock_time.monotonic.side_effect = [1.0, 6.0]
+        response = TestClient(create_app()).post("/ingest", json={"url": IN_FLIGHT_URL})
+
+    assert response.status_code == 200
+    mock_logger.info.assert_has_calls(
+        [
+            call("Server ingest started", extra={"url": IN_FLIGHT_URL}),
+            call(
+                "Server ingest finished",
+                extra={
+                    "url": IN_FLIGHT_URL,
+                    "outcome": "success",
+                    "duration_seconds": 5.0,
+                    "error_type": None,
+                },
+            ),
+        ]
+    )
+    _assert_not_in_flight()
 
 
 def test_cli_ingest_reports_existing_source(tmp_path: Path) -> None:

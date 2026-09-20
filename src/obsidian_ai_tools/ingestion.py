@@ -1,6 +1,7 @@
 """Shared orchestration for content ingestion entry points."""
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -200,6 +201,7 @@ def ingest_content(
     emit("content_fetched", metadata=metadata)
     existing_tags = _discover_existing_tags(vault_path, prompt_version)
     emit("generating")
+    llm_started = time.monotonic()
     try:
         note, cost_info = generate_note(
             metadata=metadata,
@@ -209,9 +211,15 @@ def ingest_content(
             max_content_length=settings.max_transcript_length,
             prompt_version=prompt_version,
             base_url=settings.llm_base_url,
+            timeout=settings.llm_request_timeout_seconds,
+            max_retries=settings.llm_max_retries,
         )
     except Exception as exc:
         raise NoteGenerationStageError(f"Note generation failed: {exc}") from exc
+    logging.getLogger("obsidian_ai_tools.ingestion").info(
+        "LLM note generation completed",
+        extra={"url": request.url, "duration_seconds": time.monotonic() - llm_started},
+    )
 
     try:
         from .observability import get_db
