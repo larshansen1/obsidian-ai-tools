@@ -61,6 +61,15 @@ class Settings(BaseSettings):
         default="https://openrouter.ai/api/v1",
         description="OpenAI-compatible API base URL (e.g. LM Studio: http://localhost:1234/v1)",
     )
+    llm_request_timeout_seconds: float = Field(
+        default=120.0,
+        description="Timeout in seconds for each LLM API request",
+    )
+    llm_max_retries: int = Field(
+        default=1,
+        ge=0,
+        description="Maximum retries for a stalled LLM API request",
+    )
     max_transcript_length: int = Field(
         default=50000, description="Maximum transcript length in characters"
     )

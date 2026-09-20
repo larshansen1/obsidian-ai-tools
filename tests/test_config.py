@@ -73,6 +73,8 @@ class TestSettingsIsolation:
         assert isolated_settings.openrouter_api_key == "test-api-key-12345"
         assert isolated_settings.obsidian_inbox_folder == "inbox"
         assert isolated_settings.llm_model == "anthropic/claude-3.5-sonnet"
+        assert isolated_settings.llm_request_timeout_seconds == 120.0
+        assert isolated_settings.llm_max_retries == 1
 
     def test_settings_independent_of_env_file(self, tmp_path: Path) -> None:
         """Test that Settings can be created without .env file."""
@@ -99,6 +101,8 @@ class TestSettingsIsolation:
             obsidian_vault_path=vault_path,
             obsidian_inbox_folder="custom-inbox",
             llm_model="openai/gpt-4",
+            llm_request_timeout_seconds=30.0,
+            llm_max_retries=3,
             max_transcript_length=100000,
             youtube_api_key="yt-key",
             decodo_api_key="decodo-key",
@@ -113,6 +117,8 @@ class TestSettingsIsolation:
         )
 
         assert settings.llm_model == "openai/gpt-4"
+        assert settings.llm_request_timeout_seconds == 30.0
+        assert settings.llm_max_retries == 3
         assert settings.max_transcript_length == 100000
         assert settings.youtube_api_key == "yt-key"
         assert settings.github_token == "github-token"
@@ -122,6 +128,18 @@ class TestSettingsIsolation:
 
 class TestProviderDependencies:
     """Tests for explicit provider dependency mocking."""
+
+    def test_negative_llm_max_retries_is_rejected(self, tmp_path: Path) -> None:
+        """Retries below zero must fail validation at the exact boundary."""
+        vault_path = tmp_path / "vault"
+        vault_path.mkdir()
+
+        with pytest.raises(ValueError, match="llm_max_retries"):
+            Settings(
+                openrouter_api_key="test-api-key-12345",
+                obsidian_vault_path=vault_path,
+                llm_max_retries=-1,
+            )
 
     def test_pdf_provider_with_explicit_supadata_key(self, tmp_path: Path) -> None:
         """Test PDFProvider can be created with explicit supadata key."""

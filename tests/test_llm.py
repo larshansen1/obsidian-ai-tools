@@ -516,7 +516,12 @@ class TestGenerateNoteExactConstruction:
 
         note, cost_info, mock_openai, mock_client, mock_load = self._suite(mock_response, metadata)
 
-        mock_openai.assert_called_once_with(base_url="https://llm.example/v1", api_key="key-1")
+        mock_openai.assert_called_once_with(
+            base_url="https://llm.example/v1",
+            api_key="key-1",
+            timeout=120.0,
+            max_retries=1,
+        )
         mock_load.assert_called_once_with("pv2")
         expected_prompt = (
             "Title: Video Title\nURL: https://youtube.com/watch?v=vid1\n"
@@ -527,6 +532,34 @@ class TestGenerateNoteExactConstruction:
             messages=[{"role": "user", "content": expected_prompt}],
             temperature=0.7,
             extra_body={"usage": {"include": True}},
+        )
+
+    def test_custom_timeout_and_retries_reach_the_client(self) -> None:
+        """Explicit timeout/max_retries override the defaults on the client."""
+        metadata = self._make_video()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content=self.VALID_RESPONSE))]
+        mock_response.usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1)
+
+        with (
+            patch("obsidian_ai_tools.llm.load_prompt_template", return_value=self.TEMPLATE),
+            patch("obsidian_ai_tools.llm.OpenAI") as mock_openai,
+        ):
+            mock_openai.return_value = MagicMock()
+            mock_openai.return_value.chat.completions.create.return_value = mock_response
+            generate_note(
+                metadata=metadata,
+                model="model-x",
+                api_key="key-1",
+                timeout=30.0,
+                max_retries=3,
+            )
+
+        mock_openai.assert_called_once_with(
+            base_url="https://openrouter.ai/api/v1",
+            api_key="key-1",
+            timeout=30.0,
+            max_retries=3,
         )
 
     def test_video_note_and_cost_fields_are_exact(self) -> None:

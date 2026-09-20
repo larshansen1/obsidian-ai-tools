@@ -618,6 +618,8 @@ class TestXEndToEnd:
             llm_model="test-model",
             openrouter_api_key="test-key",
             llm_base_url="https://openrouter.ai/api/v1",
+            llm_request_timeout_seconds=120.0,
+            llm_max_retries=1,
             max_transcript_length=1234,
         )
         note = Note(
@@ -679,6 +681,8 @@ class TestXEndToEnd:
             max_content_length=1234,
             prompt_version="twitter_thread_v1",
             base_url="https://openrouter.ai/api/v1",
+            timeout=120.0,
+            max_retries=1,
         )
         mock_write.assert_called_once_with(
             note=note, vault_path=tmp_path, inbox_folder="inbox", target_path=None

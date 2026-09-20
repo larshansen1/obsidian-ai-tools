@@ -14,10 +14,13 @@ const resultDetail = document.getElementById("result-detail");
 const tagsEl = document.getElementById("tags");
 const openLink = document.getElementById("open-link");
 
+const POLL_INTERVAL_MS = 2000;
+
 let currentUrl = "";
 let currentTabId = null;
-
-// ── Server health check ──────────────────────────────────────────────────────
+let updateMode = false;
+let pollTimer = null;
+let polling = false;
 
 async function checkServer() {
   try {
@@ -39,7 +42,67 @@ function isSupportedUrl(url) {
   return url.startsWith("http://") || url.startsWith("https://");
 }
 
-// ── Initialise popup ─────────────────────────────────────────────────────────
+function stopPolling() {
+  polling = false;
+  if (pollTimer !== null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function renderInProgress(elapsedSeconds) {
+  const started = Math.max(0, Math.round(elapsedSeconds ?? 0));
+  setLoading(true);
+  btnLabel.textContent = `Ingesting… started ${started} s ago`;
+  showResult(
+    "info",
+    "⏳ Ingesting…",
+    `Started ${started} s ago — results appear here automatically.`,
+  );
+}
+
+async function pollInProgress() {
+  try {
+    const r = await fetch(`${SERVER}/lookup?url=${encodeURIComponent(currentUrl)}`, {
+      signal: AbortSignal.timeout(POLL_INTERVAL_MS),
+    });
+    if (!r.ok) {
+      stopPolling();
+      return;
+    }
+    const data = await r.json();
+    if (data.in_progress) {
+      renderInProgress(data.elapsed_seconds);
+      return;
+    }
+    stopPolling();
+    if (data.exists) {
+      updateMode = true;
+      btnLabel.textContent = "Update existing note";
+      showResult(
+        "info",
+        `📄 Already in vault: ${data.title}`,
+        data.file_path,
+        data.tags ?? [],
+        data.obsidian_url,
+      );
+      setLoading(false);
+    } else {
+      // The ingest finished without a note; fall back to idle silently.
+      setLoading(false);
+    }
+  } catch (_) {
+    // Server unreachable mid-ingest: stop asking, keep the last state.
+    stopPolling();
+  }
+}
+
+function startPolling() {
+  if (polling) return;
+  polling = true;
+  pollInProgress();
+  pollTimer = setInterval(pollInProgress, POLL_INTERVAL_MS);
+}
 
 async function init() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -50,15 +113,11 @@ async function init() {
   const serverOk = await checkServer();
   btn.disabled = !serverOk || !isSupportedUrl(currentUrl);
 
-  // Fire-and-forget: the popup is already usable at this point, and a slow or
-  // failing lookup must never block ingest or surface an error.
   if (serverOk && isSupportedUrl(currentUrl)) {
     checkExisting();
   }
 }
 
-// Read-only duplicate check so the user sees "already in vault" without having
-// to click Ingest first. Silent on any failure — falls back to old behaviour.
 async function checkExisting() {
   try {
     const r = await fetch(`${SERVER}/lookup?url=${encodeURIComponent(currentUrl)}`, {
@@ -67,10 +126,14 @@ async function checkExisting() {
     if (!r.ok) return;
 
     const data = await r.json();
+    // An ingest is already running (started from this or another window).
+    if (data.in_progress) {
+      renderInProgress(data.elapsed_seconds);
+      startPolling();
+      return;
+    }
     if (!data.exists) return;
 
-    // A click may have started an ingest while the lookup was in flight; do not
-    // overwrite that result.
     if (btn.disabled) return;
 
     updateMode = true;
@@ -83,11 +146,9 @@ async function checkExisting() {
       data.obsidian_url,
     );
   } catch (_) {
-    // Timeout, offline server, or bad payload: leave the popup as-is.
+    // Server offline: keep the idle state; the dot already shows it.
   }
 }
-
-// ── Result display ───────────────────────────────────────────────────────────
 
 function renderTags(tags) {
   tagsEl.replaceChildren(
@@ -109,18 +170,11 @@ function showResult(type, title, detail, tags = [], obsidianUrl = null) {
   openLink.dataset.url = obsidianUrl ?? "";
 }
 
-// Custom-protocol anchors are unreliable inside extension popups. Navigating
-// the current tab to obsidian:// triggers the OS protocol handler without
-// actually leaving the page, so no empty tab is left behind.
 openLink.addEventListener("click", () => {
   if (openLink.dataset.url && currentTabId !== null) {
     chrome.tabs.update(currentTabId, { url: openLink.dataset.url });
   }
 });
-
-// When the server reports the source already exists, the button becomes an
-// explicit "update" action so a second click regenerates instead of skipping.
-let updateMode = false;
 
 function setLoading(loading) {
   btn.disabled = loading;
@@ -132,9 +186,8 @@ function setLoading(loading) {
   }
 }
 
-// ── Ingest ───────────────────────────────────────────────────────────────────
-
 btn.addEventListener("click", async () => {
+  stopPolling();
   setLoading(true);
   resultEl.className = "result";
 
@@ -145,6 +198,13 @@ btn.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: currentUrl, update: updateMode, ...capture }),
     });
+
+    if (r.status === 409) {
+      // Another window is already ingesting this URL; follow its progress.
+      renderInProgress(0);
+      startPolling();
+      return;
+    }
 
     const data = await r.json();
 
@@ -170,7 +230,7 @@ btn.addEventListener("click", async () => {
       "Is kai serve running?  (kai serve --port 8765)",
     );
   } finally {
-    setLoading(false);
+    if (!polling) setLoading(false);
   }
 });
 

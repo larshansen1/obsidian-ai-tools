@@ -211,7 +211,12 @@ def serve(
         typer.echo('💡 Run: pip install "obsidian-ai-tools[server]"', err=True)
         raise typer.Exit(1) from None
 
+    from ..logging import setup_logging as _setup_logging
     from ..server.app import create_app as _create_app
+
+    # Route kai logger records (ingest start/finish, LLM duration, outcomes)
+    # to the same ~/.kai/logs/ingest.log the CLI command uses.
+    _setup_logging()
 
     typer.echo(f"🚀 kai server starting on http://{host}:{port}")
     typer.echo("   Chrome extension → load chrome-extension/ as an unpacked extension")
