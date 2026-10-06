@@ -69,10 +69,11 @@ def test_missing_vault_dir_is_rejected(tmp_path: Path, monkeypatch: pytest.Monke
         CompassSettings()
 
     errors = exc_info.value.errors()
-    # Pydantic also reports the db path: its default factory needs the vault path.
+    # Pydantic also reports the paths: their default factories need the vault path.
     assert [(e["loc"], e["type"]) for e in errors] == [
         (("obsidian_vault_path",), "value_error"),
         (("compass_db_path",), "default_factory_not_called"),
+        (("compass_topics_path",), "default_factory_not_called"),
     ]
     assert errors[0]["msg"] == f"Value error, Vault path is not an existing directory: {missing}"
 

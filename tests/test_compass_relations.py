@@ -294,6 +294,8 @@ def test_scan_command_reports_unresolved_links_and_duplicates(
 
     assert result.exit_code == 0
     assert result.output == (
+        f"Created {vault.resolve() / '.kai' / 'topics.yaml'} with the starter topics\n"
         "Notes: 2\nUnparsed dates: 0\nUndated notes: 0\n"
-        "Unresolved links: 1\nLikely duplicates: 1\n  a.md <-> b.md (source_url)\n"
+        "Unresolved links: 1\nUnmapped tags: 0\nLikely duplicates: 1\n"
+        "  a.md <-> b.md (source_url)\n"
     )
