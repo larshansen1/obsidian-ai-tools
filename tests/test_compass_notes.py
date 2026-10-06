@@ -283,7 +283,10 @@ def test_scan_command_prints_exact_report(tmp_path: Path, monkeypatch: pytest.Mo
     result = runner.invoke(compass_cli.app, ["scan"])
 
     assert result.exit_code == 0
-    assert result.output == ("Notes: 3\nUnparsed dates: 1\n  bad.md\nUndated notes: 1\n  none.md\n")
+    assert result.output == (
+        "Notes: 3\nUnparsed dates: 1\n  bad.md\nUndated notes: 1\n  none.md\n"
+        "Unresolved links: 0\nLikely duplicates: 0\n"
+    )
     assert (vault / ".kai" / "compass.duckdb").is_file()
 
 
@@ -300,7 +303,8 @@ def test_scan_command_lists_unreadable_files(
     result = runner.invoke(compass_cli.app, ["scan"])
 
     assert result.output == (
-        "Notes: 1\nUnparsed dates: 0\nUndated notes: 1\n  bin.md\nUnreadable files: 1\n  bin.md\n"
+        "Notes: 1\nUnparsed dates: 0\nUndated notes: 1\n  bin.md\n"
+        "Unresolved links: 0\nLikely duplicates: 0\nUnreadable files: 1\n  bin.md\n"
     )
 
 
