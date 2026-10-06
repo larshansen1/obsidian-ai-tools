@@ -67,7 +67,11 @@ own command, and kai never imports it:
 ```
 src/vault_compass/
 ├── cli.py                    # Typer app: compass serve (127.0.0.1:8100, loopback-only)
-├── app.py                    # FastAPI app factory: GET /status -> {"running": true}
+├── app.py                    # FastAPI app factory: /status, /topics, /usage; refreshes on startup
+├── notes.py                  # scan + incremental refresh (by file mtime) into compass.duckdb
+├── watcher.py                # startup refresh + file watcher (watchfiles) while serve runs
+├── usage.py                  # usage_events table: screen views, actions, AI calls with cost
+├── db.py                     # in-process lock so reads, refreshes and usage writes never clash
 └── config.py                 # CompassSettings: kai's OBSIDIAN_VAULT_PATH + compass_db_path
 
 web/                          # Next.js + assistant-ui frontend (Node, own checks)
