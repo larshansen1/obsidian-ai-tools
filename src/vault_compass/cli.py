@@ -27,7 +27,7 @@ def main() -> None:
 
 @app.command()
 def scan() -> None:
-    """Rebuild the notes table in compass.duckdb and report notes with missing dates."""
+    """Rebuild the notes, tag, link and duplicate tables in compass.duckdb."""
     try:
         settings = get_compass_settings()
     except ValidationError as e:
@@ -42,6 +42,10 @@ def scan() -> None:
     typer.echo(f"Undated notes: {len(report.undated)}")
     for path in report.undated:
         typer.echo(f"  {path}")
+    typer.echo(f"Unresolved links: {len(report.unresolved_links)}")
+    typer.echo(f"Likely duplicates: {len(report.duplicates)}")
+    for dup in report.duplicates:
+        typer.echo(f"  {dup.path_a} <-> {dup.path_b} ({dup.reason})")
     if report.unreadable:
         typer.echo(f"Unreadable files: {len(report.unreadable)}")
         for path in report.unreadable:
