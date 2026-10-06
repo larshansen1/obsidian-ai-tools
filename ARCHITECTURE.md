@@ -61,6 +61,23 @@ prompts/                      # Versioned LLM prompt templates (Markdown)
     markdown_v1.md, github_repo_v1.md
 ```
 
+The repo also holds a second app, **Vault Compass** (ADR 0005). It is a separate package with its
+own command, and kai never imports it:
+
+```
+src/vault_compass/
+├── cli.py                    # Typer app: compass serve (127.0.0.1:8100, loopback-only)
+├── app.py                    # FastAPI app factory: GET /status -> {"running": true}
+└── config.py                 # CompassSettings: kai's OBSIDIAN_VAULT_PATH + compass_db_path
+
+web/                          # Next.js + assistant-ui frontend (Node, own checks)
+```
+
+- **Import rule:** `vault_compass` → `obsidian_ai_tools` is allowed; the reverse is forbidden and
+  enforced by `import-linter` (`[tool.importlinter]` in `pyproject.toml`), in pre-commit and CI.
+- **Storage:** compass writes only to `{vault}/.kai/compass.duckdb` (override: `COMPASS_DB_PATH`)
+  and never to kai's `observability.duckdb` (ADR 0006).
+
 ---
 
 ## Entry points
@@ -70,8 +87,9 @@ prompts/                      # Versioned LLM prompt templates (Markdown)
 | `kai <command>` | CLI (Typer) | `commands/<module>.py` |
 | `POST /ingest` | HTTP (Chrome extension → `kai serve`) | `server/app.py` |
 | `ingest_content(request, settings)` | Python API | `ingestion.py` directly |
+| `compass <command>` | CLI (Typer, Vault Compass) | `vault_compass/cli.py` |
 
-All three converge on `ingestion.py: ingest_content()` for the actual work.
+The three kai entry points converge on `ingestion.py: ingest_content()` for the actual work.
 
 ---
 
