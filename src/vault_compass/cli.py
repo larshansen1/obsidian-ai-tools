@@ -6,6 +6,7 @@ import typer
 from pydantic import ValidationError
 
 from .config import get_compass_settings
+from .notes import refresh_notes
 
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
 
@@ -22,6 +23,29 @@ def main() -> None:
     """Vault Compass - visual analysis of your Obsidian vault."""
     # An explicit callback keeps `serve` a subcommand; with a single command
     # typer would otherwise collapse it into the root command.
+
+
+@app.command()
+def scan() -> None:
+    """Rebuild the notes table in compass.duckdb and report notes with missing dates."""
+    try:
+        settings = get_compass_settings()
+    except ValidationError as e:
+        typer.echo(f"❌ Configuration error:\n{e}", err=True)
+        raise typer.Exit(1) from None
+
+    report = refresh_notes(settings.obsidian_vault_path, settings.compass_db_path)
+    typer.echo(f"Notes: {report.note_count}")
+    typer.echo(f"Unparsed dates: {len(report.unparsed_dates)}")
+    for path in report.unparsed_dates:
+        typer.echo(f"  {path}")
+    typer.echo(f"Undated notes: {len(report.undated)}")
+    for path in report.undated:
+        typer.echo(f"  {path}")
+    if report.unreadable:
+        typer.echo(f"Unreadable files: {len(report.unreadable)}")
+        for path in report.unreadable:
+            typer.echo(f"  {path}")
 
 
 @app.command()
