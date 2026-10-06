@@ -3,17 +3,22 @@
 Local-only daemon (127.0.0.1), started with: compass serve
 """
 
-from collections.abc import Iterator
-from contextlib import contextmanager
+import asyncio
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from datetime import date
+from typing import Literal
 
 import duckdb
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Response
+from pydantic import BaseModel, Field
 
 from .config import CompassSettings, get_compass_settings
+from .db import DB_LOCK
 from .notes import UNMAPPED_TAGS_SQL
 from .topics import TopicsError, load_topics
+from .usage import log_usage
+from .watcher import refresh_once, watch_vault
 
 NOT_SCANNED_DETAIL = "No topic data yet. Run `compass scan` first."
 
@@ -43,6 +48,13 @@ class TopicsResponse(BaseModel):
     topics: list[TopicSummary]
 
 
+class UsageEvent(BaseModel):
+    # ai_call is written by the server itself, never reported by the browser.
+    kind: Literal["screen_view", "action"]
+    name: str = Field(min_length=1, max_length=200)
+    detail: str | None = Field(default=None, max_length=1000)
+
+
 _TOPIC_COUNTS_SQL = "SELECT topic, COUNT(*) FROM note_topics GROUP BY topic"
 
 
@@ -50,22 +62,37 @@ _TOPIC_COUNTS_SQL = "SELECT topic, COUNT(*) FROM note_topics GROUP BY topic"
 def _compass_db(settings: CompassSettings) -> Iterator[duckdb.DuckDBPyConnection]:
     if not settings.compass_db_path.exists():
         raise HTTPException(status_code=404, detail=NOT_SCANNED_DETAIL)
-    con = duckdb.connect(str(settings.compass_db_path), read_only=True)
-    try:
-        yield con
-    except duckdb.CatalogException:
-        # A database from before topics existed: the tables are not there yet.
-        raise HTTPException(status_code=404, detail=NOT_SCANNED_DETAIL) from None
-    finally:
-        con.close()
+    with DB_LOCK:
+        con = duckdb.connect(str(settings.compass_db_path), read_only=True)
+        try:
+            yield con
+        except duckdb.CatalogException:
+            # A database from before topics existed: the tables are not there yet.
+            raise HTTPException(status_code=404, detail=NOT_SCANNED_DETAIL) from None
+        finally:
+            con.close()
 
 
 def create_app(settings: CompassSettings | None = None) -> FastAPI:
     """Build the Compass app. Used by uvicorn as a factory."""
-    app = FastAPI(title="Vault Compass")
 
     def current() -> CompassSettings:
         return settings if settings is not None else get_compass_settings()
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        # Refresh before serving, then keep refreshing while the server runs (D7).
+        cfg = current()
+        await asyncio.to_thread(refresh_once, cfg)
+        stop = asyncio.Event()
+        task = asyncio.create_task(watch_vault(cfg, stop))
+        try:
+            yield
+        finally:
+            stop.set()
+            await task
+
+    app = FastAPI(title="Vault Compass", lifespan=lifespan)
 
     @app.get("/status")
     def status() -> StatusResponse:
@@ -104,5 +131,10 @@ def create_app(settings: CompassSettings | None = None) -> FastAPI:
         with _compass_db(current()) as con:
             rows = con.execute(UNMAPPED_TAGS_SQL).fetchall()
         return [UnmappedTag(tag=tag, notes=notes) for tag, notes in rows]
+
+    @app.post("/usage", status_code=204)
+    def usage(event: UsageEvent) -> Response:
+        log_usage(current().compass_db_path, event.kind, event.name, detail=event.detail)
+        return Response(status_code=204)
 
     return app
