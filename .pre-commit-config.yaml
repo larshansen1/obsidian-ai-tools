@@ -44,6 +44,14 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
+      - id: import-linter
+        name: import-linter (kai must not import vault_compass)
+        entry: .venv/bin/lint-imports
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+
       - id: radon-cc
         name: radon cc check
         entry: ./scripts/run_radon.sh

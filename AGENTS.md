@@ -20,7 +20,7 @@ uv run pre-commit run --all-files   # must pass clean (no files modified)
 | Hook | Stage | Command to run manually |
 |------|-------|------------------------|
 | ruff lint + format | pre-commit | `uv run pre-commit run --all-files` |
-| bandit, gitleaks, README check, radon, pytest-fast | pre-commit | same |
+| bandit, gitleaks, README check, import-linter, radon, pytest-fast | pre-commit | same |
 | **mypy** | **pre-push** | `uv run mypy src --config-file mypy.ini` |
 | **pytest full coverage** | **pre-push** | `COVERAGE=1 ./scripts/test.sh -q` |
 
@@ -55,6 +55,15 @@ These files must use plain `python`/`python3` — not `uv run` — because they 
 ### Why this matters for refactors touching test files
 
 When renaming mock patch paths (e.g. `obsidian_ai_tools.cli.X` → `obsidian_ai_tools.commands.Y.X`), the new strings are often longer and may push lines past the 100-char limit. `ruff format` will auto-fix them, but `make check` / `ruff check` (lint) will not catch formatting-only violations in all configurations. Always verify with pre-commit.
+
+## Vault Compass (`src/vault_compass/`, `web/`)
+
+A second app in this repo (ADR 0005), started with `compass serve`. Details: DEVELOPMENT.md ("Vault Compass").
+
+- **Import rule:** `vault_compass` may import `obsidian_ai_tools`; `obsidian_ai_tools` must never import `vault_compass`. The `import-linter` hook and CI step fail the build otherwise (`uv run lint-imports`).
+- Do not add compass features as `kai` subcommands. kai stays ingest-only.
+- Compass writes only to its own DuckDB file (`compass_db_path`), never to kai's `observability.duckdb` (ADR 0006).
+- `web/` is a Node project with its own setup (`cd web && npm install`); the Python gates do not cover it.
 
 ## Writing Tests
 

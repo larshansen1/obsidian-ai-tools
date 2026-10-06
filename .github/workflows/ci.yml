@@ -37,17 +37,20 @@ jobs:
       - name: README command reference
         run: uv run python scripts/check_readme_commands.py
 
-      - name: Pre-commit hooks (lint, format, bandit, gitleaks, radon, pytest-fast)
+      - name: Pre-commit hooks (lint, format, bandit, gitleaks, import-linter, radon, pytest-fast)
         run: uv run pre-commit run --all-files
 
       - name: Format check (ruff)
         run: uv run ruff format --check .
 
+      - name: Import contracts (import-linter)
+        run: uv run lint-imports
+
       - name: Typecheck (mypy)
         run: uv run mypy src --config-file mypy.ini
 
       - name: Full tests with coverage enforcement
-        run: COVERAGE=1 uv run pytest -q --disable-warnings --cov=src/obsidian_ai_tools --cov-fail-under=80
+        run: COVERAGE=1 uv run pytest -q --disable-warnings --cov=src/obsidian_ai_tools --cov=src/vault_compass --cov-fail-under=80
 
       - name: CRAP gate (complexity x coverage)
         run: |

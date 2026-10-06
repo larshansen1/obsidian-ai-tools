@@ -119,6 +119,28 @@ The gate landed on a codebase whose five worst hotspots already exceeded thresho
 
 Pre-commit hooks run a subset on every commit; the full suite runs on push. See `.pre-commit-config.yaml` and `.github/workflows/ci.yml` for the exact configuration.
 
+## Vault Compass
+
+Vault Compass is a second app in this repo (ADR 0005): `src/vault_compass/` is its FastAPI
+backend, `web/` its Next.js + assistant-ui frontend. It has its own command, `compass serve`,
+which binds to `127.0.0.1:8100` and refuses other hosts unless `--i-know-what-im-doing` is
+passed (same rule as `kai serve`, ADR 0002).
+
+```bash
+uv run compass serve            # http://127.0.0.1:8100/status -> {"running": true}
+uv run compass serve --reload   # development
+```
+
+Settings: the vault path is kai's `OBSIDIAN_VAULT_PATH` (same `.env` lookup). Compass writes only
+to its own DuckDB file, `COMPASS_DB_PATH`, default `{vault}/.kai/compass.duckdb` (ADR 0006).
+
+**Import rule.** `vault_compass` may import `obsidian_ai_tools`; `obsidian_ai_tools` must never
+import `vault_compass`. `import-linter` enforces this from the `[tool.importlinter]` contract in
+`pyproject.toml`, as a pre-commit hook and a CI step. Run it by hand with `uv run lint-imports`.
+
+The Python side uses the same gates as kai (ruff, mypy, bandit, radon, CRAP, pytest, 80% coverage
+floor; coverage counts both packages). `web/` has its own Node setup (`cd web && npm install`).
+
 ## Parallel Agent Worktrees
 
 When dispatching multiple concurrent agents (one per issue), each worker gets its own branch and its own git worktree. Workers never share a checkout and never switch branches — the #50/#52 interference incident (mid-flight branch switch pulling the tree out from under a worker, one worker restoring a file another was editing, pre-commit's files-modified detector tripping on concurrent edits) only happened because multiple workers shared a single checkout.
