@@ -318,32 +318,50 @@ def _rebuild_relations(
     # Row-by-row inserts are the slow part of a refresh, so only write the difference.
     _sync_rows(
         con,
-        "links",
-        ("source_path", "target", "target_path", "is_resolved"),
+        _LINKS_SYNC,
         {(link.source_path, link.target, link.target_path, link.is_resolved) for link in links},
     )
     _sync_rows(
         con,
-        "duplicates",
-        ("path_a", "path_b", "reason"),
+        _DUPLICATES_SYNC,
         {(d.path_a, d.path_b, d.reason) for d in duplicates},
     )
     return links, duplicates
 
 
-def _sync_rows(
-    con: duckdb.DuckDBPyConnection,
-    table: str,
-    columns: tuple[str, ...],
-    wanted: set[tuple],
-) -> None:
-    """Make `table` hold exactly `wanted`, deleting and inserting only what differs."""
-    # Table and column names come from fixed call sites, never from input.
-    existing = set(con.execute(f"SELECT {', '.join(columns)} FROM {table}").fetchall())
-    match = " AND ".join(f"{c} IS NOT DISTINCT FROM ?" for c in columns)
-    _insert_all(con, f"DELETE FROM {table} WHERE {match}", sorted(existing - wanted, key=repr))
-    marks = ", ".join("?" for _ in columns)
-    _insert_all(con, f"INSERT INTO {table} VALUES ({marks})", sorted(wanted - existing, key=repr))
+@dataclass(frozen=True)
+class _SyncSql:
+    """Fixed statements for one derived table (literal SQL, so nothing is built from strings)."""
+
+    select: str
+    delete: str
+    insert: str
+
+
+_LINKS_SYNC = _SyncSql(
+    select="SELECT source_path, target, target_path, is_resolved FROM links",
+    delete=(
+        "DELETE FROM links WHERE source_path IS NOT DISTINCT FROM ? AND target IS NOT DISTINCT "
+        "FROM ? AND target_path IS NOT DISTINCT FROM ? AND is_resolved IS NOT DISTINCT FROM ?"
+    ),
+    insert="INSERT INTO links VALUES (?, ?, ?, ?)",
+)
+
+_DUPLICATES_SYNC = _SyncSql(
+    select="SELECT path_a, path_b, reason FROM duplicates",
+    delete=(
+        "DELETE FROM duplicates WHERE path_a IS NOT DISTINCT FROM ? AND path_b IS NOT DISTINCT "
+        "FROM ? AND reason IS NOT DISTINCT FROM ?"
+    ),
+    insert="INSERT INTO duplicates VALUES (?, ?, ?)",
+)
+
+
+def _sync_rows(con: duckdb.DuckDBPyConnection, sql: _SyncSql, wanted: set[tuple]) -> None:
+    """Make a table hold exactly `wanted`, deleting and inserting only what differs."""
+    existing = set(con.execute(sql.select).fetchall())
+    _insert_all(con, sql.delete, sorted(existing - wanted, key=repr))
+    _insert_all(con, sql.insert, sorted(wanted - existing, key=repr))
 
 
 def _write_topics(con: duckdb.DuckDBPyConnection, topics: TopicsFile, report: ScanReport) -> None:
@@ -410,8 +428,7 @@ def refresh_notes_incremental(
         updated = parsed & set(known)
         con.begin()
         try:
-            for table in ("notes", "note_tags", "note_files"):
-                _delete_paths(con, table, sorted(removed | updated))
+            _delete_paths(con, sorted(removed | updated))
             _insert_notes(con, scan)
             _rebuild_relations(con)
             if topics is not None:
@@ -429,7 +446,13 @@ def refresh_notes_incremental(
     )
 
 
-def _delete_paths(con: duckdb.DuckDBPyConnection, table: str, paths: list[str]) -> None:
-    if paths:
-        # Table names come from a fixed tuple above, never from input.
-        con.executemany(f"DELETE FROM {table} WHERE path = ?", [(p,) for p in paths])
+_DELETE_BY_PATH_SQL = (
+    "DELETE FROM notes WHERE path = ?",
+    "DELETE FROM note_tags WHERE path = ?",
+    "DELETE FROM note_files WHERE path = ?",
+)
+
+
+def _delete_paths(con: duckdb.DuckDBPyConnection, paths: list[str]) -> None:
+    for sql in _DELETE_BY_PATH_SQL:
+        _insert_all(con, sql, [(p,) for p in paths])
