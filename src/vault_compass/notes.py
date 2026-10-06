@@ -24,6 +24,7 @@ from .relations import (
     link_targets,
     resolve_links,
 )
+from .topics import TopicsFile
 
 EVERGREEN_FOLDER = "notes/evergreen"  # ADR 0004
 
@@ -71,6 +72,31 @@ CREATE OR REPLACE TABLE duplicates (
 )
 """
 
+_TOPIC_TAGS_DDL = """
+CREATE OR REPLACE TABLE topic_tags (
+    topic VARCHAR NOT NULL,
+    tag VARCHAR NOT NULL,
+    PRIMARY KEY (topic, tag)
+)
+"""
+
+# A note belongs to every topic whose tags it carries (ADR 0003).
+_NOTE_TOPICS_VIEW = """
+CREATE OR REPLACE VIEW note_topics AS
+SELECT DISTINCT nt.path, tt.topic
+FROM note_tags nt
+JOIN topic_tags tt ON tt.tag = nt.tag
+"""
+
+# Tags that map to no topic, most used first.
+UNMAPPED_TAGS_SQL = """
+SELECT tag, COUNT(*) AS notes
+FROM note_tags
+WHERE tag NOT IN (SELECT tag FROM topic_tags)
+GROUP BY tag
+ORDER BY notes DESC, tag
+"""
+
 
 @dataclass(frozen=True)
 class NoteRow:
@@ -96,6 +122,8 @@ class ScanReport:
     # Filled by refresh_notes only.
     unresolved_links: list[LinkRow] = field(default_factory=list)
     duplicates: list[DuplicateRow] = field(default_factory=list)
+    # (tag, note count); filled only when topics are given.
+    unmapped_tags: list[tuple[str, int]] = field(default_factory=list)
 
 
 @dataclass
@@ -198,8 +226,12 @@ def _insert_all(con: duckdb.DuckDBPyConnection, sql: str, params: list[tuple]) -
         con.executemany(sql, params)
 
 
-def refresh_notes(vault_path: Path, db_path: Path) -> ScanReport:
-    """Rescan the vault and replace the notes, tag, link and duplicate tables."""
+def refresh_notes(vault_path: Path, db_path: Path, topics: TopicsFile | None = None) -> ScanReport:
+    """Rescan the vault and replace the notes, tag, link and duplicate tables.
+
+    With `topics`, also rebuild topic_tags, the note_topics view and the
+    unmapped-tags list.
+    """
     scan = _scan(vault_path)
     rows, report = scan.rows, scan.report
     links = resolve_links(scan.targets)
@@ -209,6 +241,9 @@ def refresh_notes(vault_path: Path, db_path: Path) -> ScanReport:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(db_path))
     try:
+        # The view depends on note_tags, so it must go before the tables are replaced.
+        con.execute("DROP VIEW IF EXISTS note_topics")
+        con.execute("DROP TABLE IF EXISTS topic_tags")
         con.execute(_NOTES_DDL)
         con.execute(_NOTE_TAGS_DDL)
         con.execute(_LINKS_DDL)
@@ -246,6 +281,13 @@ def refresh_notes(vault_path: Path, db_path: Path) -> ScanReport:
             "INSERT INTO duplicates VALUES (?, ?, ?)",
             [(d.path_a, d.path_b, d.reason) for d in duplicates],
         )
+        if topics is not None:
+            con.execute(_TOPIC_TAGS_DDL)
+            _insert_all(con, "INSERT INTO topic_tags VALUES (?, ?)", topics.topic_tag_pairs())
+            con.execute(_NOTE_TOPICS_VIEW)
+            report.unmapped_tags = [
+                (t, int(n)) for t, n in con.execute(UNMAPPED_TAGS_SQL).fetchall()
+            ]
     finally:
         con.close()
     return report

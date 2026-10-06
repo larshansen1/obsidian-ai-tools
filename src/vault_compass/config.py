@@ -19,6 +19,11 @@ def _default_db_path(data: dict[str, Any]) -> Path:
     return vault_path / ".kai" / "compass.duckdb"
 
 
+def _default_topics_path(data: dict[str, Any]) -> Path:
+    vault_path: Path = data["obsidian_vault_path"]
+    return vault_path / ".kai" / "topics.yaml"
+
+
 class CompassSettings(BaseSettings):
     """Settings for `compass serve`, read from the environment and kai's .env."""
 
@@ -33,6 +38,10 @@ class CompassSettings(BaseSettings):
     compass_db_path: Path = Field(
         default_factory=_default_db_path,
         description="Compass DuckDB file; defaults to {vault}/.kai/compass.duckdb",
+    )
+    compass_topics_path: Path = Field(
+        default_factory=_default_topics_path,
+        description="Topic definitions; defaults to {vault}/.kai/topics.yaml",
     )
 
     @field_validator("obsidian_vault_path")

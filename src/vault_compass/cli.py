@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from .config import get_compass_settings
 from .notes import refresh_notes
+from .topics import TopicsError, load_topics, seed_topics_file
 
 LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
 
@@ -34,7 +35,15 @@ def scan() -> None:
         typer.echo(f"❌ Configuration error:\n{e}", err=True)
         raise typer.Exit(1) from None
 
-    report = refresh_notes(settings.obsidian_vault_path, settings.compass_db_path)
+    if seed_topics_file(settings.compass_topics_path):
+        typer.echo(f"Created {settings.compass_topics_path} with the starter topics")
+    try:
+        topics = load_topics(settings.compass_topics_path)
+    except TopicsError as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(1) from None
+
+    report = refresh_notes(settings.obsidian_vault_path, settings.compass_db_path, topics)
     typer.echo(f"Notes: {report.note_count}")
     typer.echo(f"Unparsed dates: {len(report.unparsed_dates)}")
     for path in report.unparsed_dates:
@@ -43,6 +52,7 @@ def scan() -> None:
     for path in report.undated:
         typer.echo(f"  {path}")
     typer.echo(f"Unresolved links: {len(report.unresolved_links)}")
+    typer.echo(f"Unmapped tags: {len(report.unmapped_tags)}")
     typer.echo(f"Likely duplicates: {len(report.duplicates)}")
     for dup in report.duplicates:
         typer.echo(f"  {dup.path_a} <-> {dup.path_b} ({dup.reason})")
