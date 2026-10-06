@@ -4,7 +4,7 @@ Local-only daemon (127.0.0.1), started with: compass serve
 """
 
 import asyncio
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import date
 from typing import Literal
@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from .config import CompassSettings, get_compass_settings
 from .db import DB_LOCK
 from .notes import UNMAPPED_TAGS_SQL
+from .topic_map import TopicMapResponse, Window, build_topic_map
 from .topics import TopicsError, load_topics
 from .usage import log_usage
 from .watcher import refresh_once, watch_vault
@@ -73,8 +74,11 @@ def _compass_db(settings: CompassSettings) -> Iterator[duckdb.DuckDBPyConnection
             con.close()
 
 
-def create_app(settings: CompassSettings | None = None) -> FastAPI:
-    """Build the Compass app. Used by uvicorn as a factory."""
+def create_app(
+    settings: CompassSettings | None = None,
+    today: Callable[[], date] = date.today,
+) -> FastAPI:
+    """Build the Compass app. Used by uvicorn as a factory. `today` is a test seam."""
 
     def current() -> CompassSettings:
         return settings if settings is not None else get_compass_settings()
@@ -125,6 +129,22 @@ def create_app(settings: CompassSettings | None = None) -> FastAPI:
             ai_exclude_folders=definitions.ai_exclude_folders,
             topics=summaries,
         )
+
+    @app.get("/topic-map")
+    def topic_map(window: Window = "30") -> TopicMapResponse:
+        cfg = current()
+        try:
+            definitions = load_topics(cfg.compass_topics_path)
+        except TopicsError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from None
+        with _compass_db(cfg) as con:
+            return build_topic_map(
+                con,
+                definitions,
+                today=today(),
+                window=window,
+                inbox_folder=cfg.obsidian_inbox_folder,
+            )
 
     @app.get("/topics/unmapped")
     def unmapped_tags() -> list[UnmappedTag]:

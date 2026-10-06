@@ -139,7 +139,13 @@ import `vault_compass`. `import-linter` enforces this from the `[tool.importlint
 `pyproject.toml`, as a pre-commit hook and a CI step. Run it by hand with `uv run lint-imports`.
 
 The Python side uses the same gates as kai (ruff, mypy, bandit, radon, CRAP, pytest, 80% coverage
-floor; coverage counts both packages). `web/` has its own Node setup (`cd web && npm install`).
+floor; coverage counts both packages). `web/` has its own Node setup and checks, run by `.github/workflows/web.yml` only when `web/` changes:
+
+```bash
+cd web && npm install
+npm run typecheck && npm run lint && npm test
+npm run dev   # http://127.0.0.1:3117, proxies /api/* to compass serve on :8100
+```
 
 ## Parallel Agent Worktrees
 

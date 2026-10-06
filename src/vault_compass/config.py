@@ -44,6 +44,9 @@ class CompassSettings(BaseSettings):
         description="Topic definitions; defaults to {vault}/.kai/topics.yaml",
     )
 
+    # Same env key as kai, so the inbox count follows kai's inbox folder.
+    obsidian_inbox_folder: str = Field(default="inbox", description="Folder for new notes")
+
     @field_validator("obsidian_vault_path")
     @classmethod
     def validate_vault_path(cls, v: Path) -> Path:
