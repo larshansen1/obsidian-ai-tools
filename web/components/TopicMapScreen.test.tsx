@@ -1,0 +1,135 @@
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TopicMapScreen } from "./TopicMapScreen";
+import type { TopicMap, TopicStats } from "../lib/topicMap";
+
+function stats(over: Partial<TopicStats>): TopicStats {
+  return {
+    id: "big",
+    name: "Big",
+    note_count: 6,
+    window_notes: 2,
+    momentum: 200,
+    evergreens: 1,
+    linked_notes: 1,
+    notes_per_month: [{ month: "2026-10", notes: 1 }],
+    top_source: { name: "a.com", notes: 2 },
+    below_min_notes: false,
+    next_step: "Write more.",
+    ...over,
+  };
+}
+
+const MAP: TopicMap = {
+  window: "30",
+  min_notes: 3,
+  momentum_formula: "FORMULA",
+  tiles: {
+    total_notes: 9,
+    notes_last_30: 4,
+    notes_prior_30: 1,
+    link_share: 0.1111,
+    evergreen_count: 1,
+    inbox_count: 1,
+  },
+  topics: [
+    stats({}),
+    stats({ id: "small", name: "Small", note_count: 1, momentum: null, below_min_notes: true, top_source: null }),
+  ],
+};
+
+const fetchMock = vi.fn();
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  fetchMock.mockImplementation((url: string) => {
+    if (url.startsWith("/api/topic-map")) {
+      const window = new URL(url, "http://x").searchParams.get("window");
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ ...MAP, window }) });
+    }
+    return Promise.resolve({ ok: true, status: 204 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+});
+
+describe("TopicMapScreen", () => {
+  it("shows the summary tiles from the API", async () => {
+    render(<TopicMapScreen />);
+
+    const tiles = await screen.findAllByTestId("tile");
+
+    expect(tiles.map((t) => t.textContent)).toEqual([
+      "Notes, last 30 days4+300% vs 1 in the 30 days before",
+      "Notes with links11%of 9 notes",
+      "Evergreens1",
+      "Inbox1",
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith("/api/topic-map?window=30");
+  });
+
+  it("updates the panel when a bubble is clicked, without reloading", async () => {
+    render(<TopicMapScreen />);
+    await screen.findByTestId("bubble-big");
+    expect(screen.queryByTestId("topic-panel")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("bubble-big"));
+    const panel = screen.getByTestId("topic-panel");
+    expect(within(panel).getByRole("heading", { name: "Big" })).toBeInTheDocument();
+    expect(within(panel).getByText("+200%")).toBeInTheDocument();
+    expect(within(panel).getByText("a.com (2)")).toBeInTheDocument();
+    expect(within(panel).getByText(/Write more\./)).toBeInTheDocument();
+    expect(within(panel).getByRole("link", { name: "Open topic page" })).toHaveAttribute("href", "/topics/big");
+
+    fireEvent.click(screen.getByTestId("bubble-small"));
+    const next = screen.getByTestId("topic-panel");
+    expect(within(next).getByRole("heading", { name: "Small" })).toBeInTheDocument();
+    expect(within(next).getByText("n/a")).toBeInTheDocument();
+    expect(within(next).getByText(/Fewer than 3 notes/)).toBeInTheDocument();
+    expect(within(next).getByText("none")).toBeInTheDocument();
+  });
+
+  it("reloads the data when the window changes", async () => {
+    render(<TopicMapScreen />);
+    await screen.findByTestId("bubble-big");
+
+    fireEvent.click(screen.getByRole("button", { name: "90 days" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/topic-map?window=90"));
+    expect(screen.getByRole("button", { name: "90 days" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "30 days" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("shows the formula", async () => {
+    render(<TopicMapScreen />);
+
+    expect(await screen.findByText("FORMULA")).toBeInTheDocument();
+  });
+
+  it("logs the screen view and a topic selection", async () => {
+    render(<TopicMapScreen />);
+    await screen.findByTestId("bubble-big");
+
+    fireEvent.click(screen.getByTestId("bubble-big"));
+
+    const post = (kind: string, name: string, detail: string | null) => [
+      "/api/usage",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, name, detail }),
+      },
+    ];
+    expect(fetchMock).toHaveBeenCalledWith(...post("screen_view", "topic_map", null));
+    expect(fetchMock).toHaveBeenCalledWith(...post("action", "select_topic", "big"));
+  });
+
+  it("shows the server's message when there is no data yet", async () => {
+    fetchMock.mockImplementation(() =>
+      Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ detail: "No topic data yet." }) }),
+    );
+
+    render(<TopicMapScreen />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("No topic data yet.");
+  });
+});

@@ -63,7 +63,7 @@ A second app in this repo (ADR 0005), started with `compass serve`. Details: DEV
 - **Import rule:** `vault_compass` may import `obsidian_ai_tools`; `obsidian_ai_tools` must never import `vault_compass`. The `import-linter` hook and CI step fail the build otherwise (`uv run lint-imports`).
 - Do not add compass features as `kai` subcommands. kai stays ingest-only.
 - Compass writes only to its own DuckDB file (`compass_db_path`), never to kai's `observability.duckdb` (ADR 0006).
-- `web/` is a Node project with its own setup (`cd web && npm install`); the Python gates do not cover it.
+- `web/` is a Node project with its own setup (`cd web && npm install`); the Python gates do not cover it. Run `npm run typecheck && npm run lint && npm test` there; CI runs them from `.github/workflows/web.yml` on `web/` changes.
 
 ## Writing Tests
 

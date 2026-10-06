@@ -67,14 +67,15 @@ own command, and kai never imports it:
 ```
 src/vault_compass/
 ├── cli.py                    # Typer app: compass serve (127.0.0.1:8100, loopback-only)
-├── app.py                    # FastAPI app factory: /status, /topics, /usage; refreshes on startup
+├── app.py                    # FastAPI app factory: /status, /topics, /topic-map, /usage; refreshes on startup
 ├── notes.py                  # scan + incremental refresh (by file mtime) into compass.duckdb
+├── topic_map.py              # topic map numbers: summary tiles, momentum, evergreens, per-topic stats
 ├── watcher.py                # startup refresh + file watcher (watchfiles) while serve runs
 ├── usage.py                  # usage_events table: screen views, actions, AI calls with cost
 ├── db.py                     # in-process lock so reads, refreshes and usage writes never clash
 └── config.py                 # CompassSettings: kai's OBSIDIAN_VAULT_PATH + compass_db_path
 
-web/                          # Next.js + assistant-ui frontend (Node, own checks)
+web/                          # Next.js frontend (Node, own checks): topic map at /, spike at /spike
 ```
 
 - **Import rule:** `vault_compass` → `obsidian_ai_tools` is allowed; the reverse is forbidden and
