@@ -160,6 +160,7 @@ def test_excluded_note_never_reaches_the_model(vault: Path) -> None:
         [
             {
                 "path": "notes/agents.md",
+                "cite": "[[notes/agents.md]]",
                 "title": "agents",
                 "created": "2026-09-01",
                 "snippet": "Agents plan work.",
@@ -233,6 +234,7 @@ def test_read_note_returns_body_without_front_matter(vault: Path) -> None:
 
     assert run_tool(ai, "read_note", {"path": "notes/agents.md"}) == {
         "path": "notes/agents.md",
+        "cite": "[[notes/agents.md]]",
         "title": "agents",
         "created": "2026-09-01",
         "tags": ["x"],
@@ -272,6 +274,7 @@ def test_tools_work_from_a_script(vault: Path, capsys: pytest.CaptureFixture[str
     assert json.loads(capsys.readouterr().out) == [
         {
             "path": "notes/other.md",
+            "cite": "[[notes/other.md]]",
             "title": "other",
             "created": "2026-09-01",
             "snippet": "Unrelated gardening text.",
@@ -365,6 +368,7 @@ def test_tool_call_streams_input_and_output_then_continues(vault: Path) -> None:
         "output": [
             {
                 "path": "notes/other.md",
+                "cite": "[[notes/other.md]]",
                 "title": "other",
                 "created": "2026-09-01",
                 "snippet": "Unrelated gardening text.",
@@ -394,6 +398,7 @@ def test_system_prompt_carries_screen_and_topic(vault: Path) -> None:
     assert [t["function"]["name"] for t in model.requests[0][1]] == [
         "search_notes",
         "read_note",
+        "topic_tags",
         "topic_stats",
     ]
 
@@ -403,6 +408,7 @@ def test_system_prompt_asks_for_citations(vault: Path) -> None:
 
     _post(_client(model), [_user("hi")])
 
+    assert "the `cite` value a tool gave you" in model.requests[0][0][0]["content"]
     assert "[[notes/evergreen/example.md]]" in model.requests[0][0][0]["content"]
 
 
@@ -884,3 +890,34 @@ def test_a_failing_model_ends_the_reply_with_a_message(
     assert [r.getMessage() for r in caplog.records if r.name == "vault_compass.chat"] == [
         "model call failed"
     ]
+
+
+def test_topic_tags_counts_tags_on_the_topics_notes(vault: Path) -> None:
+    _write(vault, "notes/b.md", "text", tags="[x, z]")
+    _write(vault, "notes/reflections/e.md", "text", tags="[x, hidden]")
+    refresh_notes(
+        vault, vault / ".kai" / "compass.duckdb", load_topics(vault / ".kai" / "topics.yaml")
+    )
+    ai = AiVault.from_settings(CompassSettings())
+
+    # agents.md and b.md count; the reflection note (tags x, hidden) is left out.
+    assert run_tool(ai, "topic_tags", {"topic": "big"}) == [
+        {"tag": "x", "notes": 2},
+        {"tag": "z", "notes": 1},
+    ]
+    assert run_tool(ai, "topic_tags", {"topic": "nope"}) == {"error": "Unknown topic: nope"}
+
+
+def test_topic_tags_returns_at_most_25_tags(vault: Path) -> None:
+    tags = ", ".join(f"t{i:02d}" for i in range(30))
+    _write(vault, "notes/many.md", "text", tags=f"[x, {tags}]")
+    refresh_notes(
+        vault, vault / ".kai" / "compass.duckdb", load_topics(vault / ".kai" / "topics.yaml")
+    )
+    ai = AiVault.from_settings(CompassSettings())
+
+    result = run_tool(ai, "topic_tags", {"topic": "big"})
+
+    assert len(result) == 25
+    assert result[0] == {"tag": "x", "notes": 2}
+    assert result[1] == {"tag": "t00", "notes": 1}

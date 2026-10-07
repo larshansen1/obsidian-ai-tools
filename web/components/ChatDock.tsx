@@ -45,19 +45,41 @@ function CitedText({ text }: { text: string }) {
 }
 
 type NoteHit = { path: string; title: string };
+type TagCount = { tag: string; notes: number };
 
-function ToolCard({ toolName, result }: { toolName: string; result?: unknown }) {
+function plural(count: number, word: string): string {
+  return `${count} ${word}${count === 1 ? "" : "s"}`;
+}
+
+// One quiet line per tool call; open it to see the details.
+function Folded({ summary, children }: { summary: string; children?: ReactNode }) {
+  if (!children) return <div className="chat-tool chat-tool-line muted">{summary}</div>;
+  return (
+    <details className="chat-tool chat-tool-line">
+      <summary className="muted">{summary}</summary>
+      {children}
+    </details>
+  );
+}
+
+export function ToolCard({
+  toolName,
+  args,
+  result,
+}: {
+  toolName: string;
+  args?: unknown;
+  result?: unknown;
+}) {
   const vault = useContext(VaultName);
-  if (result === undefined) return <div className="chat-tool muted">Running {toolName}…</div>;
+  if (result === undefined) return <Folded summary={`Running ${toolName}…`} />;
   const error = (result as { error?: string } | null)?.error;
-  if (error) return <div className="chat-tool muted">{error}</div>;
+  if (error) return <Folded summary={error} />;
   if (toolName === "search_notes" && Array.isArray(result)) {
     const hits = result as NoteHit[];
+    const query = (args as { query?: string } | undefined)?.query ?? "";
     return (
-      <div className="chat-tool">
-        <strong>
-          Found {hits.length} {hits.length === 1 ? "note" : "notes"}
-        </strong>
+      <Folded summary={`Searched for "${query}": ${plural(hits.length, "note")}`}>
         <ul>
           {hits.map((hit) => (
             <li key={hit.path}>
@@ -65,26 +87,32 @@ function ToolCard({ toolName, result }: { toolName: string; result?: unknown }) 
             </li>
           ))}
         </ul>
-      </div>
+      </Folded>
     );
   }
   if (toolName === "read_note") {
     const note = result as NoteHit;
     return (
-      <div className="chat-tool">
-        Read <a href={noteUrl(vault, note.path)}>{note.title}</a>
-      </div>
+      <Folded summary="Read a note">
+        <a href={noteUrl(vault, note.path)}>{note.title}</a>
+      </Folded>
+    );
+  }
+  if (toolName === "topic_tags" && Array.isArray(result)) {
+    const tags = result as TagCount[];
+    return (
+      <Folded summary={`Looked at ${plural(tags.length, "tag")} on the topic`}>
+        <p className="chat-text">{tags.map((t) => `${t.tag} (${t.notes})`).join(", ")}</p>
+      </Folded>
     );
   }
   if (toolName === "topic_stats") {
     const stats = result as { name: string; note_count: number; evergreens: number };
     return (
-      <div className="chat-tool">
-        <strong>{stats.name}</strong>: {stats.note_count} notes, {stats.evergreens} evergreens
-      </div>
+      <Folded summary={`${stats.name}: ${plural(stats.note_count, "note")}, ${plural(stats.evergreens, "evergreen")}`} />
     );
   }
-  return <div className="chat-tool muted">{toolName} done</div>;
+  return <Folded summary={`${toolName} done`} />;
 }
 
 const CostConfirmUI = makeAssistantToolUI<
@@ -123,7 +151,11 @@ function AssistantMessage() {
       <MessagePrimitive.Parts
         components={{
           Text: CitedText,
-          tools: { Fallback: ({ toolName, result }) => <ToolCard toolName={toolName} result={result} /> },
+          tools: {
+            Fallback: ({ toolName, args, result }) => (
+              <ToolCard toolName={toolName} args={args} result={result} />
+            ),
+          },
         }}
       />
     </MessagePrimitive.Root>

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ChatDock } from "./ChatDock";
+import { ChatDock, ToolCard } from "./ChatDock";
 
 let pathname = "/topics/big";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
@@ -74,5 +74,52 @@ describe("ChatDock", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/chat/history"));
     expect(screen.getByText("Ask about your vault.")).toBeVisible();
+  });
+});
+
+describe("ToolCard", () => {
+  it("folds a search into one line with the query and count", () => {
+    render(
+      <ToolCard
+        toolName="search_notes"
+        args={{ query: "sleep" }}
+        result={[{ path: "a.md", title: "A" }]}
+      />,
+    );
+
+    expect(screen.getByText('Searched for "sleep": 1 note')).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "A" })).toHaveAttribute(
+      "href",
+      "obsidian://open?vault=&file=a",
+    );
+  });
+
+  it("pluralizes and lists tags with counts", () => {
+    render(
+      <ToolCard
+        toolName="topic_tags"
+        result={[
+          { tag: "adhd", notes: 5 },
+          { tag: "sleep", notes: 2 },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Looked at 2 tags on the topic")).toBeInTheDocument();
+    expect(screen.getByText("adhd (5), sleep (2)")).toBeInTheDocument();
+  });
+
+  it("shows a tool error as one line, and a pending call as running", () => {
+    const { rerender } = render(<ToolCard toolName="read_note" result={{ error: "No such note: x" }} />);
+    expect(screen.getByText("No such note: x")).toBeInTheDocument();
+
+    rerender(<ToolCard toolName="read_note" />);
+    expect(screen.getByText("Running read_note…")).toBeInTheDocument();
+  });
+
+  it("summarises topic stats", () => {
+    render(<ToolCard toolName="topic_stats" result={{ name: "Big", note_count: 1, evergreens: 2 }} />);
+
+    expect(screen.getByText("Big: 1 note, 2 evergreens")).toBeInTheDocument();
   });
 });

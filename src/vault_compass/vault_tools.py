@@ -10,6 +10,7 @@ note in an excluded folder.
 
 import json
 import re
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -28,6 +29,7 @@ SNIPPET_CHARS = 200
 READ_NOTE_CHARS = 6000
 MIN_TERM_CHARS = 3
 BODY_HIT_CAP = 5
+TOP_TAGS_LIMIT = 25
 
 _NOTES_SQL = """
 SELECT n.path, n.title, n.created,
@@ -38,11 +40,20 @@ ORDER BY n.path
 """
 _TOPIC_FILTER = "WHERE n.path IN (SELECT path FROM note_topics WHERE topic = ?)"
 _ONE_NOTE_SQL = _NOTES_SQL.format(where="WHERE n.path = ?")
+_TOPIC_TAGS_SQL = """
+SELECT t.path, t.tag FROM note_tags t
+WHERE t.path IN (SELECT path FROM note_topics WHERE topic = ?)
+"""
 _FRONTMATTER = re.compile(r"\A---\n.*?\n---\n", re.S)
 
 
 class VaultToolError(Exception):
     """A tool could not run. The message is shown to the model."""
+
+
+def _cite(path: str) -> str:
+    """The exact mark the chat turns into a link that opens the note."""
+    return f"[[{path}]]"
 
 
 def _body(text: str) -> str:
@@ -126,7 +137,13 @@ class AiVault:
         scored = self._scored(self._read(sql, [topic] if topic else []), terms)
         scored.sort(key=lambda r: (-r[0], r[1]))
         return [
-            {"path": p, "title": t, "created": c.isoformat() if c else None, "snippet": s}
+            {
+                "path": p,
+                "cite": _cite(p),
+                "title": t,
+                "created": c.isoformat() if c else None,
+                "snippet": s,
+            }
             for _score, p, t, c, s in scored[:limit]
         ]
 
@@ -140,12 +157,22 @@ class AiVault:
         body = _body(self._text(path))
         return {
             "path": path,
+            "cite": _cite(path),
             "title": title,
             "created": created.isoformat() if created else None,
             "tags": list(tags),
             "text": body[:READ_NOTE_CHARS],
             "truncated": len(body) > READ_NOTE_CHARS,
         }
+
+    def topic_tags(self, topic: str, limit: int = TOP_TAGS_LIMIT) -> Any:
+        """The tags on a topic's notes with how many notes carry each: its themes."""
+        if topic not in self.definitions.topics:
+            raise VaultToolError(f"Unknown topic: {topic}")
+        rows = self._read(_TOPIC_TAGS_SQL, [topic])
+        counts = Counter(tag for path, tag in rows if not is_excluded(path, self.excluded))
+        ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        return [{"tag": tag, "notes": n} for tag, n in ranked[:limit]]
 
     def topic_stats(self, topic: str, window: Window = "30", today: date | None = None) -> Any:
         topic_def = self.definitions.topics.get(topic)
@@ -193,6 +220,10 @@ def _read(vault: AiVault, args: dict[str, Any]) -> Any:
     return vault.read_note(str(args.get("path", "")))
 
 
+def _tags(vault: AiVault, args: dict[str, Any]) -> Any:
+    return vault.topic_tags(str(args.get("topic", "")))
+
+
 def _stats(vault: AiVault, args: dict[str, Any]) -> Any:
     window = args.get("window", "30")
     if window not in ("30", "90", "all"):
@@ -225,6 +256,17 @@ TOOLS: dict[str, ToolSpec] = {
                 "required": ["path"],
             },
             _read,
+        ),
+        ToolSpec(
+            "topic_tags",
+            "The tags on a topic's notes with note counts. Use it first for questions about "
+            "a topic's themes, subtopics or what it covers.",
+            {
+                "type": "object",
+                "properties": {"topic": {"type": "string", "description": "Topic id"}},
+                "required": ["topic"],
+            },
+            _tags,
         ),
         ToolSpec(
             "topic_stats",

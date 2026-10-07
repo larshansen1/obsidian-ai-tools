@@ -365,6 +365,15 @@ a {
   font-size: 13px;
 }
 
+.chat-tool-line {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.chat-tool-line summary {
+  cursor: pointer;
+}
+
 .chat-tool ul {
   margin: 4px 0 0;
   padding-left: 18px;
