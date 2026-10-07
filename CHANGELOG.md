@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Vault Compass AI foundation and chat panel (#134): OpenRouter client with the model set
+  in config, per-action and monthly cost limits that ask before running, AI calls logged with
+  cost, folder exclusion (`ai_exclude_folders`) enforced in one place, a streaming `/chat`
+  endpoint, vault tools (search notes, read a note, topic stats) that also run from a script,
+  cited notes that open in Obsidian, and a chat panel docked beside every screen with one
+  conversation per topic.
 - `kai ingest` now accepts arXiv papers via abs/pdf URLs or bare arXiv IDs
   (`2404.12345`, `hep-th/9901001`). Metadata and abstract are fetched from the
   arXiv export API; the provider also supports full-text extraction (abstract

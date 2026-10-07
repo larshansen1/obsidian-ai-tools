@@ -26,3 +26,14 @@ def writable(db_path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
             yield con
         finally:
             con.close()
+
+
+@contextmanager
+def readonly(db_path: Path) -> Iterator[duckdb.DuckDBPyConnection]:
+    """Open compass.duckdb read-only, then close it. The file must exist."""
+    with DB_LOCK:
+        con = duckdb.connect(str(db_path), read_only=True)
+        try:
+            yield con
+        finally:
+            con.close()

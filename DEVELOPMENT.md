@@ -134,6 +134,26 @@ uv run compass serve --reload   # development
 Settings: the vault path is kai's `OBSIDIAN_VAULT_PATH` (same `.env` lookup). Compass writes only
 to its own DuckDB file, `COMPASS_DB_PATH`, default `{vault}/.kai/compass.duckdb` (ADR 0006).
 
+**AI and chat (#134).** The chat panel (`web/components/ChatDock.tsx`) talks to `POST /chat`, which
+streams the AI SDK UI message stream (see `docs/vault-compass/spike-notes.md`). Settings, all
+optional except the key, read from the same `.env`:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `OPENROUTER_API_KEY` | none | Without it the chat says how to set it |
+| `LLM_MODEL` | `anthropic/claude-sonnet-4` | Any OpenRouter model id; no code change needed |
+| `COMPASS_AI_ACTION_LIMIT_USD` | `0.25` | Ask before one chat action may cost more than this |
+| `COMPASS_AI_MONTHLY_LIMIT_USD` | `10` | Ask before this month's AI spend would pass this |
+| `COMPASS_AI_INPUT_USD_PER_MTOK` / `..._OUTPUT_...` | `3` / `15` | Prices used only to estimate a call before it runs |
+
+- Every model call is logged as an `ai_call` row in `usage_events` with the cost OpenRouter reports.
+- Notes in `ai_exclude_folders` (`.kai/topics.yaml`, default `notes/reflections`) never reach a model.
+  `AiVault` in `vault_tools.py` is the only way note text gets to a model; new AI features must read
+  notes through it.
+- The assistant's tools (`search_notes`, `read_note`, `topic_stats`) also run from a script:
+  `uv run python -m vault_compass.vault_tools search_notes '{"query": "agents"}'`.
+- Chat history is one thread per topic (plus one shared thread) in the `chat_history` table.
+
 **Import rule.** `vault_compass` may import `obsidian_ai_tools`; `obsidian_ai_tools` must never
 import `vault_compass`. `import-linter` enforces this from the `[tool.importlinter]` contract in
 `pyproject.toml`, as a pre-commit hook and a CI step. Run it by hand with `uv run lint-imports`.

@@ -7,12 +7,17 @@ import asyncio
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import date
-from typing import Literal
+from typing import Any, Literal
 
 import duckdb
 from fastapi import FastAPI, HTTPException, Response
-from pydantic import BaseModel, Field
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
+from .ai_client import ChatModel, OpenRouterModel
+from .ai_cost import month_spend
+from .chat import STREAM_HEADERS, chat_stream
+from .chat_history import GLOBAL_KEY, load_history, save_history
 from .config import CompassSettings, get_compass_settings
 from .db import DB_LOCK
 from .notes import UNMAPPED_TAGS_SQL
@@ -21,6 +26,7 @@ from .topic_map import TopicMapResponse, Window, build_topic_map
 from .topic_page import TopicPageResponse, build_topic_page
 from .topics import TopicsError, load_topics
 from .usage import log_usage
+from .vault_tools import AiVault
 from .watcher import refresh_once, watch_vault
 
 NOT_SCANNED_DETAIL = "No topic data yet. Run `compass scan` first."
@@ -58,6 +64,30 @@ class UsageEvent(BaseModel):
     detail: str | None = Field(default=None, max_length=1000)
 
 
+class ChatRequest(BaseModel):
+    # assistant-ui also sends system, tools and ids; only these are used.
+    model_config = ConfigDict(extra="ignore")
+
+    messages: list[dict[str, Any]]
+    # Where the user is (C3). The topic is a topic id.
+    screen: str | None = Field(default=None, max_length=100)
+    topic: str | None = Field(default=None, max_length=200)
+
+
+class AiStatus(BaseModel):
+    configured: bool
+    model: str
+    vault_name: str
+    month_spend_usd: float
+    monthly_limit_usd: float
+    action_limit_usd: float
+
+
+class ChatHistory(BaseModel):
+    # The assistant-ui thread export, stored as given.
+    messages: dict[str, Any] | None
+
+
 _TOPIC_COUNTS_SQL = "SELECT topic, COUNT(*) FROM note_topics GROUP BY topic"
 
 
@@ -79,8 +109,12 @@ def _compass_db(settings: CompassSettings) -> Iterator[duckdb.DuckDBPyConnection
 def create_app(
     settings: CompassSettings | None = None,
     today: Callable[[], date] = date.today,
+    model_factory: Callable[[CompassSettings], ChatModel] = OpenRouterModel,
 ) -> FastAPI:
-    """Build the Compass app. Used by uvicorn as a factory. `today` is a test seam."""
+    """Build the Compass app. Used by uvicorn as a factory.
+
+    `today` and `model_factory` are test seams.
+    """
 
     def current() -> CompassSettings:
         return settings if settings is not None else get_compass_settings()
@@ -169,6 +203,59 @@ def create_app(
             return build_topic_page(
                 con, definitions, topic_id, today=today(), window=window, signal=signal
             )
+
+    def _vault(cfg: CompassSettings) -> AiVault:
+        try:
+            return AiVault.from_settings(cfg)
+        except TopicsError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from None
+
+    def _thread_key(cfg: CompassSettings, topic: str | None) -> str:
+        if topic is None:
+            return GLOBAL_KEY
+        if topic not in _vault(cfg).definitions.topics:
+            raise HTTPException(status_code=404, detail=f"Unknown topic: {topic}")
+        return topic
+
+    @app.get("/ai/status")
+    def ai_status() -> AiStatus:
+        cfg = current()
+        return AiStatus(
+            configured=bool(cfg.openrouter_api_key),
+            model=cfg.llm_model,
+            vault_name=cfg.obsidian_vault_path.name,
+            month_spend_usd=month_spend(cfg.compass_db_path),
+            monthly_limit_usd=cfg.compass_ai_monthly_limit_usd,
+            action_limit_usd=cfg.compass_ai_action_limit_usd,
+        )
+
+    @app.post("/chat")
+    async def chat(request: ChatRequest) -> StreamingResponse:
+        cfg = current()
+        return StreamingResponse(
+            chat_stream(
+                settings=cfg,
+                vault=_vault(cfg),
+                model_factory=model_factory,
+                messages=request.messages,
+                screen=request.screen,
+                topic=request.topic,
+                today=today(),
+            ),
+            media_type="text/event-stream",
+            headers=STREAM_HEADERS,
+        )
+
+    @app.get("/chat/history")
+    def get_chat_history(topic: str | None = None) -> ChatHistory:
+        cfg = current()
+        return ChatHistory(messages=load_history(cfg.compass_db_path, _thread_key(cfg, topic)))
+
+    @app.put("/chat/history", status_code=204)
+    def put_chat_history(history: ChatHistory, topic: str | None = None) -> Response:
+        cfg = current()
+        save_history(cfg.compass_db_path, _thread_key(cfg, topic), history.messages)
+        return Response(status_code=204)
 
     @app.post("/usage", status_code=204)
     def usage(event: UsageEvent) -> Response:
