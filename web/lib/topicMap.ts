@@ -1,3 +1,5 @@
+import type { Signal } from "./topicPage";
+
 export type Window = "30" | "90" | "all";
 
 export type Tiles = {
@@ -29,6 +31,7 @@ export type TopicMap = {
   momentum_formula: string;
   tiles: Tiles;
   topics: TopicStats[];
+  signals: Signal[];
 };
 
 export const WINDOWS: { value: Window; label: string }[] = [

@@ -36,6 +36,15 @@ const MAP: TopicMap = {
     stats({}),
     stats({ id: "small", name: "Small", note_count: 1, momentum: null, below_min_notes: true, top_source: null }),
   ],
+  signals: [
+    {
+      topic_id: "big",
+      topic_name: "Big",
+      kind: "source_concentration",
+      message: "Source concentration: 2 notes from one source.",
+      note_count: 2,
+    },
+  ],
 };
 
 const fetchMock = vi.fn();
@@ -78,7 +87,7 @@ describe("TopicMapScreen", () => {
     expect(within(panel).getByText("+200%")).toBeInTheDocument();
     expect(within(panel).getByText("a.com (2)")).toBeInTheDocument();
     expect(within(panel).getByText(/Write more\./)).toBeInTheDocument();
-    expect(within(panel).getByRole("link", { name: "Open topic page" })).toHaveAttribute("href", "/topics/big");
+    expect(within(panel).getByRole("link", { name: "Open topic page" })).toHaveAttribute("href", "/topics/big?window=30");
 
     fireEvent.click(screen.getByTestId("bubble-small"));
     const next = screen.getByTestId("topic-panel");
@@ -97,6 +106,53 @@ describe("TopicMapScreen", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/topic-map?window=90"));
     expect(screen.getByRole("button", { name: "90 days" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "30 days" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("lists the signals and links each to the notes behind it", async () => {
+    render(<TopicMapScreen />);
+
+    const items = await screen.findAllByTestId("signal");
+
+    expect(items.map((i) => i.textContent)).toEqual([
+      "Big: Source concentration: 2 notes from one source. See the 2 notes",
+    ]);
+    expect(within(items[0]).getByRole("link", { name: "See the 2 notes" })).toHaveAttribute(
+      "href",
+      "/topics/big?signal=source_concentration&window=30",
+    );
+  });
+
+  it("says so when there are no signals", async () => {
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ ...MAP, signals: [], window: new URL(url, "http://x").searchParams.get("window") }),
+      }),
+    );
+
+    render(<TopicMapScreen />);
+
+    expect(await screen.findByTestId("no-signals")).toHaveTextContent("No signals right now.");
+    expect(screen.queryAllByTestId("signal")).toEqual([]);
+  });
+
+  it("logs when a signal is opened and links the topic page with the chosen window", async () => {
+    render(<TopicMapScreen />);
+    fireEvent.click(await screen.findByRole("button", { name: "90 days" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/topic-map?window=90"));
+
+    fireEvent.click(await screen.findByRole("link", { name: "See the 2 notes" }));
+
+    expect(screen.getByRole("link", { name: "See the 2 notes" })).toHaveAttribute(
+      "href",
+      "/topics/big?signal=source_concentration&window=90",
+    );
+    expect(fetchMock).toHaveBeenCalledWith("/api/usage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "action", name: "open_signal", detail: "big:source_concentration" }),
+    });
   });
 
   it("shows the formula", async () => {

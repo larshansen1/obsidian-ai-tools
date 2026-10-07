@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { formatMomentum, type TopicStats } from "../lib/topicMap";
-import { logUsage } from "../lib/topicMap";
+import { formatMomentum, logUsage, type TopicStats, type Window } from "../lib/topicMap";
+import { topicHref } from "../lib/topicPage";
 
-export function TopicPanel({ topic, minNotes }: { topic: TopicStats; minNotes: number }) {
+export function TopicPanel({ topic, minNotes, window }: { topic: TopicStats; minNotes: number; window: Window }) {
   const maxMonth = Math.max(1, ...topic.notes_per_month.map((m) => m.notes));
   return (
     <aside
@@ -38,7 +38,7 @@ export function TopicPanel({ topic, minNotes }: { topic: TopicStats; minNotes: n
       <p style={{ marginTop: 12 }}>
         <strong>Next step:</strong> {topic.next_step}
       </p>
-      <Link href={`/topics/${topic.id}`} onClick={() => logUsage("action", "open_topic_page", topic.id)}>
+      <Link href={topicHref(topic.id, window)} onClick={() => logUsage("action", "open_topic_page", topic.id)}>
         Open topic page
       </Link>
     </aside>

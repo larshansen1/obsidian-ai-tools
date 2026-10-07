@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { BubbleChart } from "./BubbleChart";
 import { SummaryTiles } from "./SummaryTiles";
+import { SignalsList } from "./SignalsList";
 import { TopicPanel } from "./TopicPanel";
 import { WINDOWS, fetchTopicMap, logUsage, type TopicMap, type Window } from "../lib/topicMap";
 
@@ -52,6 +53,7 @@ export function TopicMapScreen() {
     <main style={{ maxWidth: 1080, margin: "0 auto", padding: 24, display: "grid", gap: 16 }}>
       <h1 style={{ margin: 0 }}>Topic map</h1>
       <SummaryTiles tiles={data.tiles} />
+      <SignalsList signals={data.signals} window={window} />
       <div style={{ display: "flex", gap: 8, alignItems: "center" }} role="group" aria-label="Window">
         {WINDOWS.map((w) => (
           <button
@@ -82,7 +84,7 @@ export function TopicMapScreen() {
           />
         </div>
         {selected ? (
-          <TopicPanel topic={selected} minNotes={data.min_notes} />
+          <TopicPanel topic={selected} minNotes={data.min_notes} window={window} />
         ) : (
           <p style={{ flex: "1 1 280px" }}>Click a bubble to see the topic.</p>
         )}

@@ -1,15 +1,20 @@
-import Link from "next/link";
+import { TopicPageScreen } from "../../../components/TopicPageScreen";
+import { isSignalKind, isWindow } from "../../../lib/topicPage";
 
-// Placeholder: the real topic page is a later issue. It exists so "Open topic page" works for every topic (M7).
-export default async function TopicPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function TopicPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ signal?: string; window?: string }>;
+}) {
   const { id } = await params;
+  const { signal, window } = await searchParams;
   return (
-    <main style={{ padding: 24 }}>
-      <p>
-        <Link href="/">Back to topic map</Link>
-      </p>
-      <h1>{id}</h1>
-      <p>The topic page is not built yet.</p>
-    </main>
+    <TopicPageScreen
+      id={decodeURIComponent(id)}
+      window={isWindow(window) ? window : "30"}
+      signal={isSignalKind(signal) ? signal : null}
+    />
   );
 }
