@@ -87,8 +87,8 @@ export type Bubble = {
 
 // Padding leaves room for the biggest bubble and its label beyond the plot edges.
 export const CHART = { width: 720, height: 480, padLeft: 72, padRight: 56, padTop: 56, padBottom: 88 };
-export const MIN_RADIUS = 8;
-export const MAX_RADIUS = 32;
+export const MIN_RADIUS = 6;
+export const MAX_RADIUS = 22;
 export const MIN_X_RANGE = 100;
 
 function scale(value: number, domainMin: number, domainMax: number, rangeMin: number, rangeMax: number): number {
@@ -122,4 +122,45 @@ export function layoutBubbles(topics: TopicStats[]): Bubble[] {
       hasMomentum: t.momentum !== null,
     };
   });
+}
+
+export const LABEL_FONT = 12;
+const LABEL_CHAR_WIDTH = 6.4;
+const LABEL_GAP = 4;
+
+export type Label = { id: string; x: number; y: number; anchor: "start" | "middle" | "end" };
+
+type Box = { left: number; right: number; top: number; bottom: number };
+
+function overlaps(a: Box, b: Box): boolean {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+}
+
+/**
+ * Puts each name under its bubble. When that spot is taken by an earlier label it tries
+ * above, then right, then left, and falls back to below. Bigger bubbles are placed first,
+ * so the labels people care about most keep the best spot.
+ */
+export function placeLabels(bubbles: Bubble[], names: Map<string, string>): Label[] {
+  const placed: Box[] = [];
+  const result = new Map<string, Label>();
+  const order = [...bubbles].sort((a, b) => b.r - a.r || a.id.localeCompare(b.id));
+  for (const b of order) {
+    const width = (names.get(b.id) ?? b.id).length * LABEL_CHAR_WIDTH;
+    const at = (x: number, baseline: number, anchor: Label["anchor"]) => {
+      const left = anchor === "middle" ? x - width / 2 : anchor === "start" ? x : x - width;
+      const box: Box = { left, right: left + width, top: baseline - LABEL_FONT, bottom: baseline + 2 };
+      return { label: { id: b.id, x, y: baseline, anchor }, box };
+    };
+    const candidates = [
+      at(b.x, b.y + b.r + LABEL_FONT + LABEL_GAP - 2, "middle"),
+      at(b.x, b.y - b.r - LABEL_GAP, "middle"),
+      at(b.x + b.r + LABEL_GAP, b.y + LABEL_FONT / 2 - 2, "start"),
+      at(b.x - b.r - LABEL_GAP, b.y + LABEL_FONT / 2 - 2, "end"),
+    ];
+    const chosen = candidates.find((c) => !placed.some((p) => overlaps(p, c.box))) ?? candidates[0];
+    placed.push(chosen.box);
+    result.set(b.id, chosen.label);
+  }
+  return bubbles.map((b) => result.get(b.id) as Label);
 }

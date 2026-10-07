@@ -1,4 +1,4 @@
-import { CHART, layoutBubbles, type TopicStats } from "../lib/topicMap";
+import { CHART, LABEL_FONT, layoutBubbles, placeLabels, type TopicStats } from "../lib/topicMap";
 
 type Props = {
   topics: TopicStats[];
@@ -9,6 +9,7 @@ type Props = {
 export function BubbleChart({ topics, selectedId, onSelect }: Props) {
   const bubbles = layoutBubbles(topics);
   const names = new Map(topics.map((t) => [t.id, t.name]));
+  const labels = new Map(placeLabels(bubbles, names).map((l) => [l.id, l]));
   const plotBottom = CHART.height - CHART.padBottom;
   const midX = (CHART.padLeft + CHART.width - CHART.padRight) / 2;
   return (
@@ -32,7 +33,7 @@ export function BubbleChart({ topics, selectedId, onSelect }: Props) {
       <text x={16} y={CHART.padTop - 8} fontSize={12} style={{ fill: "var(--muted)" }}>
         ↑ Evergreens
       </text>
-      {bubbles.map((b) => {
+      {[...bubbles].sort((a, b) => b.r - a.r).map((b) => {
         const name = names.get(b.id) ?? b.id;
         const selected = b.id === selectedId;
         return (
@@ -56,7 +57,7 @@ export function BubbleChart({ topics, selectedId, onSelect }: Props) {
               cx={b.x}
               cy={b.y}
               r={b.r}
-              fillOpacity={b.hasMomentum ? 0.5 : 0.22}
+              fillOpacity={b.hasMomentum ? 0.45 : 0.2}
               strokeWidth={selected ? 3 : 1.5}
               style={{
                 fill: b.muted ? "var(--muted)" : "var(--accent)",
@@ -64,10 +65,10 @@ export function BubbleChart({ topics, selectedId, onSelect }: Props) {
               }}
             />
             <text
-              x={b.x}
-              y={b.y + b.r + 14}
-              textAnchor="middle"
-              fontSize={12}
+              x={labels.get(b.id)?.x}
+              y={labels.get(b.id)?.y}
+              textAnchor={labels.get(b.id)?.anchor}
+              fontSize={LABEL_FONT}
               fontWeight={selected ? 700 : 500}
               style={{ fill: "var(--text)", stroke: "var(--card)", strokeWidth: 4, paintOrder: "stroke" }}
             >
