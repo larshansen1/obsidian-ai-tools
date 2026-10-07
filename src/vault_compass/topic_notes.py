@@ -34,13 +34,22 @@ class TopicNote(NamedTuple):
     has_link: bool
 
 
+UNKNOWN_AUTHORS = frozenset({"unknown", "unknown author", "n/a", "none"})
+
+
 def source_name(note: TopicNote) -> str | None:
-    """The site a note came from, else its author; None when neither is known."""
+    """The channel or author a note came from, else its site; None when neither is known.
+
+    The author comes first: for a video the site is always the same, the channel is not.
+    """
+    author = (note.author or "").strip()
+    if author and author.lower() not in UNKNOWN_AUTHORS:
+        return author
     if note.source_url:
         host = urlparse(note.source_url).hostname
         if host:
             return host.removeprefix("www.")
-    return note.author or None
+    return None
 
 
 def load_topic_notes(con: duckdb.DuckDBPyConnection) -> dict[str, list[TopicNote]]:

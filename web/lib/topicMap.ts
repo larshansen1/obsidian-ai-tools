@@ -85,7 +85,8 @@ export type Bubble = {
   hasMomentum: boolean;
 };
 
-export const CHART = { width: 640, height: 360, padLeft: 48, padRight: 24, padTop: 24, padBottom: 40 };
+// Padding leaves room for the biggest bubble and its label beyond the plot edges.
+export const CHART = { width: 720, height: 480, padLeft: 72, padRight: 56, padTop: 56, padBottom: 88 };
 export const MIN_RADIUS = 8;
 export const MAX_RADIUS = 32;
 export const MIN_X_RANGE = 100;

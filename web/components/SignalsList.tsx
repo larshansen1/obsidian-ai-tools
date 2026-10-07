@@ -4,16 +4,16 @@ import { signalHref, type Signal } from "../lib/topicPage";
 
 export function SignalsList({ signals, window }: { signals: Signal[]; window: Window }) {
   return (
-    <section aria-label="Signals">
-      <h2 style={{ fontSize: 16, margin: "0 0 8px" }}>Signals</h2>
+    <section className="card" aria-label="Signals">
+      <h2>Signals</h2>
       {signals.length === 0 ? (
-        <p data-testid="no-signals" style={{ margin: 0 }}>
+        <p className="hint" data-testid="no-signals">
           No signals right now.
         </p>
       ) : (
-        <ul style={{ margin: 0, paddingLeft: 20 }}>
+        <ul className="signals">
           {signals.map((s) => (
-            <li key={`${s.topic_id}:${s.kind}`} data-testid="signal">
+            <li key={`${s.topic_id}:${s.kind}`} className="signal" data-testid="signal">
               <strong>{s.topic_name}:</strong> {s.message}{" "}
               <Link
                 href={signalHref(s, window)}

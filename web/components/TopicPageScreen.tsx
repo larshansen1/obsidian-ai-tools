@@ -11,12 +11,10 @@ import {
   type TopicPage,
 } from "../lib/topicPage";
 
-const box: React.CSSProperties = { border: "1px solid #d0d7de", borderRadius: 8, padding: 16, background: "#fff" };
-
 function NoteLine({ note }: { note: NoteRef }) {
   return (
     <>
-      {note.title} <span style={{ color: "#57606a" }}>({note.created ?? "no date"})</span>
+      {note.title} <span className="muted">({note.created ?? "no date"})</span>
     </>
   );
 }
@@ -54,13 +52,13 @@ export function TopicPageScreen({
   }, [id, window, signal]);
 
   const back = (
-    <p>
+    <p className="back">
       <Link href="/">Back to topic map</Link>
     </p>
   );
   if (error) {
     return (
-      <main style={{ padding: 24 }}>
+      <main className="page">
         {back}
         <p role="alert">{error}</p>
       </main>
@@ -68,7 +66,7 @@ export function TopicPageScreen({
   }
   if (!data) {
     return (
-      <main style={{ padding: 24 }}>
+      <main className="page">
         {back}
         <p>Loading…</p>
       </main>
@@ -77,35 +75,35 @@ export function TopicPageScreen({
 
   const { stats } = data;
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: 24, display: "grid", gap: 16 }}>
+    <main className="page">
       {back}
-      <header style={box}>
-        <h1 style={{ margin: "0 0 8px" }}>{stats.name}</h1>
-        <dl data-testid="header" style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", margin: 0 }}>
+      <header className="card">
+        <h1 className="page-title" style={{ marginBottom: 12 }}>{stats.name}</h1>
+        <dl data-testid="header" className="facts">
           <dt>Notes</dt>
-          <dd style={{ margin: 0 }}>{stats.note_count}</dd>
+          <dd>{stats.note_count}</dd>
           <dt>Momentum</dt>
-          <dd style={{ margin: 0 }}>{formatMomentum(stats.momentum)}</dd>
+          <dd>{formatMomentum(stats.momentum)}</dd>
           <dt>Evergreens</dt>
-          <dd style={{ margin: 0 }}>{stats.evergreens}</dd>
+          <dd>{stats.evergreens}</dd>
           <dt>Notes with links</dt>
-          <dd style={{ margin: 0 }}>{stats.linked_notes}</dd>
+          <dd>{stats.linked_notes}</dd>
           <dt>Tags</dt>
-          <dd style={{ margin: 0 }}>{data.tags.join(", ")}</dd>
+          <dd>{data.tags.join(", ")}</dd>
         </dl>
         {stats.below_min_notes ? (
-          <p style={{ color: "#9a6700" }}>Fewer than {data.min_notes} notes, so the trend is not shown on the map.</p>
+          <p className="warn">Fewer than {data.min_notes} notes, so the trend is not shown on the map.</p>
         ) : null}
       </header>
 
       {data.signal ? (
-        <section style={box} aria-label="Signal notes" data-testid="signal-notes">
-          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Notes behind the signal</h2>
-          <p style={{ marginTop: 0 }}>{data.signal.rules}</p>
+        <section className="card" aria-label="Signal notes" data-testid="signal-notes">
+          <h2>Notes behind the signal</h2>
+          <p className="muted" style={{ marginTop: 0 }}>{data.signal.rules}</p>
           {data.signal.notes.length === 0 ? (
             <p>This signal no longer applies to the topic.</p>
           ) : (
-            <ul style={{ margin: 0, paddingLeft: 20 }}>
+            <ul className="list">
               {data.signal.notes.map((n) => (
                 <li key={n.path}>
                   <NoteLine note={n} />
@@ -116,24 +114,19 @@ export function TopicPageScreen({
         </section>
       ) : null}
 
-      <section style={box} aria-label="Sources">
-        <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Notes per month</h2>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 60 }} role="img" aria-label="Notes per month">
+      <section className="card" aria-label="Sources">
+        <h2>Notes per month</h2>
+        <div className="bars" role="img" aria-label="Notes per month">
           {stats.notes_per_month.map((m) => (
             <div
               key={m.month}
               title={`${m.month}: ${m.notes}`}
-              style={{
-                flex: 1,
-                background: "#0969da",
-                height: `${(m.notes / Math.max(1, ...stats.notes_per_month.map((x) => x.notes))) * 100}%`,
-                minHeight: 2,
-              }}
+              style={{ height: `${(m.notes / Math.max(1, ...stats.notes_per_month.map((x) => x.notes))) * 100}%` }}
             />
           ))}
         </div>
-        <h2 style={{ margin: "16px 0 8px", fontSize: 16 }}>Top sources</h2>
-        <ul data-testid="top-sources" style={{ margin: 0, paddingLeft: 20 }}>
+        <h3>Top sources</h3>
+        <ul data-testid="top-sources" className="list">
           {data.top_sources.map((s) => (
             <li key={s.name}>
               {s.name} ({s.notes})
@@ -141,8 +134,8 @@ export function TopicPageScreen({
           ))}
           <li>Unknown source ({data.unknown_source_notes})</li>
         </ul>
-        <h2 style={{ margin: "16px 0 8px", fontSize: 16 }}>By source type</h2>
-        <ul data-testid="source-types" style={{ margin: 0, paddingLeft: 20 }}>
+        <h3>By source type</h3>
+        <ul data-testid="source-types" className="list">
           {data.source_types.map((t) => (
             <li key={t.source_type}>
               {t.source_type}: {t.notes} ({formatShare(t.share)})
@@ -151,12 +144,12 @@ export function TopicPageScreen({
         </ul>
       </section>
 
-      <section style={box} aria-label="Evergreens">
-        <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Evergreens and hypotheses</h2>
+      <section className="card" aria-label="Evergreens">
+        <h2>Evergreens and hypotheses</h2>
         {data.evergreens.length === 0 ? (
-          <p style={{ margin: 0 }}>None yet.</p>
+          <p className="hint">None yet.</p>
         ) : (
-          <ul data-testid="evergreens" style={{ margin: 0, paddingLeft: 20 }}>
+          <ul data-testid="evergreens" className="list">
             {data.evergreens.map((n) => (
               <li key={n.path}>
                 <NoteLine note={n} />
@@ -169,14 +162,14 @@ export function TopicPageScreen({
         )}
       </section>
 
-      <section style={box} aria-label="Recent notes">
-        <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Recent notes</h2>
-        <ul data-testid="recent-notes" style={{ margin: 0, paddingLeft: 20 }}>
+      <section className="card" aria-label="Recent notes">
+        <h2>Recent notes</h2>
+        <ul data-testid="recent-notes" className="list">
           {data.recent_notes.map((n) => (
             <li key={n.path}>
               <NoteLine note={n} />
               {n.duplicates.length > 0 ? (
-                <span style={{ color: "#9a6700" }}>
+                <span className="dup">
                   {" "}
                   Likely duplicate of {n.duplicates.map((d) => `${d.path} (${DUPLICATE_REASONS[d.reason] ?? d.reason})`).join(", ")}
                 </span>

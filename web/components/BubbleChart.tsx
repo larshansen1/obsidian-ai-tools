@@ -9,27 +9,28 @@ type Props = {
 export function BubbleChart({ topics, selectedId, onSelect }: Props) {
   const bubbles = layoutBubbles(topics);
   const names = new Map(topics.map((t) => [t.id, t.name]));
+  const plotBottom = CHART.height - CHART.padBottom;
   const midX = (CHART.padLeft + CHART.width - CHART.padRight) / 2;
   return (
     <svg
+      className="chart"
       viewBox={`0 0 ${CHART.width} ${CHART.height}`}
       role="group"
       aria-label="Topic map: momentum across, evergreens up, bubble size is note count"
-      style={{ width: "100%", maxWidth: 720, border: "1px solid #d0d7de", borderRadius: 8, background: "#fff" }}
     >
-      <line x1={midX} x2={midX} y1={CHART.padTop} y2={CHART.height - CHART.padBottom} stroke="#d0d7de" />
-      <line
-        x1={CHART.padLeft}
-        x2={CHART.width - CHART.padRight}
-        y1={CHART.height - CHART.padBottom}
-        y2={CHART.height - CHART.padBottom}
-        stroke="#8c959f"
-      />
-      <text x={CHART.width / 2} y={CHART.height - 8} textAnchor="middle" fontSize={12} fill="#57606a">
+      <line x1={midX} x2={midX} y1={CHART.padTop - 24} y2={plotBottom} style={{ stroke: "var(--border)" }} strokeDasharray="4 4" />
+      <line x1={CHART.padLeft - 24} x2={CHART.width - CHART.padRight + 24} y1={plotBottom} y2={plotBottom} style={{ stroke: "var(--muted)" }} />
+      <text x={CHART.padLeft - 24} y={plotBottom + 56} fontSize={12} style={{ fill: "var(--muted)" }}>
+        ← Slowing
+      </text>
+      <text x={CHART.width - CHART.padRight + 24} y={plotBottom + 56} fontSize={12} textAnchor="end" style={{ fill: "var(--muted)" }}>
+        Growing →
+      </text>
+      <text x={midX} y={plotBottom + 56} textAnchor="middle" fontSize={12} style={{ fill: "var(--muted)" }}>
         Momentum
       </text>
-      <text x={14} y={CHART.height / 2} fontSize={12} fill="#57606a" transform={`rotate(-90 14 ${CHART.height / 2})`} textAnchor="middle">
-        Evergreens
+      <text x={16} y={CHART.padTop - 8} fontSize={12} style={{ fill: "var(--muted)" }}>
+        ↑ Evergreens
       </text>
       {bubbles.map((b) => {
         const name = names.get(b.id) ?? b.id;
@@ -55,12 +56,21 @@ export function BubbleChart({ topics, selectedId, onSelect }: Props) {
               cx={b.x}
               cy={b.y}
               r={b.r}
-              fill={b.muted ? "#d0d7de" : "#0969da"}
-              fillOpacity={b.hasMomentum ? 0.55 : 0.25}
-              stroke={selected ? "#1f2328" : b.muted ? "#8c959f" : "#0969da"}
-              strokeWidth={selected ? 3 : 1}
+              fillOpacity={b.hasMomentum ? 0.5 : 0.22}
+              strokeWidth={selected ? 3 : 1.5}
+              style={{
+                fill: b.muted ? "var(--muted)" : "var(--accent)",
+                stroke: selected ? "var(--text)" : b.muted ? "var(--muted)" : "var(--accent)",
+              }}
             />
-            <text x={b.x} y={b.y + b.r + 12} textAnchor="middle" fontSize={11} fill="#1f2328">
+            <text
+              x={b.x}
+              y={b.y + b.r + 14}
+              textAnchor="middle"
+              fontSize={12}
+              fontWeight={selected ? 700 : 500}
+              style={{ fill: "var(--text)", stroke: "var(--card)", strokeWidth: 4, paintOrder: "stroke" }}
+            >
               {name}
             </text>
           </g>
