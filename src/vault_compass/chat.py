@@ -7,8 +7,10 @@ docs/vault-compass/spike-notes.md. Do not send `start-step` right after
 
 import asyncio
 import json
+import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
@@ -17,6 +19,8 @@ from .ai_cost import check_limits, estimate_cost, month_spend
 from .config import CompassSettings
 from .usage import log_usage
 from .vault_tools import AiVault, run_tool, tool_schemas
+
+logger = logging.getLogger(__name__)
 
 CONFIRM_TOOL = "confirm_cost"
 STREAM_HEADERS = {"x-vercel-ai-ui-message-stream": "v1", "Cache-Control": "no-cache"}
@@ -170,6 +174,44 @@ def _log_call(settings: CompassSettings, usage: Usage, detail: str | None) -> fl
     return cost
 
 
+@dataclass
+class _ModelStep:
+    calls: list[ToolCall] = field(default_factory=list)
+    cost: float = 0.0
+    failed: bool = False
+
+
+async def _model_step(
+    settings: CompassSettings,
+    model: ChatModel,
+    messages: list[dict[str, Any]],
+    topic: str | None,
+    result: _ModelStep,
+) -> AsyncIterator[str]:
+    """One model call: stream its text, collect tool calls and cost into `result`."""
+    text_id: str | None = None
+    try:
+        async for event in model.stream(messages, tool_schemas()):
+            if isinstance(event, TextDelta):
+                if text_id is None:
+                    text_id = uuid.uuid4().hex
+                    yield sse({"type": "text-start", "id": text_id})
+                yield sse({"type": "text-delta", "id": text_id, "delta": event.text})
+            elif isinstance(event, ToolCall):
+                result.calls.append(event)
+            elif isinstance(event, Usage):
+                result.cost += await asyncio.to_thread(_log_call, settings, event, topic)
+    except Exception:
+        # The provider failed mid-reply. Say so in the thread instead of dropping the stream.
+        logger.exception("model call failed")
+        result.failed = True
+    if text_id is not None:
+        yield sse({"type": "text-end", "id": text_id})
+    if result.failed:
+        async for c in _text("The model call failed. Check the server log, then try again."):
+            yield c
+
+
 async def chat_stream(
     *,
     settings: CompassSettings,
@@ -221,25 +263,15 @@ async def chat_stream(
 
         if step > 0:
             yield sse({"type": "start-step"})
-        text_id: str | None = None
-        calls: list[ToolCall] = []
-        async for event in model.stream(model_messages, tool_schemas()):
-            if isinstance(event, TextDelta):
-                if text_id is None:
-                    text_id = uuid.uuid4().hex
-                    yield sse({"type": "text-start", "id": text_id})
-                yield sse({"type": "text-delta", "id": text_id, "delta": event.text})
-            elif isinstance(event, ToolCall):
-                calls.append(event)
-            elif isinstance(event, Usage):
-                action_cost += await asyncio.to_thread(_log_call, settings, event, topic)
-        if text_id is not None:
-            yield sse({"type": "text-end", "id": text_id})
-
-        if not calls:
+        result = _ModelStep()
+        async for c in _model_step(settings, model, model_messages, topic, result):
+            yield c
+        action_cost += result.cost
+        if result.failed or not result.calls:
             async for c in _finish("stop"):
                 yield c
             return
+        calls = result.calls
 
         model_messages.append(
             {

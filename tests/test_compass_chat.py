@@ -842,3 +842,45 @@ def test_search_skips_a_note_that_cannot_be_read(vault: Path) -> None:
     ai = AiVault.from_settings(CompassSettings())
 
     assert ai.search_notes("agents") == []
+
+
+class BrokenModel:
+    """Streams one word, then fails like a dropped connection."""
+
+    async def stream(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+    ) -> AsyncIterator[ModelEvent]:
+        yield TextDelta("Partial ")
+        raise ConnectionError("upstream reset")
+
+
+def test_a_failing_model_ends_the_reply_with_a_message(
+    vault: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    client = TestClient(
+        create_app(CompassSettings(), today=lambda: TODAY, model_factory=lambda _s: BrokenModel())
+    )
+
+    events = _events(_post(client, [_user("hi")]))
+
+    types = [e["type"] if isinstance(e, dict) else e for e in events]
+    assert types == [
+        "start",
+        "text-start",
+        "text-delta",
+        "text-end",
+        "text-start",
+        "text-delta",
+        "text-end",
+        "finish-step",
+        "finish",
+        "[DONE]",
+    ]
+    deltas = [e["delta"] for e in events if isinstance(e, dict) and e["type"] == "text-delta"]
+    assert deltas == [
+        "Partial ",
+        "The model call failed. Check the server log, then try again.",
+    ]
+    assert [r.getMessage() for r in caplog.records if r.name == "vault_compass.chat"] == [
+        "model call failed"
+    ]
