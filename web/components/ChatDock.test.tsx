@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ChatDock, ToolCard } from "./ChatDock";
+import { ChatDock, ToolCard, WorkingIndicator } from "./ChatDock";
 
 let pathname = "/topics/big";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
@@ -121,5 +121,27 @@ describe("ToolCard", () => {
     render(<ToolCard toolName="topic_stats" result={{ name: "Big", note_count: 1, evergreens: 2 }} />);
 
     expect(screen.getByText("Big: 1 note, 2 evergreens")).toBeInTheDocument();
+  });
+});
+
+describe("WorkingIndicator", () => {
+  it("shows a status while the chat is working", () => {
+    render(<WorkingIndicator running />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Working");
+  });
+
+  it("shows nothing when idle", () => {
+    render(<WorkingIndicator running={false} />);
+
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("is not shown in an idle chat panel", () => {
+    mockApi();
+    render(<ChatDock>x</ChatDock>);
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });

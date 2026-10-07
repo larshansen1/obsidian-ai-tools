@@ -162,6 +162,22 @@ function AssistantMessage() {
   );
 }
 
+// Shown from the moment you send until the reply is finished (including cost questions
+// and tool calls), so a slow model never looks like a frozen panel.
+export function WorkingIndicator({ running }: { running: boolean }) {
+  if (!running) return null;
+  return (
+    <div className="chat-working muted" role="status">
+      Working<span className="chat-dots" aria-hidden="true" />
+    </div>
+  );
+}
+
+function ThreadWorking() {
+  const running = useAuiState((s) => s.thread.isRunning);
+  return <WorkingIndicator running={running} />;
+}
+
 function SpendLine({ status }: { status: AiStatus | null }) {
   if (!status) return null;
   return (
@@ -264,6 +280,7 @@ export function ChatDock({ children }: { children: ReactNode }) {
                 <ThreadPrimitive.Messages>
                   {({ message }) => (message.role === "user" ? <UserMessage /> : <AssistantMessage />)}
                 </ThreadPrimitive.Messages>
+                <ThreadWorking />
               </ThreadPrimitive.Viewport>
               <ComposerPrimitive.Root className="chat-composer">
                 <ComposerPrimitive.Input placeholder="Ask about your notes" rows={1} />

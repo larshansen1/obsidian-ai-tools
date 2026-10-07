@@ -406,3 +406,27 @@ a {
   background: var(--bg);
   color: var(--text);
 }
+
+.chat-working {
+  margin: 10px 0;
+  font-size: 13px;
+}
+
+.chat-dots::after {
+  content: "";
+  animation: chat-dots 1.2s steps(4, end) infinite;
+}
+
+@keyframes chat-dots {
+  0% { content: ""; }
+  25% { content: "."; }
+  50% { content: ".."; }
+  75% { content: "..."; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-dots::after {
+    animation: none;
+    content: "...";
+  }
+}
