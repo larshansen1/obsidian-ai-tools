@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { BubbleChart } from "./BubbleChart";
 import { SummaryTiles } from "./SummaryTiles";
+import { SignalsList } from "./SignalsList";
 import { TopicPanel } from "./TopicPanel";
 import { WINDOWS, fetchTopicMap, logUsage, type TopicMap, type Window } from "../lib/topicMap";
 
@@ -34,14 +35,14 @@ export function TopicMapScreen() {
 
   if (error) {
     return (
-      <main style={{ padding: 24 }}>
+      <main className="page">
         <p role="alert">{error}</p>
       </main>
     );
   }
   if (!data) {
     return (
-      <main style={{ padding: 24 }}>
+      <main className="page">
         <p>Loading…</p>
       </main>
     );
@@ -49,10 +50,12 @@ export function TopicMapScreen() {
 
   const selected = data.topics.find((t) => t.id === selectedId) ?? null;
   return (
-    <main style={{ maxWidth: 1080, margin: "0 auto", padding: 24, display: "grid", gap: 16 }}>
-      <h1 style={{ margin: 0 }}>Topic map</h1>
+    <main className="page">
+      <h1 className="page-title">Topic map</h1>
       <SummaryTiles tiles={data.tiles} />
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }} role="group" aria-label="Window">
+      <SignalsList signals={data.signals} window={window} />
+      <div className="toolbar">
+        <div className="segmented" role="group" aria-label="Window">
         {WINDOWS.map((w) => (
           <button
             key={w.value}
@@ -65,13 +68,14 @@ export function TopicMapScreen() {
             {w.label}
           </button>
         ))}
-        <details style={{ marginLeft: 8 }}>
+        </div>
+        <details className="explain">
           <summary>How momentum is calculated</summary>
-          <p style={{ maxWidth: 560 }}>{data.momentum_formula}</p>
+          <p>{data.momentum_formula}</p>
         </details>
       </div>
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "flex-start" }}>
-        <div style={{ flex: "2 1 480px" }}>
+      <div className="layout">
+        <div className="card">
           <BubbleChart
             topics={data.topics}
             selectedId={selectedId}
@@ -80,11 +84,17 @@ export function TopicMapScreen() {
               logUsage("action", "select_topic", id);
             }}
           />
+          <p className="legend" data-testid="legend">
+            <strong>Up: evergreens.</strong> An evergreen is a note of your own thinking, kept in the
+            notes/evergreen folder (hypotheses count too). A topic counts the evergreens that carry its tags. More
+            evergreens means you have worked the topic through. Links are shown separately. <strong>Across:</strong>{" "}
+            momentum. <strong>Size:</strong> number of notes.
+          </p>
         </div>
         {selected ? (
-          <TopicPanel topic={selected} minNotes={data.min_notes} />
+          <TopicPanel topic={selected} minNotes={data.min_notes} window={window} />
         ) : (
-          <p style={{ flex: "1 1 280px" }}>Click a bubble to see the topic.</p>
+          <p className="hint card">Click a bubble to see the topic.</p>
         )}
       </div>
     </main>

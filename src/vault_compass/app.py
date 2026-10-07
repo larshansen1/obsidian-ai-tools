@@ -16,7 +16,9 @@ from pydantic import BaseModel, Field
 from .config import CompassSettings, get_compass_settings
 from .db import DB_LOCK
 from .notes import UNMAPPED_TAGS_SQL
+from .signals import SignalKind
 from .topic_map import TopicMapResponse, Window, build_topic_map
+from .topic_page import TopicPageResponse, build_topic_page
 from .topics import TopicsError, load_topics
 from .usage import log_usage
 from .watcher import refresh_once, watch_vault
@@ -151,6 +153,22 @@ def create_app(
         with _compass_db(current()) as con:
             rows = con.execute(UNMAPPED_TAGS_SQL).fetchall()
         return [UnmappedTag(tag=tag, notes=notes) for tag, notes in rows]
+
+    @app.get("/topics/{topic_id}")
+    def topic_page(
+        topic_id: str, window: Window = "30", signal: SignalKind | None = None
+    ) -> TopicPageResponse:
+        cfg = current()
+        try:
+            definitions = load_topics(cfg.compass_topics_path)
+        except TopicsError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from None
+        if topic_id not in definitions.topics:
+            raise HTTPException(status_code=404, detail=f"Unknown topic: {topic_id}")
+        with _compass_db(cfg) as con:
+            return build_topic_page(
+                con, definitions, topic_id, today=today(), window=window, signal=signal
+            )
 
     @app.post("/usage", status_code=204)
     def usage(event: UsageEvent) -> Response:

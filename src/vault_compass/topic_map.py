@@ -7,12 +7,13 @@ created date, and `today` is passed in so the numbers are reproducible.
 
 from collections import Counter
 from datetime import date, timedelta
-from typing import Literal, NamedTuple
-from urllib.parse import urlparse
+from typing import Literal
 
 import duckdb
 from pydantic import BaseModel
 
+from .signals import Signal, find_signals
+from .topic_notes import TopicNote, load_topic_notes, source_name
 from .topics import TopicsFile
 
 Window = Literal["30", "90", "all"]
@@ -47,18 +48,6 @@ FROM notes
 """
 
 _LINKED_NOTES_SQL = "SELECT COUNT(DISTINCT source_path) FROM links"
-
-_TOPIC_NOTES_SQL = """
-SELECT
-    nt.topic,
-    n.created,
-    n.is_evergreen,
-    n.source_url,
-    n.author,
-    EXISTS (SELECT 1 FROM links l WHERE l.source_path = n.path) AS has_link
-FROM note_topics nt
-JOIN notes n ON n.path = nt.path
-"""
 
 
 class Tiles(BaseModel):
@@ -103,23 +92,16 @@ class TopicMapResponse(BaseModel):
     momentum_formula: str
     tiles: Tiles
     topics: list[TopicStats]
+    signals: list[Signal]
 
 
-class _TopicNote(NamedTuple):
-    created: date | None
-    is_evergreen: bool
-    source_url: str | None
-    author: str | None
-    has_link: bool
-
-
-def _count_between(notes: list[_TopicNote], after: date, upto: date) -> int:
+def _count_between(notes: list[TopicNote], after: date, upto: date) -> int:
     """Notes created in (after, upto]."""
     return sum(1 for n in notes if n.created is not None and after < n.created <= upto)
 
 
 def _momentum(
-    notes: list[_TopicNote], today: date, window: Window, trend_start: date
+    notes: list[TopicNote], today: date, window: Window, trend_start: date
 ) -> float | None:
     recent_days, baseline_days = _WINDOWS[window]
     recent_start = today - timedelta(days=recent_days)
@@ -136,13 +118,13 @@ def _momentum(
     return round((recent_rate / baseline_rate - 1) * 100, 1)
 
 
-def _window_notes(notes: list[_TopicNote], today: date, window: Window) -> int:
+def _window_notes(notes: list[TopicNote], today: date, window: Window) -> int:
     if window == "all":
         return len(notes)
     return _count_between(notes, today - timedelta(days=_WINDOWS[window][0]), today)
 
 
-def _notes_per_month(notes: list[_TopicNote], today: date, trend_start: date) -> list[MonthCount]:
+def _notes_per_month(notes: list[TopicNote], today: date, trend_start: date) -> list[MonthCount]:
     counts = Counter(
         (n.created.year, n.created.month)
         for n in notes
@@ -156,16 +138,8 @@ def _notes_per_month(notes: list[_TopicNote], today: date, trend_start: date) ->
     return months
 
 
-def _source_name(note: _TopicNote) -> str | None:
-    if note.source_url:
-        host = urlparse(note.source_url).hostname
-        if host:
-            return host.removeprefix("www.")
-    return note.author or None
-
-
-def _top_source(notes: list[_TopicNote]) -> TopSource | None:
-    counts = Counter(name for n in notes if (name := _source_name(n)) is not None)
+def _top_source(notes: list[TopicNote]) -> TopSource | None:
+    counts = Counter(name for n in notes if (name := source_name(n)) is not None)
     if not counts:
         return None
     # Most common first; ties go to the name that sorts first.
@@ -185,10 +159,10 @@ def _next_step(*, below_min: bool, evergreens: int, momentum: float | None, unli
     return "Revisit your evergreens and look for gaps."
 
 
-def _topic_stats(
+def topic_stats(
     topic_id: str,
     name: str,
-    notes: list[_TopicNote],
+    notes: list[TopicNote],
     *,
     definitions: TopicsFile,
     today: date,
@@ -247,15 +221,9 @@ def build_topic_map(
     window: Window,
     inbox_folder: str,
 ) -> TopicMapResponse:
-    by_topic: dict[str, list[_TopicNote]] = {}
-    for topic, created, is_evergreen, source_url, author, has_link in con.execute(
-        _TOPIC_NOTES_SQL
-    ).fetchall():
-        by_topic.setdefault(topic, []).append(
-            _TopicNote(created, bool(is_evergreen), source_url, author, bool(has_link))
-        )
+    by_topic = load_topic_notes(con)
     topics = [
-        _topic_stats(
+        topic_stats(
             topic_id,
             topic.name,
             by_topic.get(topic_id, []),
@@ -271,4 +239,5 @@ def build_topic_map(
         momentum_formula=MOMENTUM_FORMULA,
         tiles=_tiles(con, today, inbox_folder),
         topics=topics,
+        signals=find_signals(by_topic, definitions, today),
     )

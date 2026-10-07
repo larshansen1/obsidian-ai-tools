@@ -6,6 +6,8 @@ import {
   formatMomentum,
   formatShare,
   layoutBubbles,
+  placeLabels,
+  LABEL_FONT,
   tileTrend,
   xDomain,
   type TopicStats,
@@ -113,5 +115,57 @@ describe("layoutBubbles", () => {
       topic({ id: "wild", momentum: 900, below_min_notes: true }),
     ]);
     expect(wild.x).toBe(right);
+  });
+});
+
+describe("placeLabels", () => {
+  const bubble = (id: string, x: number, y: number, r: number) => ({ id, x, y, r, muted: false, hasMomentum: true });
+  const names = new Map([
+    ["a", "Alpha"],
+    ["b", "Beta"],
+    ["c", "Gamma"],
+    ["d", "Delta"],
+  ]);
+  it("puts a lone label under its bubble", () => {
+    const [label] = placeLabels([bubble("a", 100, 100, 10)], names);
+
+    expect(label).toEqual({ id: "a", x: 100, y: 100 + 10 + LABEL_FONT + 4 - 2, anchor: "middle" });
+  });
+
+  it("moves a label above when the spot below is taken by a bigger bubble's label", () => {
+    const labels = placeLabels([bubble("a", 100, 100, 20), bubble("b", 100, 100, 10)], names);
+
+    expect(labels[0]).toMatchObject({ id: "a", anchor: "middle", y: 100 + 20 + LABEL_FONT + 2 });
+    expect(labels[1]).toEqual({ id: "b", x: 100, y: 100 - 10 - 4, anchor: "middle" });
+  });
+
+  it("tries the right side, then the left side, when below and above are taken", () => {
+    const labels = placeLabels(
+      ["a", "b", "c", "d"].map((id) => bubble(id, 100, 100, 10)),
+      names,
+    );
+
+    // Equal sizes are placed in id order: a below, b above, c right, d left.
+    expect(labels.map((l) => l.anchor)).toEqual(["middle", "middle", "start", "end"]);
+    expect(labels[2]).toEqual({ id: "c", x: 100 + 10 + 4, y: 100 + LABEL_FONT / 2 - 2, anchor: "start" });
+    expect(labels[3]).toEqual({ id: "d", x: 100 - 10 - 4, y: 100 + LABEL_FONT / 2 - 2, anchor: "end" });
+  });
+
+  it("keeps the first spot when nothing is taken and returns labels in input order", () => {
+    const labels = placeLabels([bubble("b", 300, 100, 10), bubble("a", 100, 100, 20)], names);
+
+    expect(labels.map((l) => [l.id, l.anchor, l.y > 100])).toEqual([
+      ["b", "middle", true],
+      ["a", "middle", true],
+    ]);
+  });
+
+  it("falls back to below when every spot is taken", () => {
+    const crowd = ["a", "b", "c", "d", "e"].map((id) => bubble(id, 100, 100, 10));
+    const all = new Map([...names, ["e", "Epsilon"]]);
+
+    const labels = placeLabels(crowd, all);
+
+    expect(labels[4]).toMatchObject({ id: "e", anchor: "middle", y: 100 + 10 + LABEL_FONT + 2 });
   });
 });
