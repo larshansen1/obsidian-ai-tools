@@ -835,3 +835,10 @@ def test_limit_messages_keep_precision_for_tiny_amounts(
     tiny = check_limits(settings, action_cost=0.0, month_cost=0.0, next_call=0.01)
 
     assert tiny.reason == "This action may cost up to $0.01, over the $0.0099 per-action limit."
+
+
+def test_search_skips_a_note_that_cannot_be_read(vault: Path) -> None:
+    (vault / "notes" / "agents.md").unlink()
+    ai = AiVault.from_settings(CompassSettings())
+
+    assert ai.search_notes("agents") == []

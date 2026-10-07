@@ -62,6 +62,15 @@ def _snippet(body: str, terms: list[str]) -> str:
     return ""
 
 
+def _score(terms: list[str], title: str, tags: list[str], body: str) -> int:
+    """Title hit 3, tag hit 2, body hits 1 each (at most 5 per word)."""
+    low_title, low_body = title.lower(), body.lower()
+    low_tags = [t.lower() for t in tags]
+    score = sum(3 for t in terms if t in low_title)
+    score += sum(2 for t in terms if any(t in tag for tag in low_tags))
+    return score + sum(min(low_body.count(t), BODY_HIT_CAP) for t in terms)
+
+
 @dataclass(frozen=True)
 class AiVault:
     """Read access to the vault for AI use, with excluded folders removed."""
@@ -91,6 +100,22 @@ class AiVault:
     def _text(self, rel_path: str) -> str:
         return (self.vault_path / rel_path).read_text(encoding="utf-8", errors="replace")
 
+    def _scored(
+        self, rows: list[tuple[Any, ...]], terms: list[str]
+    ) -> list[tuple[int, str, str, date | None, str]]:
+        scored = []
+        for path, title, created, tags in rows:
+            if is_excluded(path, self.excluded):
+                continue
+            try:
+                body = _body(self._text(path))
+            except OSError:
+                continue
+            score = _score(terms, title, tags, body)
+            if score:
+                scored.append((score, path, title, created, _snippet(body, terms)))
+        return scored
+
     def search_notes(self, query: str, topic: str | None = None, limit: int = SEARCH_LIMIT) -> Any:
         terms = _terms(query)
         if not terms:
@@ -98,20 +123,7 @@ class AiVault:
         if topic is not None and topic not in self.definitions.topics:
             raise VaultToolError(f"Unknown topic: {topic}")
         sql = _NOTES_SQL.format(where=_TOPIC_FILTER if topic else "")
-        scored = []
-        for path, title, created, tags in self._read(sql, [topic] if topic else []):
-            if is_excluded(path, self.excluded):
-                continue
-            try:
-                body = _body(self._text(path))
-            except OSError:
-                continue
-            low_body = body.lower()
-            score = sum(3 for t in terms if t in title.lower())
-            score += sum(2 for t in terms if any(t in tag.lower() for tag in tags))
-            score += sum(min(low_body.count(t), BODY_HIT_CAP) for t in terms)
-            if score:
-                scored.append((score, path, title, created, _snippet(body, terms)))
+        scored = self._scored(self._read(sql, [topic] if topic else []), terms)
         scored.sort(key=lambda r: (-r[0], r[1]))
         return [
             {"path": p, "title": t, "created": c.isoformat() if c else None, "snippet": s}
