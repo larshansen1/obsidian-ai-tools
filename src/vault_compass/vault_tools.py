@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .ai_policy import is_excluded
+from .claims import build_claims_view
 from .config import CompassSettings
 from .db import readonly
 from .topic_map import Window, topic_stats
@@ -111,6 +112,15 @@ class AiVault:
     def _text(self, rel_path: str) -> str:
         return (self.vault_path / rel_path).read_text(encoding="utf-8", errors="replace")
 
+    def body(self, path: str) -> str | None:
+        """A note's text without frontmatter; None when it is excluded or unreadable (N4)."""
+        if is_excluded(path, self.excluded):
+            return None
+        try:
+            return _body(self._text(path))
+        except OSError:
+            return None
+
     def _scored(
         self, rows: list[tuple[Any, ...]], terms: list[str]
     ) -> list[tuple[int, str, str, date | None, str]]:
@@ -174,6 +184,21 @@ class AiVault:
         ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         return [{"tag": tag, "notes": n} for tag, n in ranked[:limit]]
 
+    def topic_claims(self, topic: str) -> Any:
+        """The claims already read for a topic: question, sides, shared claims. No model call."""
+        if topic not in self.definitions.topics:
+            raise VaultToolError(f"Unknown topic: {topic}")
+        if not self.db_path.exists():
+            raise VaultToolError("No topic data yet. Run `compass scan` first.")
+        with readonly(self.db_path) as con:
+            view = build_claims_view(con, self.definitions, topic)
+        if view.claim_count == 0:
+            raise VaultToolError(
+                "No claims have been read for this topic yet. "
+                "Ask the user to open the topic page and choose Find claims."
+            )
+        return view.model_dump(mode="json")
+
     def topic_stats(self, topic: str, window: Window = "30", today: date | None = None) -> Any:
         topic_def = self.definitions.topics.get(topic)
         if topic_def is None:
@@ -224,6 +249,10 @@ def _tags(vault: AiVault, args: dict[str, Any]) -> Any:
     return vault.topic_tags(str(args.get("topic", "")))
 
 
+def _claims(vault: AiVault, args: dict[str, Any]) -> Any:
+    return vault.topic_claims(str(args.get("topic", "")))
+
+
 def _stats(vault: AiVault, args: dict[str, Any]) -> Any:
     window = args.get("window", "30")
     if window not in ("30", "90", "all"):
@@ -267,6 +296,17 @@ TOOLS: dict[str, ToolSpec] = {
                 "required": ["topic"],
             },
             _tags,
+        ),
+        ToolSpec(
+            "topic_claims",
+            "Claims already read from a topic's notes: the chosen question with supporting and "
+            "pushing-back claims, and claims shared by several notes matched to evergreens.",
+            {
+                "type": "object",
+                "properties": {"topic": {"type": "string", "description": "Topic id"}},
+                "required": ["topic"],
+            },
+            _claims,
         ),
         ToolSpec(
             "topic_stats",

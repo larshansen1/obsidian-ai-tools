@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CLAIMS } from "../lib/claimsFixture";
 import { ChatDock, ToolCard, WorkingIndicator } from "./ChatDock";
 
 let pathname = "/topics/big";
@@ -115,6 +116,14 @@ describe("ToolCard", () => {
 
     rerender(<ToolCard toolName="read_note" />);
     expect(screen.getByText("Running read_note…")).toBeInTheDocument();
+  });
+
+  it("shows topic claims with the same table and agreement as the screen", () => {
+    render(<ToolCard toolName="topic_claims" result={CLAIMS} />);
+
+    expect(screen.getByText("Claims on the topic: 3 claims")).toBeInTheDocument();
+    expect(screen.getByTestId("claims-table")).toBeInTheDocument();
+    expect(screen.getByTestId("agreement")).toBeInTheDocument();
   });
 
   it("summarises topic stats", () => {

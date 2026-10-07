@@ -399,6 +399,7 @@ def test_system_prompt_carries_screen_and_topic(vault: Path) -> None:
         "search_notes",
         "read_note",
         "topic_tags",
+        "topic_claims",
         "topic_stats",
     ]
 

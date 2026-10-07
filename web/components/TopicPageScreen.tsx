@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { ClaimsSection } from "./ClaimsSection";
 import { formatMomentum, formatShare, logUsage, type Window } from "../lib/topicMap";
 import {
   DUPLICATE_REASONS,
@@ -143,6 +144,8 @@ export function TopicPageScreen({
           ))}
         </ul>
       </section>
+
+      <ClaimsSection topic={id} />
 
       <section className="card" aria-label="Evergreens">
         <h2>Evergreens and hypotheses</h2>

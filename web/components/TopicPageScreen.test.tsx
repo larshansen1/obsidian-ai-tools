@@ -1,5 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { CLAIMS } from "../lib/claimsFixture";
 import { TopicPageScreen } from "./TopicPageScreen";
 import type { TopicPage } from "../lib/topicPage";
 
@@ -46,11 +47,12 @@ const PAGE: TopicPage = {
 const fetchMock = vi.fn();
 
 function respondWith(page: TopicPage) {
-  fetchMock.mockImplementation((url: string) =>
-    url.startsWith("/api/topics/")
+  fetchMock.mockImplementation((url: string) => {
+    if (url === "/api/topics/big/claims") return Promise.resolve({ ok: true, json: () => Promise.resolve(CLAIMS) });
+    return url.startsWith("/api/topics/")
       ? Promise.resolve({ ok: true, json: () => Promise.resolve(page) })
-      : Promise.resolve({ ok: true, status: 204 }),
-  );
+      : Promise.resolve({ ok: true, status: 204 });
+  });
 }
 
 beforeEach(() => {
@@ -149,6 +151,14 @@ describe("TopicPageScreen", () => {
     render(<TopicPageScreen id="big" window="30" signal="new_and_growing" />);
 
     expect(await screen.findByText("This signal no longer applies to the topic.")).toBeInTheDocument();
+  });
+
+  it("shows the claims section for the topic", async () => {
+    render(<TopicPageScreen id="big" window="30" signal={null} />);
+
+    expect(await screen.findByTestId("claims")).toBeInTheDocument();
+    expect(await screen.findByTestId("claims-table")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/topics/big/claims");
   });
 
   it("logs the page view with the topic id", async () => {

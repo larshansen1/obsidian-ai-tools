@@ -152,6 +152,12 @@ optional except the key, read from the same `.env`:
   notes through it.
 - The assistant's tools (`search_notes`, `read_note`, `topic_stats`) also run from a script:
   `uv run python -m vault_compass.vault_tools search_notes '{"query": "agents"}'`.
+- Claims (#135, T3/T4): `POST /topics/{id}/claims/run` reads a topic's unread notes (at most 30 per
+  run; notes with a `## Key Claims` section cost no model call), then proposes questions, finds
+  claims shared by 2+ notes and sorts claims by the chosen question. Everything is cached in
+  `compass.duckdb` (`note_claims`, `claim_reads`, `topic_questions`, `claim_analysis`) and a step
+  whose cache is current makes no model call. Each call is checked against the cost limits first.
+  `GET /topics/{id}/claims` and the `topic_claims` chat tool only read the cache.
 - Chat history is one thread per topic (plus one shared thread) in the `chat_history` table.
 
 **Import rule.** `vault_compass` may import `obsidian_ai_tools`; `obsidian_ai_tools` must never

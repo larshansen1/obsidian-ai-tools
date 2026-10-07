@@ -15,9 +15,8 @@ from datetime import date
 from typing import Any
 
 from .ai_client import AiNotConfiguredError, ChatModel, TextDelta, ToolCall, Usage
-from .ai_cost import check_limits, estimate_cost, month_spend
+from .ai_cost import check_limits, estimate_cost, month_spend, record_call
 from .config import CompassSettings
-from .usage import log_usage
 from .vault_tools import AiVault, run_tool, tool_schemas
 
 logger = logging.getLogger(__name__)
@@ -159,23 +158,7 @@ def _ask_cost(reason: str, estimate: float) -> list[str]:
 
 
 def _log_call(settings: CompassSettings, usage: Usage, detail: str | None) -> float:
-    cost = usage.cost_usd
-    if cost is None:
-        cost = (
-            usage.input_tokens * settings.compass_ai_input_usd_per_mtok
-            + usage.output_tokens * settings.compass_ai_output_usd_per_mtok
-        ) / 1_000_000
-    log_usage(
-        settings.compass_db_path,
-        "ai_call",
-        "chat",
-        detail=detail,
-        model=usage.model,
-        input_tokens=usage.input_tokens,
-        output_tokens=usage.output_tokens,
-        cost_usd=cost,
-    )
-    return cost
+    return record_call(settings, usage, "chat", detail)
 
 
 @dataclass
