@@ -47,6 +47,22 @@ class CompassSettings(BaseSettings):
     # Same env key as kai, so the inbox count follows kai's inbox folder.
     obsidian_inbox_folder: str = Field(default="inbox", description="Folder for new notes")
 
+    # AI (N2, N3). Same env keys as kai, so one .env serves both tools.
+    openrouter_api_key: str | None = Field(default=None, description="OpenRouter API key")
+    llm_model: str = Field(default="anthropic/claude-sonnet-4", description="OpenRouter model id")
+    llm_base_url: str = Field(default="https://openrouter.ai/api/v1")
+    compass_ai_action_limit_usd: float = Field(
+        default=0.25, ge=0, description="Ask before one AI action costs more than this"
+    )
+    compass_ai_monthly_limit_usd: float = Field(
+        default=10.0, ge=0, description="Ask before AI spend this month goes over this"
+    )
+    # Used only to estimate a call before it runs; the real cost comes from OpenRouter.
+    compass_ai_input_usd_per_mtok: float = Field(default=3.0, ge=0)
+    compass_ai_output_usd_per_mtok: float = Field(default=15.0, ge=0)
+    compass_ai_max_output_tokens: int = Field(default=1500, gt=0)
+    compass_ai_max_steps: int = Field(default=5, gt=0, description="Model calls per chat message")
+
     @field_validator("obsidian_vault_path")
     @classmethod
     def validate_vault_path(cls, v: Path) -> Path:
