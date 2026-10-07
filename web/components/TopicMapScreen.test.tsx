@@ -155,6 +155,14 @@ describe("TopicMapScreen", () => {
     });
   });
 
+  it("explains what the evergreen axis means", async () => {
+    render(<TopicMapScreen />);
+
+    expect((await screen.findByTestId("legend")).textContent).toBe(
+      "Up: evergreens. An evergreen is a note of your own thinking, kept in the notes/evergreen folder (hypotheses count too). A topic counts the evergreens that carry its tags. More evergreens means you have worked the topic through. Links are shown separately. Across: momentum. Size: number of notes.",
+    );
+  });
+
   it("shows the formula", async () => {
     render(<TopicMapScreen />);
 

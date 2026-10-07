@@ -264,3 +264,9 @@ a {
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 20px;
 }
+
+.legend {
+  margin: 12px 4px 0;
+  font-size: 13px;
+  color: var(--muted);
+}

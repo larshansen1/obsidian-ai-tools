@@ -30,8 +30,8 @@ export function BubbleChart({ topics, selectedId, onSelect }: Props) {
       <text x={midX} y={plotBottom + 56} textAnchor="middle" fontSize={12} style={{ fill: "var(--muted)" }}>
         Momentum
       </text>
-      <text x={16} y={CHART.padTop - 8} fontSize={12} style={{ fill: "var(--muted)" }}>
-        ↑ Evergreens
+      <text x={16} y={16} fontSize={12} style={{ fill: "var(--muted)" }}>
+        ↑ Evergreens (worked through)
       </text>
       {[...bubbles].sort((a, b) => b.r - a.r).map((b) => {
         const name = names.get(b.id) ?? b.id;

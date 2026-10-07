@@ -84,6 +84,12 @@ export function TopicMapScreen() {
               logUsage("action", "select_topic", id);
             }}
           />
+          <p className="legend" data-testid="legend">
+            <strong>Up: evergreens.</strong> An evergreen is a note of your own thinking, kept in the
+            notes/evergreen folder (hypotheses count too). A topic counts the evergreens that carry its tags. More
+            evergreens means you have worked the topic through. Links are shown separately. <strong>Across:</strong>{" "}
+            momentum. <strong>Size:</strong> number of notes.
+          </p>
         </div>
         {selected ? (
           <TopicPanel topic={selected} minNotes={data.min_notes} window={window} />
