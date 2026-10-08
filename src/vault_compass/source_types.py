@@ -95,9 +95,7 @@ def get_or_classify(url: str, title: str = "", db_path: Any = None) -> str:
     return "report"
 
 
-def cache_source_type(
-    url: str, type_name: str, classified_by: str, db_path: Any
-) -> None:
+def cache_source_type(url: str, type_name: str, classified_by: str, db_path: Any) -> None:
     """Cache a source type classification."""
     try:
         with writable(db_path) as con:

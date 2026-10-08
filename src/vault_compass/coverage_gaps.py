@@ -24,9 +24,7 @@ from .source_types import get_or_classify
 logger = logging.getLogger(__name__)
 
 # Regex to find URLs in text
-URL_PATTERN = re.compile(
-    r"https?://[^\s\)\]\}\"'`<>]+"
-)
+URL_PATTERN = re.compile(r"https?://[^\s\)\]\}\"'`<>]+")
 
 
 @dataclass(frozen=True)
@@ -221,6 +219,7 @@ def _extract_title_from_url(url: str, vault_path: Path, note_path: str) -> str:
     # Fallback: extract domain from URL
     try:
         from urllib.parse import urlparse
+
         domain = urlparse(url).netloc
         return domain or url
     except (ValueError, TypeError, AttributeError):
