@@ -158,6 +158,10 @@ optional except the key, read from the same `.env`:
   `compass.duckdb` (`note_claims`, `claim_reads`, `topic_questions`, `claim_analysis`) and a step
   whose cache is current makes no model call. Each call is checked against the cost limits first.
   `GET /topics/{id}/claims` and the `topic_claims` chat tool only read the cache.
+  Claims calls switch model thinking off (`COMPASS_AI_REASONING` stays on for chat) and use
+  `COMPASS_AI_CLAIMS_MAX_OUTPUT_TOKENS` (default 4000), because a thinking model can spend its whole
+  output budget thinking and return an empty answer. The view's `next_step` (read, analyse, sort,
+  done) drives the four-step screen.
 - Chat history is one thread per topic (plus one shared thread) in the `chat_history` table.
 
 **Import rule.** `vault_compass` may import `obsidian_ai_tools`; `obsidian_ai_tools` must never

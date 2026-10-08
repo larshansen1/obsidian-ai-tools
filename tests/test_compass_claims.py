@@ -95,6 +95,7 @@ class AutoModel:
         self.fail_when = fail_when
         self.raw = raw or {}
         self.calls: list[tuple[str, str]] = []
+        self.settings: list[CompassSettings] = []
 
     def kinds(self) -> list[str]:
         return [kind for kind, _user in self.calls]
@@ -185,8 +186,9 @@ def _db(vault: Path) -> Path:
 
 
 def _client(model: AutoModel | None) -> TestClient:
-    def factory(_settings: CompassSettings) -> AutoModel:
+    def factory(settings: CompassSettings) -> AutoModel:
         assert model is not None, "the model must not be created"
+        model.settings.append(settings)
         return model
 
     return TestClient(create_app(CompassSettings(), today=lambda: TODAY, model_factory=factory))
@@ -372,6 +374,13 @@ def test_parse_stances_ignores_letters_past_the_last_claim() -> None:
     assert parse_stances({"s": "SSSS"}, [_item(0)]) == {"id0": "supporting"}
 
 
+def test_the_prompts_ask_for_yes_or_no_questions_and_every_matching_claim() -> None:
+    assert "answerable with yes or no" in QUESTIONS_SYSTEM
+    assert "Which, What, How or Why" in QUESTIONS_SYSTEM
+    assert "Include every claim that matches" in AGREEMENT_SYSTEM
+    assert "supports a yes" in STANCE_SYSTEM
+
+
 # --- chunking helpers -------------------------------------------------------------
 
 
@@ -430,6 +439,7 @@ def test_view_before_any_run_is_empty_and_stale(vault: Path) -> None:
         "unrelated": 0,
         "shared": [],
         "stale": True,
+        "next_step": "read",
     }
 
 
@@ -686,12 +696,12 @@ def test_run_stops_when_the_month_limit_is_reached(
 def test_a_run_stopped_by_the_limit_resumes_without_repeating_work(
     big_vault: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("COMPASS_AI_ACTION_LIMIT_USD", "0.045")
+    monkeypatch.setenv("COMPASS_AI_ACTION_LIMIT_USD", "0.08")
     model = AutoModel()
     client = _client(model)
     first = _run(client)
     assert first["status"] == "needs_approval"
-    assert model.kinds() == ["extract", "extract", "extract"]
+    assert model.kinds() == ["extract", "extract"]
     done_after_stop = first["view"]["read_notes"]
     assert 0 < done_after_stop < 43
     monkeypatch.setenv("COMPASS_AI_ACTION_LIMIT_USD", "100")
@@ -701,6 +711,62 @@ def test_a_run_stopped_by_the_limit_resumes_without_repeating_work(
     _run(client)
     read = re.findall(r"^### NOTE (\S+)", "\n".join(model.users("extract")), re.MULTILINE)
     assert len(read) == len(set(read)) == 42
+
+
+def test_claims_calls_turn_thinking_off_and_get_a_bigger_output_budget(vault: Path) -> None:
+    model = AutoModel()
+    _run(_client(model))
+    (settings,) = model.settings
+    assert settings.compass_ai_reasoning is False
+    assert settings.compass_ai_max_output_tokens == 4000
+
+
+def test_the_output_budget_for_claims_can_be_set(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("COMPASS_AI_CLAIMS_MAX_OUTPUT_TOKENS", "2500")
+    model = AutoModel()
+    _run(_client(model))
+    assert model.settings[0].compass_ai_max_output_tokens == 2500
+
+
+def test_the_cost_estimate_uses_the_claims_budget(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 4000 output tokens at $15 per million is $0.06 before any input is counted.
+    monkeypatch.setenv("COMPASS_AI_ACTION_LIMIT_USD", "0.05")
+    body = _run(_client(AutoModel()))
+    assert body["status"] == "needs_approval"
+    assert 0.06 <= body["estimate_usd"] < 0.07
+
+
+def test_an_empty_answer_names_the_likely_cause(vault: Path) -> None:
+    model = AutoModel(raw={("extract", 0): "", ("extract", 1): "   "})
+    body = _run(_client(model))
+    assert body["status"] == "failed"
+    assert body["message"] == (
+        "The model sent an empty answer. A thinking model can use all its output on thinking: "
+        "raise COMPASS_AI_CLAIMS_MAX_OUTPUT_TOKENS or pick another model with LLM_MODEL."
+    )
+
+
+def test_next_step_walks_through_read_analyse_sort_done(vault: Path) -> None:
+    client = _client(AutoModel(fail_when=lambda kind, _n: kind == "questions"))
+    assert _view(client)["next_step"] == "read"
+    body = _run(client)  # reads the notes, then the questions call fails
+    assert (body["status"], body["view"]["next_step"]) == ("failed", "analyse")
+    client = _client(AutoModel())
+    assert _run(client)["view"]["next_step"] == "done"
+    client.put("/topics/big/claims/question", json={"question": "Q?"})
+    assert _view(client)["next_step"] == "sort"
+    assert _run(client)["view"]["next_step"] == "done"
+
+
+def test_next_step_is_read_while_notes_are_unread(vault: Path) -> None:
+    _many_notes(vault, 32)
+    client = _client(AutoModel())
+    assert _run(client)["view"]["next_step"] == "read"
+    assert _run(client)["view"]["next_step"] == "done"
 
 
 def test_run_reports_a_missing_key(vault: Path) -> None:
@@ -763,6 +829,15 @@ def test_notes_are_sent_in_batches_of_at_most_four(vault: Path) -> None:
     model = AutoModel()
     _run(_client(model))
     assert [u.count("### NOTE") for u in model.users("extract")] == [4, 4]
+
+
+def test_a_blank_note_is_marked_read_without_a_model_call(vault: Path) -> None:
+    _write(vault, "notes/blank.md", "   ")
+    _rescan(vault)
+    model = AutoModel()
+    view = _run(_client(model))["view"]
+    assert "notes/blank.md" not in "".join(model.users("extract"))
+    assert (view["pending_notes"], view["claim_count"]) == (0, 10)
 
 
 def test_a_note_is_cut_to_3000_characters(vault: Path) -> None:

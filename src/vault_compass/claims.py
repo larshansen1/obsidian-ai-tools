@@ -23,6 +23,8 @@ from .topic_page import NoteRef
 from .topics import TopicsFile
 
 Stance = Literal["supporting", "pushing_back", "unrelated"]
+# What the user should do next: read notes, make questions and agreement, or sort by the question.
+NextStep = Literal["read", "analyse", "sort", "done"]
 
 AGREEMENT_KIND = "agreement"
 STANCES_KIND = "stances"
@@ -120,6 +122,7 @@ class ClaimsView(BaseModel):
     shared: list[SharedClaim]
     # True when a run would do more work: unread notes, or questions/agreement/stances missing.
     stale: bool
+    next_step: NextStep
 
 
 class EligibleNote(NamedTuple):
@@ -313,6 +316,14 @@ def _shared_view(
     return out
 
 
+def _next_step(*, pending: int, has_claims: bool, analysed: bool, sorted_: bool) -> NextStep:
+    if pending or not has_claims:
+        return "read"
+    if not analysed:
+        return "analyse"
+    return "done" if sorted_ else "sort"
+
+
 def build_claims_view(
     con: duckdb.DuckDBPyConnection, definitions: TopicsFile, topic: str
 ) -> ClaimsView:
@@ -326,10 +337,11 @@ def build_claims_view(
     stances = cached_for(con, topic, STANCES_KIND, chosen, sig) if chosen else None
     supporting, pushing, unrelated = _split_stances(claims, stances or {})
     shared = _shared_view(con, shared_raw or [], claims, evergreen_notes(con, topic, definitions))
-    stale = bool(
-        unread
-        or (claims and (proposals_sig != sig or shared_raw is None))
-        or (claims and chosen and stances is None)
+    next_step = _next_step(
+        pending=len(unread),
+        has_claims=bool(claims),
+        analysed=proposals_sig == sig and shared_raw is not None,
+        sorted_=chosen is None or stances is not None,
     )
     return ClaimsView(
         topic=topic,
@@ -342,5 +354,6 @@ def build_claims_view(
         pushing_back=pushing,
         unrelated=unrelated if stances is not None else 0,
         shared=shared,
-        stale=stale,
+        stale=next_step != "done",
+        next_step=next_step,
     )

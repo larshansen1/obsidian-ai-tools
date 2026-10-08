@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchClaims, progressText, runClaims, runLabel, saveQuestion } from "./claims";
+import { fetchClaims, progressText, runClaims, runLabel, saveQuestion, stepStates, type ClaimsView } from "./claims";
 import { CLAIMS } from "./claimsFixture";
 
 const fetchMock = vi.fn();
@@ -77,10 +77,77 @@ describe("saveQuestion", () => {
   });
 });
 
+const at = (next_step: ClaimsView["next_step"], extra: Partial<ClaimsView> = {}): ClaimsView => ({
+  ...CLAIMS,
+  next_step,
+  ...extra,
+});
+
 describe("runLabel", () => {
-  it("is Find claims until a claim exists, then Update claims", () => {
-    expect(runLabel({ ...CLAIMS, claim_count: 0 })).toBe("Find claims");
-    expect(runLabel({ ...CLAIMS, claim_count: 1 })).toBe("Update claims");
+  it("names the button after the step that is next", () => {
+    expect(runLabel(at("read", { claim_count: 0 }))).toBe("Read notes");
+    expect(runLabel(at("read", { claim_count: 5 }))).toBe("Read more notes");
+    expect(runLabel(at("analyse"))).toBe("Suggest questions and find agreement");
+    expect(runLabel(at("sort"))).toBe("Sort claims by this question");
+  });
+
+  it("has no button when everything is done", () => {
+    expect(runLabel(at("done"))).toBeNull();
+  });
+});
+
+describe("stepStates", () => {
+  it("starts with only reading to do", () => {
+    expect(stepStates(at("read", { question: null }))).toEqual({
+      read: "next",
+      question: "waiting",
+      sides: "waiting",
+      agree: "waiting",
+    });
+  });
+
+  it("asks for the questions and agreement once notes are read", () => {
+    expect(stepStates(at("analyse", { question: null }))).toEqual({
+      read: "done",
+      question: "next",
+      sides: "waiting",
+      agree: "waiting",
+    });
+  });
+
+  it("asks the user to choose when suggestions exist but no question is chosen", () => {
+    expect(stepStates(at("done", { question: null }))).toEqual({
+      read: "done",
+      question: "next",
+      sides: "waiting",
+      agree: "done",
+    });
+  });
+
+  it("asks for the sort once a question is chosen", () => {
+    expect(stepStates(at("sort"))).toEqual({ read: "done", question: "done", sides: "next", agree: "done" });
+  });
+
+  it("is all done at the end", () => {
+    expect(stepStates(at("done"))).toEqual({ read: "done", question: "done", sides: "done", agree: "done" });
+  });
+
+  it("goes back to reading when notes change, even with a question chosen", () => {
+    expect(stepStates(at("read"))).toEqual({
+      read: "next",
+      question: "waiting",
+      sides: "waiting",
+      agree: "waiting",
+    });
+  });
+
+  it("holds the sort back while questions and agreement are missing", () => {
+    expect(stepStates(at("analyse"))).toEqual({
+      read: "done",
+      question: "next",
+      sides: "waiting",
+      agree: "waiting",
+    });
   });
 });
 

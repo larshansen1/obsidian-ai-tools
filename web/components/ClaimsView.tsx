@@ -9,12 +9,23 @@ function SourceLink({ vault, path, title }: { vault: string; path: string; title
   );
 }
 
-function ClaimList({ label, claims, vault }: { label: string; claims: ClaimItem[]; vault: string }) {
+function ClaimList({
+  label,
+  caption,
+  claims,
+  vault,
+}: {
+  label: string;
+  caption: string;
+  claims: ClaimItem[];
+  vault: string;
+}) {
   return (
     <div className="claims-side">
       <h4>
         {label} ({claims.length})
       </h4>
+      <p className="muted claims-caption">{caption}</p>
       {claims.length === 0 ? (
         <p className="hint">None.</p>
       ) : (
@@ -39,8 +50,8 @@ export function ClaimsTable({ view, vault }: { view: ClaimsView; vault: string }
     <div data-testid="claims-table">
       <p className="claims-question">{view.question}</p>
       <div className="claims-sides">
-        <ClaimList label="Supporting" claims={view.supporting} vault={vault} />
-        <ClaimList label="Pushing back" claims={view.pushing_back} vault={vault} />
+        <ClaimList label="Supporting" caption="Points to yes" claims={view.supporting} vault={vault} />
+        <ClaimList label="Pushing back" caption="Points to no" claims={view.pushing_back} vault={vault} />
       </div>
       {view.unrelated > 0 ? <p className="muted">{view.unrelated} claims do not bear on this question.</p> : null}
     </div>

@@ -61,6 +61,10 @@ class CompassSettings(BaseSettings):
     compass_ai_input_usd_per_mtok: float = Field(default=3.0, ge=0)
     compass_ai_output_usd_per_mtok: float = Field(default=15.0, ge=0)
     compass_ai_max_output_tokens: int = Field(default=1500, gt=0)
+    # Claims steps need short structured answers. Thinking models can spend the whole budget
+    # thinking and return nothing, so thinking is switched off for them and the budget is larger.
+    compass_ai_reasoning: bool = Field(default=True, description="Let the model think first")
+    compass_ai_claims_max_output_tokens: int = Field(default=4000, gt=0)
     compass_ai_max_steps: int = Field(default=5, gt=0, description="Model calls per chat message")
 
     @field_validator("obsidian_vault_path")

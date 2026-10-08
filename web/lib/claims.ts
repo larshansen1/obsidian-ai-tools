@@ -11,6 +11,9 @@ export type SharedClaim = {
   unlinked_notes: NoteRef[];
 };
 
+// What to do next: read notes, suggest questions and find agreement, sort by the question, or nothing.
+export type NextStep = "read" | "analyse" | "sort" | "done";
+
 export type ClaimsView = {
   topic: string;
   read_notes: number;
@@ -23,6 +26,7 @@ export type ClaimsView = {
   unrelated: number;
   shared: SharedClaim[];
   stale: boolean;
+  next_step: NextStep;
 };
 
 export type RunStatus = "done" | "needs_approval" | "not_configured" | "failed";
@@ -69,9 +73,29 @@ export async function saveQuestion(topic: string, question: string): Promise<Cla
   return response.json();
 }
 
-/** The button label: first read, or catching up with new or changed notes. */
-export function runLabel(view: ClaimsView): string {
-  return view.claim_count === 0 ? "Find claims" : "Update claims";
+/** The button for the step that is next, named after what it does. */
+export function runLabel(view: ClaimsView): string | null {
+  if (view.next_step === "read") return view.claim_count === 0 ? "Read notes" : "Read more notes";
+  if (view.next_step === "analyse") return "Suggest questions and find agreement";
+  if (view.next_step === "sort") return "Sort claims by this question";
+  return null;
+}
+
+export type StepState = "done" | "next" | "waiting";
+
+export type StepStates = { read: StepState; question: StepState; sides: StepState; agree: StepState };
+
+/** Where each of the four steps stands, so the screen can say what is done and what is next. */
+export function stepStates(view: ClaimsView): StepStates {
+  const reading = view.next_step === "read";
+  const analysing = view.next_step === "analyse";
+  const hasQuestion = view.question !== null;
+  return {
+    read: reading ? "next" : "done",
+    question: reading ? "waiting" : analysing || !hasQuestion ? "next" : "done",
+    sides: reading || analysing || !hasQuestion ? "waiting" : view.next_step === "sort" ? "next" : "done",
+    agree: reading || analysing ? "waiting" : "done",
+  };
 }
 
 export function progressText(view: ClaimsView): string {

@@ -10,8 +10,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import duckdb
+import httpx
 import pytest
 from fastapi.testclient import TestClient
+from openai import BadRequestError
 
 from vault_compass.ai_client import (
     AiNotConfiguredError,
@@ -824,6 +826,61 @@ def test_openrouter_model_without_cost_or_tools(vault: Path) -> None:
 
     assert "tools" not in create.call_args.kwargs
     assert events == [Usage("anthropic/claude-sonnet-4", 1, 2, None)]
+
+
+def _bad_request() -> BadRequestError:
+    response = httpx.Response(400, request=httpx.Request("POST", "https://x"))
+    return BadRequestError("no reasoning switch", response=response, body=None)
+
+
+def test_openrouter_model_can_switch_thinking_off(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("COMPASS_AI_REASONING", "false")
+    create = AsyncMock(return_value=_aiter([]))
+    client = MagicMock()
+    client.chat.completions.create = create
+    with patch("vault_compass.ai_client.AsyncOpenAI", return_value=client):
+        _collect(OpenRouterModel(CompassSettings()).stream([], []))
+
+    assert create.call_args.kwargs["extra_body"] == {
+        "usage": {"include": True},
+        "reasoning": {"enabled": False},
+    }
+
+
+def test_openrouter_model_asks_again_without_the_option_when_it_is_rejected(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("COMPASS_AI_REASONING", "false")
+    create = AsyncMock(side_effect=[_bad_request(), _aiter([])])
+    client = MagicMock()
+    client.chat.completions.create = create
+    with patch("vault_compass.ai_client.AsyncOpenAI", return_value=client):
+        _collect(OpenRouterModel(CompassSettings()).stream([], []))
+
+    assert create.call_count == 2
+    assert create.call_args_list[0].kwargs["extra_body"]["reasoning"] == {"enabled": False}
+    assert create.call_args_list[1].kwargs["extra_body"] == {"usage": {"include": True}}
+
+
+def test_openrouter_model_does_not_hide_a_bad_request_it_did_not_cause(vault: Path) -> None:
+    create = AsyncMock(side_effect=_bad_request())
+    client = MagicMock()
+    client.chat.completions.create = create
+    with patch("vault_compass.ai_client.AsyncOpenAI", return_value=client):
+        with pytest.raises(BadRequestError):
+            _collect(OpenRouterModel(CompassSettings()).stream([], []))
+
+    assert create.call_count == 1
+
+
+def test_thinking_stays_on_by_default_and_claims_get_a_bigger_budget(vault: Path) -> None:
+    settings = CompassSettings()
+
+    assert settings.compass_ai_reasoning is True
+    assert settings.compass_ai_claims_max_output_tokens == 4000
+    assert settings.compass_ai_max_output_tokens == 1500
 
 
 def test_openrouter_model_needs_a_key(vault: Path, monkeypatch: pytest.MonkeyPatch) -> None:

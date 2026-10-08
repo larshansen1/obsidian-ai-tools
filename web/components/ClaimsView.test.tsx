@@ -23,6 +23,13 @@ describe("ClaimsTable", () => {
     expect(screen.getByText("1 claims do not bear on this question.")).toBeInTheDocument();
   });
 
+  it("says what each side points to", () => {
+    render(<ClaimsTable view={CLAIMS} vault="v" />);
+
+    expect(screen.getByText("Points to yes")).toBeInTheDocument();
+    expect(screen.getByText("Points to no")).toBeInTheDocument();
+  });
+
   it("says None for an empty side and hides the unrelated line at zero", () => {
     render(<ClaimsTable view={{ ...CLAIMS, pushing_back: [], unrelated: 0 }} vault="v" />);
 

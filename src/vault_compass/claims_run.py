@@ -65,15 +65,18 @@ claims per note, each under 160 characters, in your own words. Reply with JSON o
 {{"claims": [{{"note": "<note path exactly as given>", "text": "<claim>"}}]}}"""
 
 QUESTIONS_SYSTEM = f"""\
-You are given claims from notes on one topic. Propose 2 to {MAX_QUESTIONS} questions the \
-claims bear on, where some claims could support an answer and others push back. Each question \
-must be short and open to disagreement. Reply with JSON only: {{"questions": ["..."]}}"""
+You are given claims from notes on one topic. Propose 2 to {MAX_QUESTIONS} questions the claims \
+bear on. Every question must be answerable with yes or no, so that some claims support a yes and \
+others push back with a no. Good: "Is grind size more important than water temperature?" or \
+"Should beans be used within four weeks?". Bad: questions starting with Which, What, How or Why. \
+Keep each short. Reply with JSON only: {{"questions": ["..."]}}"""
 
 AGREEMENT_SYSTEM = """\
 You are given numbered claims from notes (number | note | text) and the user's numbered \
-evergreen notes (number. title | start). Find claims that make the same point as an evergreen. \
-For each evergreen that several claims match, give one line stating the shared point and the \
-numbers of the matching claims. Use only numbers you were given and skip evergreens nothing \
+evergreen notes (number. title | start). A claim matches an evergreen when it restates, supports \
+or gives an example of the evergreen's point. Include every claim that matches, not only the \
+closest ones. For each evergreen that claims match, give one line stating the shared point and \
+the numbers of the matching claims. Use only numbers you were given and skip evergreens nothing \
 matches. Reply with JSON only: {"matches": [{"e": <evergreen number>, "text": "...", \
 "c": [<claim numbers>]}]}"""
 
@@ -92,6 +95,17 @@ class RunOutcome:
     status: RunStatus
     message: str | None = None
     estimate_usd: float | None = None
+
+
+UNREADABLE = "The model's answer could not be read. Try again."
+EMPTY_ANSWER = (
+    "The model sent an empty answer. A thinking model can use all its output on thinking: "
+    "raise COMPASS_AI_CLAIMS_MAX_OUTPUT_TOKENS or pick another model with LLM_MODEL."
+)
+
+
+def _unreadable_message(text: str) -> str:
+    return UNREADABLE if text.strip() else EMPTY_ANSWER
 
 
 class _Stop(Exception):
@@ -260,9 +274,7 @@ class _Run:
             return parse_json_object(text)
         except ValueError:
             logger.warning("claims answer was not JSON: %.200s", text)
-            raise _Unreadable(
-                RunOutcome("failed", "The model's answer could not be read. Try again.")
-            ) from None
+            raise _Unreadable(RunOutcome("failed", _unreadable_message(text))) from None
 
     async def _stream(self, messages: list[dict[str, Any]]) -> str:
         if self._model is None:
@@ -462,7 +474,14 @@ async def run_topic_claims(
     approved: bool = False,
 ) -> RunOutcome:
     """Bring the topic's cached claims up to date. Steps that are already current cost nothing."""
-    run = _Run(settings, vault, model_factory, topic, approved)
+    # Short structured answers: no thinking, and room for a long list of letters or numbers.
+    tuned = settings.model_copy(
+        update={
+            "compass_ai_reasoning": False,
+            "compass_ai_max_output_tokens": settings.compass_ai_claims_max_output_tokens,
+        }
+    )
+    run = _Run(tuned, vault, model_factory, topic, approved)
     try:
         snap = await asyncio.to_thread(_snapshot, run)
         if snap.pending:

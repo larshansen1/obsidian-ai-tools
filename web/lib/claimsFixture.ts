@@ -22,4 +22,5 @@ export const CLAIMS: ClaimsView = {
     },
   ],
   stale: false,
+  next_step: "done",
 };
