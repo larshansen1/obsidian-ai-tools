@@ -127,9 +127,8 @@ def find_coverage_gaps(
                     # Check which URLs are already in the vault as source_url
                     if urls:
                         placeholders = ",".join("?" * len(urls))
-                        # nosec B608: placeholders constructed internally, not from user input
                         ingested = con.execute(
-                            f"SELECT source_url FROM notes WHERE source_url IN ({placeholders})",
+                            f"SELECT source_url FROM notes WHERE source_url IN ({placeholders})",  # nosec B608
                             list(urls),
                         ).fetchall()
                     else:
