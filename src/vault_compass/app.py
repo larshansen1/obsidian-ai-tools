@@ -24,11 +24,12 @@ from .config import CompassSettings, get_compass_settings
 from .db import DB_LOCK, writable
 from .notes import UNMAPPED_TAGS_SQL
 from .signals import SignalKind
+from .source_ai import ActionBudget, OpenRouterSourceAi, SourceAi
 from .topic_map import TopicMapResponse, Window, build_topic_map
 from .topic_page import TopicPageResponse, build_topic_page
 from .topics import TopicsError, load_topics
 from .usage import log_usage
-from .vault_tools import AiVault
+from .vault_tools import AiVault, VaultToolError
 from .watcher import refresh_once, watch_vault
 
 NOT_SCANNED_DETAIL = "No topic data yet. Run `compass scan` first."
@@ -136,10 +137,11 @@ def create_app(
     settings: CompassSettings | None = None,
     today: Callable[[], date] = date.today,
     model_factory: Callable[[CompassSettings], ChatModel] = OpenRouterModel,
+    source_ai_factory: Callable[[CompassSettings, ActionBudget], SourceAi] = OpenRouterSourceAi,
 ) -> FastAPI:
     """Build the Compass app. Used by uvicorn as a factory.
 
-    `today` and `model_factory` are test seams.
+    `today`, `model_factory` and `source_ai_factory` are test seams.
     """
 
     def current() -> CompassSettings:
@@ -237,6 +239,16 @@ def create_app(
         with _compass_db(cfg) as con:
             return build_claims_view(con, vault.definitions, topic_id)
 
+    @app.get("/topics/{topic_id}/coverage")
+    def topic_coverage(topic_id: str) -> dict[str, Any]:
+        """Coverage bars for the topic page: rules and cached types only, no model calls."""
+        try:
+            summary: dict[str, Any] = _vault(current()).coverage_gaps(topic_id)
+        except VaultToolError as e:
+            status = 404 if str(e).startswith("Unknown topic") else 409
+            raise HTTPException(status_code=status, detail=str(e)) from None
+        return summary
+
     @app.get("/topics/{topic_id}/claims")
     def topic_claims(topic_id: str) -> ClaimsView:
         return _claims_view(current(), topic_id)
@@ -300,6 +312,7 @@ def create_app(
                 screen=request.screen,
                 topic=request.topic,
                 today=today(),
+                source_ai_factory=source_ai_factory,
             ),
             media_type="text/event-stream",
             headers=STREAM_HEADERS,

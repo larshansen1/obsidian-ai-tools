@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ClaimsSection } from "./ClaimsSection";
+import { CoverageSection } from "./CoverageSection";
 import { formatMomentum, formatShare, logUsage, type Window } from "../lib/topicMap";
 import {
   DUPLICATE_REASONS,
@@ -146,6 +147,8 @@ export function TopicPageScreen({
       </section>
 
       <ClaimsSection topic={id} />
+
+      <CoverageSection topic={id} />
 
       <section className="card" aria-label="Evergreens">
         <h2>Evergreens and hypotheses</h2>

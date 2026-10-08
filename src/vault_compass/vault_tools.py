@@ -20,8 +20,17 @@ from typing import Any
 from .ai_policy import is_excluded
 from .claims import build_claims_view
 from .config import CompassSettings
-from .coverage_gaps import Gap, find_gaps, pick_candidates, summarize_gaps
+from .coverage_gaps import (
+    Gap,
+    card,
+    find_candidates,
+    find_gaps,
+    ingested_keys,
+    summarize_gaps,
+)
 from .db import readonly
+from .source_ai import SourceAi, WebHit
+from .source_types import resolve_types
 from .topic_map import Window, topic_stats
 from .topic_notes import load_topic_notes
 from .topics import TopicsFile, load_topics
@@ -91,6 +100,8 @@ class AiVault:
     vault_path: Path
     db_path: Path
     definitions: TopicsFile
+    # Paid web search and source typing; None means rules and cache only, no model calls.
+    source_ai: SourceAi | None = None
 
     @classmethod
     def from_settings(cls, settings: CompassSettings) -> "AiVault":
@@ -219,21 +230,41 @@ class AiVault:
         )
         return stats.model_dump(mode="json")
 
-    def _topic_gaps(self, topic: str) -> list[Gap]:
+    def _topic_gaps(self, topic: str) -> tuple[list[Gap], set[str]]:
         if topic not in self.definitions.topics:
             raise VaultToolError(f"Unknown topic: {topic}")
         if not self.db_path.exists():
             raise VaultToolError("No topic data yet. Run `compass scan` first.")
         with readonly(self.db_path) as con:
-            return find_gaps(con, topic, self.body)
+            return find_gaps(con, topic, self.body), ingested_keys(con)
 
     def coverage_gaps(self, topic: str) -> Any:
         """Sources the topic's notes cite that are not in the vault, counted by type."""
-        return summarize_gaps(topic, self._topic_gaps(topic))
+        gaps, _ = self._topic_gaps(topic)
+        types, note = resolve_types(self.db_path, {g.url: g.title for g in gaps}, self.source_ai)
+        summary = summarize_gaps(topic, gaps, types)
+        summary["notes_for_model"] = [note] if note else []
+        return summary
+
+    def _search(self, topic: str) -> Callable[[], list[WebHit]] | None:
+        ai = self.source_ai
+        if ai is None:
+            return None
+        name = self.definitions.topics[topic].name
+        themes = [t["tag"] for t in self.topic_tags(topic, limit=5)]
+        return lambda: ai.search(name, themes)
 
     def source_candidates(self, topic: str) -> Any:
-        """Cited sources not in the vault, confirmed online (C7) after the DB closes."""
-        return pick_candidates(self._topic_gaps(topic))
+        """Citations, then web results, each confirmed online (C7), checked after the DB closes."""
+        citations, ingested = self._topic_gaps(topic)
+        shown, not_found, notes = find_candidates(citations, ingested, self._search(topic))
+        types, note = resolve_types(self.db_path, {g.url: g.title for g in shown}, self.source_ai)
+        name = self.definitions.topics[topic].name
+        return {
+            "candidates": [card(g, types[g.url], name) for g in shown],
+            "not_found": not_found,
+            "notes_for_model": notes + ([note] if note else []),
+        }
 
 
 @dataclass(frozen=True)
@@ -390,13 +421,20 @@ def tool_schemas() -> list[dict[str, Any]]:
 def main(argv: list[str] | None = None) -> None:
     """Script entry: `python -m vault_compass.vault_tools search_notes '{"query": "x"}'`."""
     import sys
+    from dataclasses import replace
 
+    from .ai_cost import month_spend
     from .config import get_compass_settings
+    from .source_ai import ActionBudget, OpenRouterSourceAi
 
     args = argv if argv is not None else sys.argv[1:]
     if len(args) != 2:
         raise SystemExit("usage: vault_tools <tool> '<json arguments>'")
-    vault = AiVault.from_settings(get_compass_settings())
+    settings = get_compass_settings()
+    vault = AiVault.from_settings(settings)
+    if settings.openrouter_api_key:
+        budget = ActionBudget(settings, month_spend(settings.compass_db_path))
+        vault = replace(vault, source_ai=OpenRouterSourceAi(settings, budget))
     print(json.dumps(run_tool(vault, args[0], json.loads(args[1])), indent=2))  # noqa: T201
 
 

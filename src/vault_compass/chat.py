@@ -10,13 +10,14 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Any
 
 from .ai_client import AiNotConfiguredError, ChatModel, TextDelta, ToolCall, Usage
 from .ai_cost import check_limits, estimate_cost, month_spend, record_call
 from .config import CompassSettings
+from .source_ai import ActionBudget, SourceAi
 from .vault_tools import AiVault, run_tool, tool_schemas
 
 logger = logging.getLogger(__name__)
@@ -208,6 +209,7 @@ async def chat_stream(
     screen: str | None,
     topic: str | None,
     today: date,
+    source_ai_factory: Callable[[CompassSettings, ActionBudget], SourceAi] | None = None,
 ) -> AsyncIterator[str]:
     yield sse({"type": "start", "messageId": uuid.uuid4().hex})
 
@@ -235,6 +237,13 @@ async def chat_stream(
     model_messages = to_model_messages(messages, system)
     month_before = await asyncio.to_thread(month_spend, settings.compass_db_path)
     action_cost = 0.0
+    # Tools that pay for model calls (web search, source types) spend from the same action.
+    budget = ActionBudget(settings, month_before, approved=approval is True)
+    if source_ai_factory is not None:
+        try:
+            vault = replace(vault, source_ai=source_ai_factory(settings, budget))
+        except AiNotConfiguredError:
+            pass  # the tools fall back to rules and cache only
 
     for step in range(settings.compass_ai_max_steps):
         estimate = estimate_cost(settings, _chars(model_messages))
@@ -284,7 +293,9 @@ async def chat_stream(
                     "input": call.arguments,
                 }
             )
+            budget.spent = action_cost
             result = await asyncio.to_thread(run_tool, vault, call.name, call.arguments)
+            action_cost = budget.spent
             yield sse({"type": "tool-output-available", "toolCallId": call.id, "output": result})
             model_messages.append(
                 {"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)}
