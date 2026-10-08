@@ -7,7 +7,6 @@ Never rewrite notes. Types are cached and reused across calls.
 import logging
 from typing import Any
 
-from .ai_client import ChatModel
 from .db import readonly, writable
 
 logger = logging.getLogger(__name__)
@@ -57,19 +56,6 @@ def classify_from_domain(url: str) -> str | None:
         if domain in lower_url:
             return type_name
     return None
-
-
-async def classify_from_model(url: str, title: str, model: ChatModel) -> str:
-    """Classify source type using LLM when domain rules don't match."""
-    prompt = f"""Classify this source type as one of: study, report, essay, talk.
-
-URL: {url}
-Title: {title}
-
-Return only the type name, no explanation."""
-
-    response = await model.acomplete_text(prompt)
-    return response.strip().lower() if response else "report"
 
 
 def get_or_classify(url: str, title: str = "", db_path: Any = None) -> str:
