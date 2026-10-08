@@ -18,11 +18,15 @@ from .ai_client import AiNotConfiguredError, ChatModel, TextDelta, ToolCall, Usa
 from .ai_cost import check_limits, estimate_cost, month_spend, record_call
 from .config import CompassSettings
 from .source_ai import ActionBudget, SourceAi
-from .vault_tools import AiVault, run_tool, tool_schemas
+from .vault_tools import AiVault, is_write_tool, run_tool, tool_schemas
 
 logger = logging.getLogger(__name__)
 
 CONFIRM_TOOL = "confirm_cost"
+# Where a write tool's preview rides in its call input; never sent back to the model.
+PREVIEW_KEY = "preview"
+# The result a write gets when the user moved on without answering its card.
+UNANSWERED = {"status": "cancelled", "message": "The user did not approve this change."}
 STREAM_HEADERS = {"x-vercel-ai-ui-message-stream": "v1", "Cache-Control": "no-cache"}
 
 SYSTEM_PROMPT = """\
@@ -85,45 +89,80 @@ def cost_approval(messages: list[dict[str, Any]]) -> bool | None:
     return None
 
 
+def _call_args(part: dict[str, Any]) -> str:
+    args = dict(part.get("input") or {})
+    args.pop(PREVIEW_KEY, None)
+    return json.dumps(args)
+
+
+def _assistant_entry(content: Any) -> dict[str, Any] | None:
+    parts = content if isinstance(content, list) else []
+    calls = [
+        {
+            "id": p["toolCallId"],
+            "type": "function",
+            "function": {"name": p["toolName"], "arguments": _call_args(p)},
+        }
+        for p in parts
+        if p.get("type") == "tool-call" and p.get("toolName") != CONFIRM_TOOL
+    ]
+    text = _text_of(content)
+    if not (text or calls):
+        return None
+    entry: dict[str, Any] = {"role": "assistant", "content": text or None}
+    if calls:
+        entry["tool_calls"] = calls
+    return entry
+
+
+def _tool_entries(content: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "role": "tool",
+            "tool_call_id": part["toolCallId"],
+            "content": json.dumps(_result_value(part.get("output"))),
+        }
+        for part in content
+        if part.get("type") == "tool-result" and part.get("toolName") != CONFIRM_TOOL
+    ]
+
+
+def _answer_unanswered(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Give every tool call a result. A write card the user never answered counts as
+    cancelled; the model API refuses a call without a result.
+    """
+    out: list[dict[str, Any]] = []
+    waiting: list[str] = []
+    for msg in [*messages, None]:
+        if msg is not None and msg["role"] == "tool":
+            waiting = [i for i in waiting if i != msg["tool_call_id"]]
+        else:
+            out += [
+                {"role": "tool", "tool_call_id": i, "content": json.dumps(UNANSWERED)}
+                for i in waiting
+            ]
+            waiting = [c["id"] for c in (msg or {}).get("tool_calls", [])]
+        if msg is not None:
+            out.append(msg)
+    return out
+
+
 def to_model_messages(messages: list[dict[str, Any]], system: str) -> list[dict[str, Any]]:
-    """Thread (AI SDK shape) -> OpenAI chat messages. The cost question is dropped."""
+    """Thread (AI SDK shape) -> OpenAI chat messages. The cost question and write
+    previews are dropped.
+    """
     out: list[dict[str, Any]] = [{"role": "system", "content": system}]
     for msg in messages:
         role, content = msg.get("role"), msg.get("content")
         if role == "user":
             out.append({"role": "user", "content": _text_of(content)})
         elif role == "assistant":
-            parts = content if isinstance(content, list) else []
-            calls = [
-                {
-                    "id": p["toolCallId"],
-                    "type": "function",
-                    "function": {
-                        "name": p["toolName"],
-                        "arguments": json.dumps(p.get("input") or {}),
-                    },
-                }
-                for p in parts
-                if p.get("type") == "tool-call" and p.get("toolName") != CONFIRM_TOOL
-            ]
-            text = _text_of(content)
-            if text or calls:
-                entry: dict[str, Any] = {"role": "assistant", "content": text or None}
-                if calls:
-                    entry["tool_calls"] = calls
+            entry = _assistant_entry(content)
+            if entry is not None:
                 out.append(entry)
         elif role == "tool" and isinstance(content, list):
-            for part in content:
-                if part.get("type") == "tool-result" and part.get("toolName") != CONFIRM_TOOL:
-                    value = _result_value(part.get("output"))
-                    out.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": part["toolCallId"],
-                            "content": json.dumps(value),
-                        }
-                    )
-    return out
+            out += _tool_entries(content)
+    return _answer_unanswered(out)
 
 
 def _chars(messages: list[dict[str, Any]]) -> int:
@@ -198,6 +237,42 @@ async def _model_step(
     if result.failed:
         async for c in _text("The model call failed. Check the server log, then try again."):
             yield c
+
+
+def _input(call: ToolCall, value: dict[str, Any]) -> str:
+    return sse(
+        {
+            "type": "tool-input-available",
+            "toolCallId": call.id,
+            "toolName": call.name,
+            "input": value,
+        }
+    )
+
+
+@dataclass
+class _Paused:
+    value: bool = False
+
+
+async def _run_calls(
+    vault: AiVault, calls: list[ToolCall], model_messages: list[dict[str, Any]], paused: _Paused
+) -> AsyncIterator[str]:
+    """Run each tool call. A write tool only plans: its preview goes out as the call's
+    input and nothing runs until the user approves it in the card.
+    """
+    for call in calls:
+        yield sse({"type": "tool-input-start", "toolCallId": call.id, "toolName": call.name})
+        result = await asyncio.to_thread(run_tool, vault, call.name, call.arguments)
+        if is_write_tool(call.name) and not (isinstance(result, dict) and "error" in result):
+            yield _input(call, {**call.arguments, PREVIEW_KEY: result})
+            paused.value = True
+            continue
+        yield _input(call, call.arguments)
+        yield sse({"type": "tool-output-available", "toolCallId": call.id, "output": result})
+        model_messages.append(
+            {"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)}
+        )
 
 
 async def chat_stream(
@@ -283,23 +358,16 @@ async def chat_stream(
                 ],
             }
         )
-        for call in calls:
-            yield sse({"type": "tool-input-start", "toolCallId": call.id, "toolName": call.name})
-            yield sse(
-                {
-                    "type": "tool-input-available",
-                    "toolCallId": call.id,
-                    "toolName": call.name,
-                    "input": call.arguments,
-                }
-            )
-            budget.spent = action_cost
-            result = await asyncio.to_thread(run_tool, vault, call.name, call.arguments)
-            action_cost = budget.spent
-            yield sse({"type": "tool-output-available", "toolCallId": call.id, "output": result})
-            model_messages.append(
-                {"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)}
-            )
+        budget.spent = action_cost
+        paused = _Paused()
+        async for c in _run_calls(vault, calls, model_messages, paused):
+            yield c
+        action_cost = budget.spent
+        if paused.value:
+            # A write waits for the user's click (C8); their answer comes back as its result.
+            async for c in _finish("tool-calls"):
+                yield c
+            return
         yield sse({"type": "finish-step", "finishReason": "tool-calls"})
 
     yield sse({"type": "start-step"})

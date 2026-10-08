@@ -406,6 +406,8 @@ def test_system_prompt_carries_screen_and_topic(vault: Path) -> None:
         "topic_stats",
         "coverage_gaps",
         "source_candidates",
+        "link_notes",
+        "edit_topic",
     ]
 
 
@@ -1061,3 +1063,231 @@ def test_tools_fall_back_to_no_web_search_when_the_source_ai_is_not_configured(
             "notes_for_model": ["Web search is not available here (no OpenRouter key)."],
         }
     ]
+
+
+# --- C8: writes wait for a click ----------------------------------------------
+
+
+def _add_evergreen(vault: Path) -> None:
+    _write(vault, "notes/evergreen/Agents matter.md", "Evergreen.")
+    refresh_notes(
+        vault, vault / ".kai" / "compass.duckdb", load_topics(vault / ".kai" / "topics.yaml")
+    )
+
+
+def test_a_write_tool_streams_its_preview_and_writes_nothing(vault: Path) -> None:
+    _add_evergreen(vault)
+    before = (vault / "notes/agents.md").read_bytes()
+    args = {"evergreen": "notes/evergreen/Agents matter.md", "notes": ["notes/agents.md"]}
+    model = FakeModel([[ToolCall("w1", "link_notes", args), _usage()]])
+
+    events = _events(_post(_client(model), [_user("link them")]))
+
+    assert [e["type"] if isinstance(e, dict) else e for e in events] == [
+        "start",
+        "tool-input-start",
+        "tool-input-available",
+        "finish-step",
+        "finish",
+        "[DONE]",
+    ]
+    preview = events[2]["input"]["preview"]  # type: ignore[index]
+    assert events[2] == {
+        "type": "tool-input-available",
+        "toolCallId": "w1",
+        "toolName": "link_notes",
+        "input": {**args, "preview": preview},
+    }
+    assert preview == {
+        "id": preview["id"],
+        "kind": "link_notes",
+        "summary": "Link 1 note to [[Agents matter]]",
+        "files": [
+            {
+                "file": "notes/agents.md",
+                "lines": [
+                    {"op": " ", "text": "Agents use tools often."},
+                    {"op": "+", "text": ""},
+                    {"op": "+", "text": "## Related"},
+                    {"op": "+", "text": ""},
+                    {"op": "+", "text": "- [[Agents matter]]"},
+                ],
+            }
+        ],
+    }
+    assert events[3] == {"type": "finish-step", "finishReason": "tool-calls"}
+    assert (vault / "notes/agents.md").read_bytes() == before
+    assert len(model.requests) == 1
+
+
+def test_a_write_tool_that_cannot_plan_returns_its_error_to_the_model(vault: Path) -> None:
+    args = {"evergreen": "notes/agents.md", "notes": ["notes/other.md"]}
+    model = FakeModel(
+        [[ToolCall("w1", "link_notes", args), _usage()], [TextDelta("Sorry."), _usage()]]
+    )
+
+    events = _events(_post(_client(model), [_user("link them")]))
+
+    assert events[2] == {
+        "type": "tool-input-available",
+        "toolCallId": "w1",
+        "toolName": "link_notes",
+        "input": args,
+    }
+    assert events[3] == {
+        "type": "tool-output-available",
+        "toolCallId": "w1",
+        "output": {"error": "Not an evergreen note: notes/agents.md"},
+    }
+    assert model.requests[1][0][-1] == {
+        "role": "tool",
+        "tool_call_id": "w1",
+        "content": '{"error": "Not an evergreen note: notes/agents.md"}',
+    }
+
+
+def test_edit_topic_tool_plans_a_topics_change(vault: Path) -> None:
+    result = run_tool(
+        AiVault.from_settings(CompassSettings()),
+        "edit_topic",
+        {"topic": "big", "add_tags": ["agents"]},
+    )
+
+    assert result["summary"] == "Topic Big Topic: add agents"
+    assert result["files"][0]["file"] == ".kai/topics.yaml"
+    assert (vault / ".kai/topics.yaml").read_text(encoding="utf-8") == TOPICS_YAML
+
+
+@pytest.mark.parametrize(
+    ("name", "args", "error"),
+    [
+        ("link_notes", {"evergreen": "e.md", "notes": "a.md"}, "notes must be a list of strings"),
+        ("link_notes", {"evergreen": "e.md", "notes": [1]}, "notes must be a list of strings"),
+        ("edit_topic", {"topic": "big", "add_tags": "x"}, "add_tags must be a list of strings"),
+        ("edit_topic", {"topic": "nope", "add_tags": ["q"]}, "Unknown topic: nope"),
+    ],
+)
+def test_write_tool_argument_errors(
+    vault: Path, name: str, args: dict[str, Any], error: str
+) -> None:
+    result = run_tool(AiVault.from_settings(CompassSettings()), name, args)
+
+    assert result == {"error": error}
+
+
+def test_edit_topic_needs_the_topics_path(vault: Path) -> None:
+    ai_vault = AiVault(
+        vault, vault / ".kai/compass.duckdb", load_topics(vault / ".kai/topics.yaml")
+    )
+
+    assert run_tool(ai_vault, "edit_topic", {"topic": "big", "add_tags": ["q"]}) == {
+        "error": "Topic editing is not available here."
+    }
+
+
+def test_write_previews_are_not_sent_back_and_unanswered_writes_count_as_cancelled() -> None:
+    thread = [
+        _user("link"),
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool-call",
+                    "toolCallId": "w1",
+                    "toolName": "link_notes",
+                    "input": {"evergreen": "e.md", "notes": ["a.md"], "preview": {"id": "p"}},
+                },
+                {
+                    "type": "tool-call",
+                    "toolCallId": "s1",
+                    "toolName": "search_notes",
+                    "input": {"query": "q"},
+                },
+            ],
+        },
+        {
+            "role": "tool",
+            "content": [
+                {
+                    "type": "tool-result",
+                    "toolCallId": "s1",
+                    "toolName": "search_notes",
+                    "output": [],
+                }
+            ],
+        },
+        _user("never mind"),
+    ]
+
+    out = to_model_messages(thread, "SYS")
+
+    assert out == [
+        {"role": "system", "content": "SYS"},
+        {"role": "user", "content": "link"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "w1",
+                    "type": "function",
+                    "function": {
+                        "name": "link_notes",
+                        "arguments": '{"evergreen": "e.md", "notes": ["a.md"]}',
+                    },
+                },
+                {
+                    "id": "s1",
+                    "type": "function",
+                    "function": {"name": "search_notes", "arguments": '{"query": "q"}'},
+                },
+            ],
+        },
+        {"role": "tool", "tool_call_id": "s1", "content": "[]"},
+        {
+            "role": "tool",
+            "tool_call_id": "w1",
+            "content": json.dumps(
+                {"status": "cancelled", "message": "The user did not approve this change."}
+            ),
+        },
+        {"role": "user", "content": "never mind"},
+    ]
+
+
+def test_an_answered_write_card_goes_to_the_model_as_the_tool_result(vault: Path) -> None:
+    outcome = {"id": "log1", "status": "written", "message": "Link 1 note to [[E]]"}
+    thread = [
+        _user("link"),
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool-call",
+                    "toolCallId": "w1",
+                    "toolName": "link_notes",
+                    "input": {"evergreen": "e.md", "notes": ["a.md"]},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "content": [
+                {
+                    "type": "tool-result",
+                    "toolCallId": "w1",
+                    "toolName": "link_notes",
+                    "output": {"type": "json", "value": outcome},
+                }
+            ],
+        },
+    ]
+    model = FakeModel([[TextDelta("Done."), _usage()]])
+
+    _post(_client(model), thread)
+
+    assert model.requests[0][0][-1] == {
+        "role": "tool",
+        "tool_call_id": "w1",
+        "content": json.dumps(outcome),
+    }

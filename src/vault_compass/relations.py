@@ -75,7 +75,7 @@ def link_targets(body: str) -> list[str]:
     return sorted(targets)
 
 
-def _link_index(paths: list[str]) -> dict[str, str]:
+def link_index(paths: list[str]) -> dict[str, str]:
     """Map every trailing path piece (lowercase, no .md) to one note path.
 
     "a/b/c.md" answers to "c", "b/c" and "a/b/c". When several notes answer to
@@ -95,7 +95,7 @@ def resolve_links(notes: dict[str, list[str]]) -> list[LinkRow]:
     `notes` maps a note path to its link targets. A link appears once per
     source: resolved links are keyed by target path, unresolved by target text.
     """
-    index = _link_index(list(notes))
+    index = link_index(list(notes))
     rows: list[LinkRow] = []
     for source in sorted(notes):
         seen: set[str] = set()

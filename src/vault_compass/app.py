@@ -22,14 +22,27 @@ from .claims import ClaimsView, build_claims_view, save_chosen_question
 from .claims_run import RunStatus, run_topic_claims
 from .config import CompassSettings, get_compass_settings
 from .db import DB_LOCK, writable
+from .note_links import plan_links
 from .notes import UNMAPPED_TAGS_SQL
 from .signals import SignalKind
 from .source_ai import ActionBudget, OpenRouterSourceAi, SourceAi
+from .topic_edit import plan_topic_tags
 from .topic_map import TopicMapResponse, Window, build_topic_map
 from .topic_page import TopicPageResponse, build_topic_page
 from .topics import TopicsError, load_topics
 from .usage import log_usage
 from .vault_tools import AiVault, VaultToolError
+from .vault_writes import (
+    LoggedWrite,
+    PendingWrite,
+    WriteError,
+    WriteOutcome,
+    apply_write,
+    cancel_write,
+    plan_write,
+    recent_writes,
+    undo_write,
+)
 from .watcher import refresh_once, watch_vault
 
 NOT_SCANNED_DETAIL = "No topic data yet. Run `compass scan` first."
@@ -99,6 +112,16 @@ class QuestionRequest(BaseModel):
         if not trimmed:
             raise ValueError("question must not be blank")
         return trimmed
+
+
+class LinkRequest(BaseModel):
+    evergreen: str = Field(min_length=1, max_length=500)
+    notes: list[str] = Field(min_length=1, max_length=50)
+
+
+class TopicTagsRequest(BaseModel):
+    add: list[str] = Field(default_factory=list, max_length=50)
+    remove: list[str] = Field(default_factory=list, max_length=50)
 
 
 class AiStatus(BaseModel):
@@ -328,6 +351,67 @@ def create_app(
         cfg = current()
         save_history(cfg.compass_db_path, _thread_key(cfg, topic), history.messages)
         return Response(status_code=204)
+
+    # --- Write-back (W1, W2, W4, W5): plan, then apply on a click, then undo ---
+
+    @app.post("/writes/links")
+    def plan_link_write(request: LinkRequest) -> PendingWrite:
+        cfg = current()
+        vault = _vault(cfg)
+        try:
+            edits, summary = plan_links(
+                cfg.obsidian_vault_path,
+                cfg.compass_db_path,
+                vault.excluded,
+                request.evergreen,
+                request.notes,
+            )
+        except WriteError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        return plan_write(cfg.compass_db_path, "link_notes", summary, edits)
+
+    @app.post("/topics/{topic_id}/tags")
+    def plan_topic_write(topic_id: str, request: TopicTagsRequest) -> PendingWrite:
+        cfg = current()
+        try:
+            edit, summary = plan_topic_tags(
+                cfg.compass_topics_path, topic_id, request.add, request.remove
+            )
+        except WriteError as e:
+            status = 404 if str(e).startswith("Unknown topic") else 400
+            raise HTTPException(status_code=status, detail=str(e)) from None
+        return plan_write(cfg.compass_db_path, "edit_topic", summary, [edit])
+
+    @app.post("/writes/{write_id}/apply")
+    def apply(write_id: str) -> WriteOutcome:
+        cfg = current()
+        try:
+            outcome = apply_write(cfg.compass_db_path, write_id)
+        except WriteError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from None
+        if outcome.status == "written":
+            refresh_once(cfg)  # so the next read shows the new links and tags
+        return outcome
+
+    @app.delete("/writes/{write_id}", status_code=204)
+    def cancel(write_id: str) -> Response:
+        cancel_write(current().compass_db_path, write_id)
+        return Response(status_code=204)
+
+    @app.get("/writes")
+    def writes() -> list[LoggedWrite]:
+        return recent_writes(current().compass_db_path)
+
+    @app.post("/writes/{write_id}/undo")
+    def undo(write_id: str) -> WriteOutcome:
+        cfg = current()
+        try:
+            outcome = undo_write(cfg.compass_db_path, write_id)
+        except WriteError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from None
+        if outcome.status == "undone":
+            refresh_once(cfg)
+        return outcome
 
     @app.post("/usage", status_code=204)
     def usage(event: UsageEvent) -> Response:
