@@ -155,6 +155,70 @@ describe("ClaimsSection", () => {
     expect(screen.getByRole("button", { name: "Use this question" })).toBeInTheDocument();
   });
 
+  it("disables the buttons and says Working while a run is in progress", async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/topics/big/claims/run") return new Promise((resolve) => (finish = resolve));
+      if (url === "/api/ai/status") return Promise.resolve({ ok: true, json: async () => ({ vault_name: "v" }) });
+      return Promise.resolve({ ok: true, json: async () => ({ ...CLAIMS, stale: true }) });
+    });
+    render(<ClaimsSection topic="big" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Update claims" }));
+
+    expect(await screen.findByRole("button", { name: "Working…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Use my question" })).toBeDisabled();
+    finish({ ok: true, json: async () => ({ status: "done", message: null, estimate_usd: null, view: CLAIMS }) });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Working…" })).toBeNull());
+  });
+
+  it("clears an earlier notice when a new run starts", async () => {
+    api({ ...EMPTY }, { status: "failed", message: "The model call failed." });
+    render(<ClaimsSection topic="big" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Find claims" }));
+    await screen.findByRole("alert");
+
+    api({ ...EMPTY }, { view: CLAIMS });
+    fireEvent.click(screen.getByRole("button", { name: "Find claims" }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("shows an error and does not run when saving the question fails", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/ai/status") return { ok: true, json: async () => ({ vault_name: "v" }) };
+      if (url === "/api/topics/big/claims/question") {
+        return { ok: false, status: 422, json: async () => ({ detail: "Too long" }) };
+      }
+      return { ok: true, json: async () => ({ ...CLAIMS, question: null }) };
+    });
+    render(<ClaimsSection topic="big" />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Use this question" }))[0]);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Too long");
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/topics/big/claims/run", expect.anything());
+  });
+
+  it("does not save a blank custom question when none is chosen", async () => {
+    api({ ...CLAIMS, question: null });
+    render(<ClaimsSection topic="big" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Use my question" }));
+
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/topics/big/claims/question", expect.anything());
+  });
+
+  it("reloads when the topic changes", async () => {
+    api(CLAIMS);
+    const { rerender } = render(<ClaimsSection topic="big" />);
+    await screen.findByTestId("claims-table");
+
+    rerender(<ClaimsSection topic="other" />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/topics/other/claims"));
+  });
+
   it("shows a load error", async () => {
     fetchMock.mockImplementation(async (url: string) =>
       url === "/api/topics/big/claims"

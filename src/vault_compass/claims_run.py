@@ -19,8 +19,9 @@ from .ai_client import AiNotConfiguredError, ChatModel, TextDelta, Usage
 from .ai_cost import check_limits, estimate_cost, month_spend, record_call
 from .claims import (
     AGREEMENT_KIND,
-    STANCES,
+    AGREEMENT_PROGRESS_KIND,
     STANCES_KIND,
+    STANCES_PROGRESS_KIND,
     ClaimItem,
     EligibleNote,
     cached_for,
@@ -48,7 +49,9 @@ MAX_NOTES_PER_BATCH = 4
 MAX_CLAIMS_PER_NOTE = 4
 MAX_CLAIM_CHARS = 300
 MAX_PROMPT_CLAIMS = 150
-EVERGREEN_CHARS = 400
+CHUNK_CLAIMS = 150
+MAX_EVERGREENS = 40
+EVERGREEN_CHARS = 300
 MAX_QUESTIONS = 3
 KEY_CLAIMS_ORIGIN = "key_claims"
 MODEL_ORIGIN = "model"
@@ -67,16 +70,17 @@ claims bear on, where some claims could support an answer and others push back. 
 must be short and open to disagreement. Reply with JSON only: {{"questions": ["..."]}}"""
 
 AGREEMENT_SYSTEM = """\
-You are given claims from notes (id, note, text) and a list of the user's evergreen notes \
-(path, title, start). Find shared claims: statements made by at least 2 different notes. \
-Word each in one line, list the ids that make it, and name the evergreen path it matches, or \
-null when none fits. Use only ids and paths you were given. Reply with JSON only: \
-{"shared": [{"text": "...", "claim_ids": ["..."], "evergreen": "<path or null>"}]}"""
+You are given numbered claims from notes (number | note | text) and the user's numbered \
+evergreen notes (number. title | start). Find claims that make the same point as an evergreen. \
+For each evergreen that several claims match, give one line stating the shared point and the \
+numbers of the matching claims. Use only numbers you were given and skip evergreens nothing \
+matches. Reply with JSON only: {"matches": [{"e": <evergreen number>, "text": "...", \
+"c": [<claim numbers>]}]}"""
 
 STANCE_SYSTEM = """\
-You are given a question and claims (id, text). For each claim say whether it is \
-"supporting" an answer of yes to the question, "pushing_back" against it, or "unrelated". \
-Reply with JSON only: {"stances": {"<id>": "supporting|pushing_back|unrelated"}}"""
+You are given a question and numbered claims. For each claim, in order, answer one letter: \
+S if it supports a yes to the question, P if it pushes back against it, U if it is unrelated. \
+Reply with JSON only: {"s": "<one letter per claim, no spaces>"}"""
 
 _KEY_CLAIMS_HEADING = re.compile(r"^#{1,6}\s*key claims\s*$", re.IGNORECASE | re.MULTILINE)
 _NEXT_HEADING = re.compile(r"^#{1,6}\s", re.MULTILINE)
@@ -149,34 +153,63 @@ def parse_questions(data: dict[str, Any]) -> list[str]:
     return questions[:MAX_QUESTIONS]
 
 
-def parse_shared(
-    data: dict[str, Any], claims: list[ClaimItem], evergreens: set[str]
-) -> list[dict[str, Any]]:
-    """Shared claims backed by 2 or more different notes; unknown ids and paths dropped."""
-    path_of = {c.id: c.path for c in claims}
+def _numbers(value: Any, limit: int) -> list[int]:
+    """The distinct integers in `value` that fall in 1..limit, in order."""
+    found = [n for n in value or [] if isinstance(n, int) and not isinstance(n, bool)]
+    return list(dict.fromkeys(n for n in found if 1 <= n <= limit))
+
+
+def parse_matches(
+    data: dict[str, Any], chunk: list[ClaimItem], evergreens: list[NoteRef]
+) -> list[tuple[str, str, list[str]]]:
+    """(evergreen path, shared point, claim ids) per match; out-of-range numbers dropped."""
     out = []
-    for item in data.get("shared") or []:
+    for item in data.get("matches") or []:
         if not isinstance(item, dict):
             continue
-        ids = [i for i in item.get("claim_ids") or [] if isinstance(i, str) and i in path_of]
+        nums = _numbers([item.get("e")], len(evergreens))
+        ids = [chunk[n - 1].id for n in _numbers(item.get("c"), len(chunk))]
         text = _text(item.get("text"))
-        if not text or len({path_of[i] for i in ids}) < 2:
-            continue
-        evergreen = item.get("evergreen")
-        out.append(
-            {
-                "text": text,
-                "claim_ids": list(dict.fromkeys(ids)),
-                "evergreen": evergreen if evergreen in evergreens else None,
-            }
-        )
+        if nums and ids and text:
+            out.append((evergreens[nums[0] - 1].path, text, ids))
     return out
 
 
-def parse_stances(data: dict[str, Any], claims: list[ClaimItem]) -> dict[str, str]:
-    raw = data.get("stances")
-    given = raw if isinstance(raw, dict) else {}
-    return {c.id: given[c.id] if given.get(c.id) in STANCES else "unrelated" for c in claims}
+def merge_matches(
+    found: dict[str, dict[str, Any]], matches: list[tuple[str, str, list[str]]]
+) -> None:
+    """Fold matches into one entry per evergreen, keeping the wording of the biggest match."""
+    for path, text, ids in matches:
+        entry = found.setdefault(path, {"text": text, "best": 0, "claim_ids": []})
+        if len(ids) > entry["best"]:
+            entry["text"], entry["best"] = text, len(ids)
+        entry["claim_ids"] = list(dict.fromkeys(entry["claim_ids"] + ids))
+
+
+def finalize_shared(
+    found: dict[str, dict[str, Any]], claims: list[ClaimItem]
+) -> list[dict[str, Any]]:
+    """Shared claims: evergreens matched by claims from 2 or more different notes."""
+    path_of = {c.id: c.path for c in claims}
+    shared = [
+        {"text": e["text"], "claim_ids": e["claim_ids"], "evergreen": path}
+        for path, e in found.items()
+        if len({path_of[i] for i in e["claim_ids"] if i in path_of}) >= 2
+    ]
+    return sorted(shared, key=lambda item: (-len(item["claim_ids"]), item["evergreen"]))
+
+
+_STANCE_CODES = {"S": "supporting", "P": "pushing_back"}
+
+
+def parse_stances(data: dict[str, Any], chunk: list[ClaimItem]) -> dict[str, str]:
+    """One stance per claim from a string of S, P and U letters; anything missing is unrelated."""
+    raw = data.get("s")
+    letters = [ch for ch in (raw.upper() if isinstance(raw, str) else "") if ch in "SPU"]
+    return {
+        c.id: _STANCE_CODES.get(letters[i] if i < len(letters) else "U", "unrelated")
+        for i, c in enumerate(chunk)
+    }
 
 
 @dataclass(frozen=True)
@@ -330,8 +363,21 @@ async def _extract_batch(run: _Run, batch: list[tuple[EligibleNote, str]]) -> No
     await asyncio.to_thread(_store_claims, run, results)
 
 
-def _claim_lines(claims: list[ClaimItem]) -> str:
-    return "\n".join(f"{c.id} | {c.title} | {c.text}" for c in claims[:MAX_PROMPT_CLAIMS])
+def _chunks(claims: list[ClaimItem]) -> list[list[ClaimItem]]:
+    return [claims[i : i + CHUNK_CLAIMS] for i in range(0, len(claims), CHUNK_CLAIMS)]
+
+
+def _numbered(claims: list[ClaimItem], *, titles: bool) -> str:
+    return "\n".join(
+        f"{n} | {c.title} | {c.text}" if titles else f"{n}. {c.text}"
+        for n, c in enumerate(claims, start=1)
+    )
+
+
+def _sample(claims: list[ClaimItem]) -> list[ClaimItem]:
+    """At most MAX_PROMPT_CLAIMS claims spread evenly over all notes."""
+    step = max(1, -(-len(claims) // MAX_PROMPT_CLAIMS))
+    return claims[::step]
 
 
 def _save_proposals(run: _Run, questions: list[str], sig: str) -> None:
@@ -344,35 +390,67 @@ def _save_analysis(run: _Run, kind: str, key: str, sig: str, payload: Any) -> No
         save_analysis(con, run.topic, kind, key, sig, payload)
 
 
+def _progress(run: _Run, kind: str, key: str, sig: str) -> Any | None:
+    with readonly(run.settings.compass_db_path) as con:
+        return cached_for(con, run.topic, kind, key, sig)
+
+
 async def _propose(run: _Run, snap: _Snapshot) -> None:
     if snap.proposals_sig == snap.sig:
         return
-    data = await run.ask(QUESTIONS_SYSTEM, _claim_lines(snap.claims))
+    lines = _numbered(_sample(snap.claims), titles=True)
+    data = await run.ask(QUESTIONS_SYSTEM, lines)
     await asyncio.to_thread(_save_proposals, run, parse_questions(data), snap.sig)
 
 
-def _evergreen_block(run: _Run, evergreen: NoteRef) -> str:
-    body = run.vault.body(evergreen.path)
-    return f"{evergreen.path} | {evergreen.title} | {(body or '')[:EVERGREEN_CHARS]!r}"
+def _evergreen_block(run: _Run, evergreens: list[NoteRef]) -> str:
+    lines = []
+    for n, e in enumerate(evergreens, start=1):
+        start = (run.vault.body(e.path) or "")[:EVERGREEN_CHARS]
+        lines.append(f"{n}. {e.title} | {' '.join(start.split())}")
+    return "\n".join(lines)
 
 
 async def _agree(run: _Run, snap: _Snapshot) -> None:
+    """Match claims to evergreens chunk by chunk; progress is saved after each chunk."""
     if snap.has_agreement:
         return
-    evergreens = "\n".join(_evergreen_block(run, e) for e in snap.evergreens)
-    user = f"CLAIMS\n{_claim_lines(snap.claims)}\n\nEVERGREENS\n{evergreens or '(none)'}"
-    data = await run.ask(AGREEMENT_SYSTEM, user)
-    shared = parse_shared(data, snap.claims, {e.path for e in snap.evergreens})
+    evergreens = snap.evergreens[:MAX_EVERGREENS]
+    state: dict[str, Any] = {"chunks": 0, "found": {}}
+    if evergreens:
+        saved = await asyncio.to_thread(_progress, run, AGREEMENT_PROGRESS_KIND, "", snap.sig)
+        state = saved or state
+        block = _evergreen_block(run, evergreens)
+        chunks = _chunks(snap.claims)
+        for index in range(state["chunks"], len(chunks)):
+            user = f"CLAIMS\n{_numbered(chunks[index], titles=True)}\n\nEVERGREENS\n{block}"
+            data = await run.ask(AGREEMENT_SYSTEM, user)
+            merge_matches(state["found"], parse_matches(data, chunks[index], evergreens))
+            state["chunks"] = index + 1
+            await asyncio.to_thread(
+                _save_analysis, run, AGREEMENT_PROGRESS_KIND, "", snap.sig, state
+            )
+    shared = finalize_shared(state["found"], snap.claims)
     await asyncio.to_thread(_save_analysis, run, AGREEMENT_KIND, "", snap.sig, shared)
 
 
 async def _sort(run: _Run, snap: _Snapshot) -> None:
-    if snap.chosen is None or snap.has_stances:
+    """Sort claims by the chosen question, chunk by chunk; progress is saved after each."""
+    question = snap.chosen
+    if question is None or snap.has_stances:
         return
-    lines = "\n".join(f"{c.id} | {c.text}" for c in snap.claims[:MAX_PROMPT_CLAIMS])
-    data = await run.ask(STANCE_SYSTEM, f"QUESTION\n{snap.chosen}\n\nCLAIMS\n{lines}")
-    stances = parse_stances(data, snap.claims[:MAX_PROMPT_CLAIMS])
-    await asyncio.to_thread(_save_analysis, run, STANCES_KIND, snap.chosen, snap.sig, stances)
+    saved = await asyncio.to_thread(_progress, run, STANCES_PROGRESS_KIND, question, snap.sig)
+    done: dict[str, str] = saved or {}
+    todo = [c for c in snap.claims if c.id not in done]
+    for chunk in _chunks(todo):
+        data = await run.ask(
+            STANCE_SYSTEM, f"QUESTION\n{question}\n\nCLAIMS\n{_numbered(chunk, titles=False)}"
+        )
+        done.update(parse_stances(data, chunk))
+        await asyncio.to_thread(
+            _save_analysis, run, STANCES_PROGRESS_KIND, question, snap.sig, done
+        )
+    await asyncio.to_thread(_save_analysis, run, STANCES_KIND, question, snap.sig, done)
 
 
 async def run_topic_claims(

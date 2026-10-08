@@ -23,10 +23,12 @@ from .topic_page import NoteRef
 from .topics import TopicsFile
 
 Stance = Literal["supporting", "pushing_back", "unrelated"]
-STANCES: tuple[Stance, ...] = ("supporting", "pushing_back", "unrelated")
 
 AGREEMENT_KIND = "agreement"
 STANCES_KIND = "stances"
+# Work saved part-way through a long step, so a stopped run resumes instead of starting over.
+AGREEMENT_PROGRESS_KIND = "agreement_progress"
+STANCES_PROGRESS_KIND = "stances_progress"
 
 CLAIMS_DDL = (
     """
