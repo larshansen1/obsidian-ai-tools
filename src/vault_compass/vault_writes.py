@@ -5,6 +5,9 @@ approval click. Apply refuses when a file changed since it was read (W4),
 writes each file atomically so Obsidian and sync never see half a file (N6),
 and logs the exact bytes before and after, so the last 20 writes can be
 undone (W5). An undo is itself a logged write.
+
+A file that does not exist is stored as None: planning a new note has no
+`before`, and undoing it deletes the note again.
 """
 
 import difflib
@@ -42,9 +45,9 @@ _DDL = (
         seq INTEGER NOT NULL,
         path VARCHAR NOT NULL,
         label VARCHAR NOT NULL,
-        mtime_ns BIGINT NOT NULL,
-        before BLOB NOT NULL,
-        after BLOB NOT NULL
+        mtime_ns BIGINT,
+        before BLOB,
+        after BLOB
     )
     """,
     """
@@ -63,10 +66,16 @@ _DDL = (
         seq INTEGER NOT NULL,
         path VARCHAR NOT NULL,
         label VARCHAR NOT NULL,
-        before BLOB NOT NULL,
-        after BLOB NOT NULL
+        before BLOB,
+        after BLOB
     )
     """,
+    # Tables made before new notes could be written had these columns NOT NULL.
+    "ALTER TABLE pending_files ALTER COLUMN mtime_ns DROP NOT NULL",
+    "ALTER TABLE pending_files ALTER COLUMN before DROP NOT NULL",
+    "ALTER TABLE pending_files ALTER COLUMN after DROP NOT NULL",
+    "ALTER TABLE write_files ALTER COLUMN before DROP NOT NULL",
+    "ALTER TABLE write_files ALTER COLUMN after DROP NOT NULL",
 )
 
 
@@ -76,13 +85,13 @@ class WriteError(Exception):
 
 @dataclass(frozen=True)
 class FileEdit:
-    """One planned file change. `mtime_ns` and `before` are what was read."""
+    """One planned file change. `mtime_ns` and `before` are what was read; None means no file."""
 
     path: Path
     label: str
-    before: bytes
-    after: bytes
-    mtime_ns: int
+    before: bytes | None
+    after: bytes | None
+    mtime_ns: int | None
 
 
 class DiffLine(BaseModel):
@@ -136,10 +145,14 @@ def read_for_edit(path: Path) -> tuple[bytes, int]:
     return data, mtime
 
 
-def diff_lines(before: bytes, after: bytes) -> list[DiffLine]:
+def _text_lines(data: bytes | None) -> list[str]:
+    return (data or b"").decode("utf-8", errors="replace").splitlines()
+
+
+def diff_lines(before: bytes | None, after: bytes | None) -> list[DiffLine]:
     """The changed lines with one line of context, as shown before approval."""
-    old = before.decode("utf-8", errors="replace").splitlines()
-    new = after.decode("utf-8", errors="replace").splitlines()
+    old = _text_lines(before)
+    new = _text_lines(after)
     out: list[DiffLine] = []
     for line in list(difflib.unified_diff(old, new, n=1, lineterm=""))[2:]:
         if line.startswith("@@"):
@@ -174,6 +187,10 @@ def plan_write(
     )
 
 
+def _blob(value: bytes | None) -> bytes | None:
+    return None if value is None else bytes(value)
+
+
 def _pending(con: duckdb.DuckDBPyConnection, write_id: str) -> tuple[str, str, list[FileEdit]]:
     row = con.execute(
         "SELECT kind, summary FROM pending_writes WHERE id = ?", [write_id]
@@ -185,7 +202,10 @@ def _pending(con: duckdb.DuckDBPyConnection, write_id: str) -> tuple[str, str, l
         "WHERE write_id = ? ORDER BY seq",
         [write_id],
     ).fetchall()
-    edits = [FileEdit(Path(p), label, bytes(b), bytes(a), int(m)) for p, label, b, a, m in files]
+    edits = [
+        FileEdit(Path(p), label, _blob(b), _blob(a), None if m is None else int(m))
+        for p, label, b, a, m in files
+    ]
     return row[0], row[1], edits
 
 
@@ -201,8 +221,12 @@ def cancel_write(db_path: Path, write_id: str) -> None:
         _drop_pending(con, write_id)
 
 
-def atomic_write(path: Path, data: bytes) -> None:
-    """Replace the file in one step: a reader sees the old bytes or the new, never a mix."""
+def atomic_write(path: Path, data: bytes, *, create: bool = False) -> None:
+    """Replace the file in one step: a reader sees the old bytes or the new, never a mix.
+
+    With `create`, the file must not exist yet: it is linked into place, which fails
+    instead of overwriting a note that appeared after the preview.
+    """
     # Hidden name in the same folder: same filesystem for os.replace, ignored by Obsidian.
     tmp = path.with_name(f".{path.name}.compass-tmp")
     try:
@@ -210,13 +234,26 @@ def atomic_write(path: Path, data: bytes) -> None:
             f.write(data)
             f.flush()
             os.fsync(f.fileno())
-        shutil.copymode(path, tmp)
-        os.replace(tmp, path)
+        if create:
+            os.link(tmp, path)
+        else:
+            shutil.copymode(path, tmp)
+            os.replace(tmp, path)
     finally:
         tmp.unlink(missing_ok=True)
 
 
+def _put(path: Path, data: bytes | None, *, existed: bool) -> None:
+    """Make the file hold `data`, or remove it when `data` is None."""
+    if data is None:
+        path.unlink()
+    else:
+        atomic_write(path, data, create=not existed)
+
+
 def _changed_since_read(edit: FileEdit) -> bool:
+    if edit.before is None:
+        return edit.path.exists()
     try:
         data, mtime = read_for_edit(edit.path)
     except (OSError, WriteError):
@@ -229,10 +266,10 @@ def _write_all(edits: list[FileEdit]) -> None:
     done: list[FileEdit] = []
     for edit in edits:
         try:
-            atomic_write(edit.path, edit.after)
+            _put(edit.path, edit.after, existed=edit.before is not None)
         except OSError as err:
             for written in reversed(done):
-                atomic_write(written.path, written.before)
+                _put(written.path, written.before, existed=written.after is not None)
             raise WriteError(f"Could not write {edit.label}: {err}. Nothing was changed.") from None
         done.append(edit)
 
@@ -301,7 +338,7 @@ def _logged(con: duckdb.DuckDBPyConnection, log_id: str) -> tuple[str, bool, lis
         "SELECT path, label, before, after FROM write_files WHERE write_id = ? ORDER BY seq",
         [log_id],
     ).fetchall()
-    edits = [FileEdit(Path(p), label, bytes(b), bytes(a), 0) for p, label, b, a in files]
+    edits = [FileEdit(Path(p), label, _blob(b), _blob(a), None) for p, label, b, a in files]
     return row[0], bool(row[1]), edits
 
 
@@ -327,7 +364,7 @@ def undo_write(db_path: Path, log_id: str, now: datetime | None = None) -> Write
                 message=f"{', '.join(changed)} changed after this write, so it was not undone. "
                 "Undo the later writes first.",
             )
-        reverse = [FileEdit(e.path, e.label, e.after, e.before, 0) for e in edits]
+        reverse = [FileEdit(e.path, e.label, e.after, e.before, None) for e in edits]
         _write_all(reverse)
         stamp = _now(now)
         con.execute("UPDATE write_log SET undone_at = ? WHERE id = ?", [stamp, log_id])

@@ -47,6 +47,9 @@ class CompassSettings(BaseSettings):
     # Same env key as kai, so the inbox count follows kai's inbox folder.
     obsidian_inbox_folder: str = Field(default="inbox", description="Folder for new notes")
 
+    # kai serve, where "Ingest" sends sources (W3). Same default port as `kai serve`.
+    compass_kai_url: str = Field(default="http://127.0.0.1:8765", description="kai serve URL")
+
     # AI (N2, N3). Same env keys as kai, so one .env serves both tools.
     openrouter_api_key: str | None = Field(default=None, description="OpenRouter API key")
     llm_model: str = Field(default="anthropic/claude-sonnet-4", description="OpenRouter model id")
