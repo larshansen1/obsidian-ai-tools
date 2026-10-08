@@ -20,6 +20,7 @@ from typing import Any
 from .ai_policy import is_excluded
 from .claims import build_claims_view
 from .config import CompassSettings
+from .coverage_gaps import Gap, find_gaps, pick_candidates, summarize_gaps
 from .db import readonly
 from .topic_map import Window, topic_stats
 from .topic_notes import load_topic_notes
@@ -218,6 +219,22 @@ class AiVault:
         )
         return stats.model_dump(mode="json")
 
+    def _topic_gaps(self, topic: str) -> list[Gap]:
+        if topic not in self.definitions.topics:
+            raise VaultToolError(f"Unknown topic: {topic}")
+        if not self.db_path.exists():
+            raise VaultToolError("No topic data yet. Run `compass scan` first.")
+        with readonly(self.db_path) as con:
+            return find_gaps(con, topic, self.body)
+
+    def coverage_gaps(self, topic: str) -> Any:
+        """Sources the topic's notes cite that are not in the vault, counted by type."""
+        return summarize_gaps(topic, self._topic_gaps(topic))
+
+    def source_candidates(self, topic: str) -> Any:
+        """Cited sources not in the vault, confirmed online (C7) after the DB closes."""
+        return pick_candidates(self._topic_gaps(topic))
+
 
 @dataclass(frozen=True)
 class ToolSpec:
@@ -258,6 +275,14 @@ def _stats(vault: AiVault, args: dict[str, Any]) -> Any:
     if window not in ("30", "90", "all"):
         raise VaultToolError("window must be 30, 90 or all")
     return vault.topic_stats(str(args.get("topic", "")), window)
+
+
+def _gaps(vault: AiVault, args: dict[str, Any]) -> Any:
+    return vault.coverage_gaps(str(args.get("topic", "")))
+
+
+def _candidates(vault: AiVault, args: dict[str, Any]) -> Any:
+    return vault.source_candidates(str(args.get("topic", "")))
 
 
 TOOLS: dict[str, ToolSpec] = {
@@ -320,6 +345,28 @@ TOOLS: dict[str, ToolSpec] = {
                 "required": ["topic"],
             },
             _stats,
+        ),
+        ToolSpec(
+            "coverage_gaps",
+            "Coverage gaps for a topic: how many sources its notes cite that are not in the "
+            "vault yet, counted by type (study, report, essay, talk).",
+            {
+                "type": "object",
+                "properties": {"topic": {"type": "string", "description": "Topic id"}},
+                "required": ["topic"],
+            },
+            _gaps,
+        ),
+        ToolSpec(
+            "source_candidates",
+            "Sources to read next for a topic: sources its notes cite that are not in the vault "
+            "yet, each confirmed to exist online, with title, type and why it fills a gap.",
+            {
+                "type": "object",
+                "properties": {"topic": {"type": "string", "description": "Topic id"}},
+                "required": ["topic"],
+            },
+            _candidates,
         ),
     )
 }

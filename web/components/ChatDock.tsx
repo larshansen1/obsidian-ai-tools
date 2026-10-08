@@ -48,6 +48,13 @@ function CitedText({ text }: { text: string }) {
 
 type NoteHit = { path: string; title: string };
 type TagCount = { tag: string; notes: number };
+type CoverageGapsResult = {
+  count: number;
+  notes: number;
+  by_type: { type: string; count: number }[];
+};
+type SourceCandidate = { url: string; title: string; type: string; cited_in: string };
+type SourceCandidatesResult = { candidates: SourceCandidate[]; not_found: number };
 
 function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -121,6 +128,48 @@ export function ToolCard({
     const stats = result as { name: string; note_count: number; evergreens: number };
     return (
       <Folded summary={`${stats.name}: ${plural(stats.note_count, "note")}, ${plural(stats.evergreens, "evergreen")}`} />
+    );
+  }
+  if (toolName === "coverage_gaps") {
+    const gaps = result as CoverageGapsResult;
+    const most = Math.max(1, ...gaps.by_type.map((g) => g.count));
+    return (
+      <Folded summary={`Coverage gaps: ${plural(gaps.count, "cited source")} not in the vault`}>
+        <ul className="coverage-bars">
+          {gaps.by_type.map((g) => (
+            <li key={g.type}>
+              <span className="coverage-type">{g.type}</span>
+              <span className="coverage-bar" style={{ width: `${(g.count / most) * 100}%` }} />
+              <span className="coverage-count">{g.count}</span>
+            </li>
+          ))}
+        </ul>
+      </Folded>
+    );
+  }
+  if (toolName === "source_candidates") {
+    const { candidates, not_found } = result as SourceCandidatesResult;
+    const dropped = not_found ? `, ${not_found} not found online` : "";
+    return (
+      <Folded summary={`Sources to read: ${plural(candidates.length, "source")}${dropped}`}>
+        <ul className="candidates">
+          {candidates.map((c) => (
+            <li key={c.url} className="candidate">
+              <div className="candidate-head">
+                <strong>{c.title}</strong>
+                <span className="candidate-type">{c.type}</span>
+              </div>
+              <div className="muted">
+                Cited in <a href={noteUrl(vault, c.cited_in)}>{noteLabel(c.cited_in)}</a> but not in
+                the vault yet.
+              </div>
+              <a className="candidate-preview" href={c.url} target="_blank" rel="noopener noreferrer">
+                Preview
+              </a>
+            </li>
+          ))}
+        </ul>
+      </Folded>
     );
   }
   return <Folded summary={`${toolName} done`} />;
