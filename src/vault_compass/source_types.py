@@ -7,11 +7,7 @@ Never rewrite notes. Types are cached and reused across calls.
 import logging
 from typing import Any
 
-import duckdb
-
 from .ai_client import ChatModel
-from .ai_policy import is_excluded
-from .config import CompassSettings
 from .db import readonly, writable
 
 logger = logging.getLogger(__name__)
@@ -105,7 +101,7 @@ def cache_source_type(
     """Cache a source type classification."""
     try:
         with writable(db_path) as con:
-            con.execute("CREATE TABLE IF NOT EXISTS source_types (url VARCHAR PRIMARY KEY, type VARCHAR NOT NULL, classified_by VARCHAR NOT NULL, cached_at TIMESTAMP DEFAULT current_timestamp)")
+            con.execute(SOURCE_TYPES_DDL)
             con.execute(
                 "INSERT OR REPLACE INTO source_types (url, type, classified_by) VALUES (?, ?, ?)",
                 [url, type_name, classified_by],

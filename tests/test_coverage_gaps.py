@@ -36,7 +36,7 @@ def test_extract_urls_removes_trailing_punctuation() -> None:
 
     assert "https://example.com/page" in urls
     assert "https://other.com/path" in urls
-    assert not any(url.endswith((".")) for url in urls)
+    assert not any(url.endswith(".") for url in urls)
 
 
 def test_verify_url_skips_non_http() -> None:

@@ -104,7 +104,7 @@ def find_coverage_gaps(
                 [topic],
             ).fetchall()
 
-            for note_path, note_title in notes_result:
+            for note_path, _note_title in notes_result:
                 # Skip excluded folders
                 if is_excluded(note_path, definitions):
                     continue
@@ -115,7 +115,7 @@ def find_coverage_gaps(
                     continue
 
                 try:
-                    with open(note_file, "r", encoding="utf-8") as f:
+                    with open(note_file, encoding="utf-8") as f:
                         content = f.read()
 
                     # Extract URLs from note
@@ -202,7 +202,13 @@ def _extract_title_from_url(url: str, vault_path: Path, note_path: str) -> str:
             for line in content.split("\n"):
                 if url in line:
                     # Strip markdown link syntax and markdown formatting
-                    title = line.replace("[", "").replace("]", "").replace(f"({url})", "").replace(url, "").strip()
+                    title = (
+                        line.replace("[", "")
+                        .replace("]", "")
+                        .replace(f"({url})", "")
+                        .replace(url, "")
+                        .strip()
+                    )
                     if title and len(title) < 200:
                         return title
     except Exception:
