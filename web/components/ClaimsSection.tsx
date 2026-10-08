@@ -118,8 +118,13 @@ export function ClaimsSection({ topic, onWrite }: { topic: string; onWrite?: () 
     );
   }
 
+  // Only claims on screen count: a re-sort or another topic can drop ticked ones.
+  const shown = new Set(
+    [...view.supporting, ...view.pushing_back, ...view.shared.flatMap((s) => s.claims)].map((c) => c.id),
+  );
+  const live = picked.filter((id) => shown.has(id));
   const selection: ClaimSelection = {
-    selected: new Set(picked),
+    selected: new Set(live),
     toggle: (ids) =>
       setPicked((current) =>
         ids.every((id) => current.includes(id))
@@ -258,7 +263,7 @@ export function ClaimsSection({ topic, onWrite }: { topic: string; onWrite?: () 
       {states.sides === "done" || states.agree === "done" ? (
         <section className="step" aria-label="Draft new evergreen">
           <h3 className="step-title">Draft new evergreen</h3>
-          <DraftEvergreen topic={topic} claimIds={picked} onChange={afterDraft} />
+          <DraftEvergreen topic={topic} claimIds={live} onChange={afterDraft} />
         </section>
       ) : null}
     </section>

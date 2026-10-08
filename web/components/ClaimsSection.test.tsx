@@ -405,6 +405,23 @@ describe("ClaimsSection draft new evergreen", () => {
     expect(screen.getAllByRole("checkbox").filter((c) => (c as HTMLInputElement).checked)).toEqual([]);
   });
 
+  it("drops ticks for claims no longer on screen", async () => {
+    api(CLAIMS);
+    const { rerender } = render(<ClaimsSection topic="big" />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Pick claim: Plans help." }));
+    expect(screen.getByRole("button", { name: "Draft new evergreen from 1 claim" })).toBeEnabled();
+
+    const other = { ...CLAIMS, topic: "other", supporting: [] };
+    fetchMock.mockImplementation(async (url: string) =>
+      url === "/api/topics/other/claims"
+        ? { ok: true, json: async () => other }
+        : { ok: true, json: async () => ({ vault_name: "v" }) },
+    );
+    rerender(<ClaimsSection topic="other" />);
+
+    expect(await screen.findByRole("button", { name: "Draft new evergreen" })).toBeDisabled();
+  });
+
   it("hides the draft step until claims are sorted or matched", async () => {
     api(READ);
     render(<ClaimsSection topic="big" />);
