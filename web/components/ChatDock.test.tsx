@@ -95,6 +95,70 @@ describe("ToolCard", () => {
     );
   });
 
+  it("draws coverage bars scaled to the largest type", () => {
+    const { container } = render(
+      <ToolCard
+        toolName="coverage_gaps"
+        result={{
+          topic: "big",
+          count: 3,
+          notes: 2,
+          by_type: [
+            { type: "study", count: 2 },
+            { type: "report", count: 1 },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Coverage gaps: 3 cited sources not in the vault")).toBeInTheDocument();
+    const bars = Array.from(container.querySelectorAll<HTMLElement>(".coverage-bar"));
+    expect(bars.map((b) => b.style.width)).toEqual(["100%", "50%"]);
+    expect(Array.from(container.querySelectorAll(".coverage-type")).map((e) => e.textContent)).toEqual([
+      "study",
+      "report",
+    ]);
+  });
+
+  it("shows each source candidate with type, origin note and a Preview link", () => {
+    render(
+      <ToolCard
+        toolName="source_candidates"
+        result={{
+          candidates: [
+            {
+              url: "https://metr.org/study",
+              title: "METR study",
+              type: "report",
+              origin: "citation",
+              cited_in: "notes/agents.md",
+              why: "Cited in [[notes/agents.md]] but not in the vault yet.",
+            },
+          ],
+          not_found: 1,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Sources to read: 1 source, 1 not found online")).toBeInTheDocument();
+    expect(screen.getByText("METR study")).toBeInTheDocument();
+    expect(screen.getByText("report")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "agents" })).toHaveAttribute(
+      "href",
+      "obsidian://open?vault=&file=notes%2Fagents",
+    );
+    const preview = screen.getByRole("link", { name: "Preview" });
+    expect(preview).toHaveAttribute("href", "https://metr.org/study");
+    expect(preview).toHaveAttribute("target", "_blank");
+    expect(preview).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("leaves out the not-found note when every candidate was found", () => {
+    render(<ToolCard toolName="source_candidates" result={{ candidates: [], not_found: 0 }} />);
+
+    expect(screen.getByText("Sources to read: 0 sources")).toBeInTheDocument();
+  });
+
   it("pluralizes and lists tags with counts", () => {
     render(
       <ToolCard

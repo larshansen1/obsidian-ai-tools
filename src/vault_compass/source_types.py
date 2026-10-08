@@ -1,101 +1,46 @@
-"""Source type classification (study, report, essay, talk) cached in compass.duckdb.
+"""Source type (study, report, essay, talk) of a web source, from domain rules (Q8).
 
-Determines type from source_type field and domain rules first; LLM only when unclear (Q8).
-Never rewrite notes. Types are cached and reused across calls.
+Rules match the URL's host or a parent domain, so "ft.com" never matches
+"microsoft.com". A URL no rule covers is "unknown"; the LLM fallback from Q8
+is not built yet.
 """
 
-import logging
-from typing import Any
+from urllib.parse import urlparse
 
-from .db import readonly, writable
+UNKNOWN = "unknown"
 
-logger = logging.getLogger(__name__)
-
-SOURCE_TYPES_DDL = """
-CREATE TABLE IF NOT EXISTS source_types (
-    url VARCHAR PRIMARY KEY,
-    type VARCHAR NOT NULL,
-    classified_by VARCHAR NOT NULL,
-    cached_at TIMESTAMP DEFAULT current_timestamp
-)
-"""
-
-DOMAIN_RULES = {
+DOMAIN_RULES: dict[str, str] = {
     "arxiv.org": "study",
-    "researchgate.net": "study",
-    "scholar.google.com": "study",
+    "doi.org": "study",
     "jstor.org": "study",
-    "semanticscholar.org": "study",
+    "nature.com": "study",
+    "ncbi.nlm.nih.gov": "study",
     "papers.ssrn.com": "study",
-    "github.com": "report",
-    "linkedin.com": "report",
+    "researchgate.net": "study",
+    "sciencedirect.com": "study",
+    "semanticscholar.org": "study",
+    "metr.org": "report",
+    "bbc.com": "report",
+    "bloomberg.com": "report",
+    "economist.com": "report",
+    "ft.com": "report",
+    "nytimes.com": "report",
+    "theguardian.com": "report",
+    "wsj.com": "report",
     "medium.com": "essay",
     "substack.com": "essay",
-    "twitter.com": "talk",
-    "youtube.com": "talk",
+    "podcasts.apple.com": "talk",
+    "open.spotify.com": "talk",
+    "vimeo.com": "talk",
     "youtu.be": "talk",
-    "podcasts.google.com": "talk",
-    "spotify.com": "talk",
-    "news.ycombinator.com": "report",
-    "reddit.com": "report",
-    "theguardian.com": "report",
-    "bbc.com": "report",
-    "economist.com": "report",
-    "wsj.com": "report",
-    "ft.com": "report",
-    "bloomberg.com": "report",
-    "cnn.com": "report",
-    "nytimes.com": "report",
+    "youtube.com": "talk",
 }
 
 
-def classify_from_domain(url: str) -> str | None:
-    """Classify source type based on domain."""
-    lower_url = url.lower()
-    for domain, type_name in DOMAIN_RULES.items():
-        if domain in lower_url:
-            return type_name
-    return None
-
-
-def get_or_classify(url: str, title: str = "", db_path: Any = None) -> str:
-    """Get cached source type or determine it."""
-    # First check cache
-    if db_path:
-        try:
-            with readonly(db_path) as con:
-                result = con.execute(
-                    "SELECT type FROM source_types WHERE url = ?", [url]
-                ).fetchall()
-                if result:
-                    return str(result[0][0])
-        except (OSError, TypeError, IndexError):
-            # Cache lookup failed; will classify from domain rules instead
-            pass
-
-    # Try domain rules
-    type_name = classify_from_domain(url)
-    if type_name:
-        return type_name
-
-    # Default to "report" if no domain match
-    return "report"
-
-
-def cache_source_type(url: str, type_name: str, classified_by: str, db_path: Any) -> None:
-    """Cache a source type classification."""
-    try:
-        with writable(db_path) as con:
-            con.execute(SOURCE_TYPES_DDL)
-            con.execute(
-                "INSERT OR REPLACE INTO source_types (url, type, classified_by) VALUES (?, ?, ?)",
-                [url, type_name, classified_by],
-            )
-    except Exception as e:
-        logger.warning(f"Failed to cache source type for {url}: {e}")
-
-
-def init_source_types_table(db_path: Any) -> None:
-    """Initialize source_types table if it doesn't exist."""
-    with writable(db_path) as con:
-        con.execute(SOURCE_TYPES_DDL)
+def classify(url: str) -> str:
+    """The source type for a URL, or "unknown" when no domain rule covers it."""
+    host = (urlparse(url).hostname or "").removeprefix("www.")
+    for domain, kind in DOMAIN_RULES.items():
+        if host == domain or host.endswith("." + domain):
+            return kind
+    return UNKNOWN

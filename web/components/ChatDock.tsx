@@ -48,24 +48,13 @@ function CitedText({ text }: { text: string }) {
 
 type NoteHit = { path: string; title: string };
 type TagCount = { tag: string; notes: number };
-type CoverageGap = {
-  url: string;
-  title: string;
-  type: string;
-  from_citations: boolean;
-  note_path?: string;
-};
 type CoverageGapsResult = {
-  gaps: CoverageGap[];
   count: number;
-  by_type: { [key: string]: number };
+  notes: number;
+  by_type: { type: string; count: number }[];
 };
-type SourceCandidate = CoverageGap;
-type SourceCandidatesResult = {
-  candidates: SourceCandidate[];
-  count: number;
-  sources: { citations: number; web: number };
-};
+type SourceCandidate = { url: string; title: string; type: string; cited_in: string };
+type SourceCandidatesResult = { candidates: SourceCandidate[]; not_found: number };
 
 function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -143,41 +132,40 @@ export function ToolCard({
   }
   if (toolName === "coverage_gaps") {
     const gaps = result as CoverageGapsResult;
+    const most = Math.max(1, ...gaps.by_type.map((g) => g.count));
     return (
-      <Folded
-        summary={`Coverage gaps: ${plural(gaps.count, "source")} cited but not ingested`}
-      >
-        <div className="chat-coverage-gaps">
-          {Object.entries(gaps.by_type).map(([type, count]) => (
-            <div key={type} className="chat-gap-bar">
-              <span className="gap-type">{type}</span>
-              <span className="gap-count">{count}</span>
-            </div>
+      <Folded summary={`Coverage gaps: ${plural(gaps.count, "cited source")} not in the vault`}>
+        <ul className="coverage-bars">
+          {gaps.by_type.map((g) => (
+            <li key={g.type}>
+              <span className="coverage-type">{g.type}</span>
+              <span className="coverage-bar" style={{ width: `${(g.count / most) * 100}%` }} />
+              <span className="coverage-count">{g.count}</span>
+            </li>
           ))}
-        </div>
+        </ul>
       </Folded>
     );
   }
   if (toolName === "source_candidates") {
-    const candidates = result as SourceCandidatesResult;
+    const { candidates, not_found } = result as SourceCandidatesResult;
+    const dropped = not_found ? `, ${not_found} not found online` : "";
     return (
-      <Folded
-        summary={`Source candidates: ${plural(candidates.count, "source")} to fill gaps`}
-      >
-        <ul className="chat-candidates">
-          {candidates.candidates.map((source) => (
-            <li key={source.url} className="chat-candidate">
-              <div className="candidate-header">
-                <a href={source.url} target="_blank" rel="noopener noreferrer">
-                  {source.title}
-                </a>
-                <span className="candidate-type">{source.type}</span>
+      <Folded summary={`Sources to read: ${plural(candidates.length, "source")}${dropped}`}>
+        <ul className="candidates">
+          {candidates.map((c) => (
+            <li key={c.url} className="candidate">
+              <div className="candidate-head">
+                <strong>{c.title}</strong>
+                <span className="candidate-type">{c.type}</span>
               </div>
-              {source.note_path && (
-                <div className="candidate-from muted">
-                  From: <a href={noteUrl(vault, source.note_path)}>{noteLabel(source.note_path)}</a>
-                </div>
-              )}
+              <div className="muted">
+                Cited in <a href={noteUrl(vault, c.cited_in)}>{noteLabel(c.cited_in)}</a> but not in
+                the vault yet.
+              </div>
+              <a className="candidate-preview" href={c.url} target="_blank" rel="noopener noreferrer">
+                Preview
+              </a>
             </li>
           ))}
         </ul>
