@@ -366,3 +366,50 @@ describe("ClaimsSection link notes", () => {
     });
   });
 });
+
+describe("ClaimsSection draft new evergreen", () => {
+  it("drafts from the ticked claims, then clears them and re-reads after the save", async () => {
+    const preview = { id: "p9", kind: "evergreen", summary: "New evergreen: T", files: [] };
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/ai/status") return { ok: true, json: async () => ({ vault_name: "v" }) };
+      if (url === "/api/topics/big/claims") return { ok: true, json: async () => CLAIMS };
+      if (url === "/api/topics/big/evergreen-draft") return { ok: true, json: async () => ({ body: "draft" }) };
+      if (url === "/api/writes/evergreen") return { ok: true, status: 200, json: async () => preview };
+      if (url === "/api/writes/p9/apply") {
+        return { ok: true, status: 200, json: async () => ({ id: "l9", status: "written", message: "ok" }) };
+      }
+      return { ok: true, status: 204 };
+    });
+    const onWrite = vi.fn();
+    render(<ClaimsSection topic="big" onWrite={onWrite} />);
+
+    expect(await screen.findByRole("button", { name: "Draft new evergreen" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Pick claim: Plans help." }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Pick claim: Agents need tools." }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Pick claim: Plans help." }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Pick claim: Plans help." }));
+    fireEvent.click(screen.getByRole("button", { name: "Draft new evergreen from 3 claims" }));
+
+    fireEvent.change(await screen.findByRole("textbox", { name: "Title" }), { target: { value: "T" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview save" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+
+    await waitFor(() => expect(onWrite).toHaveBeenCalledTimes(1));
+    const claimReads = () => fetchMock.mock.calls.filter(([url]) => url === "/api/topics/big/claims").length;
+    await waitFor(() => expect(claimReads()).toBe(2));
+    expect(fetchMock).toHaveBeenCalledWith("/api/topics/big/evergreen-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claim_ids: ["c2", "c3", "c1"] }),
+    });
+    expect(screen.getAllByRole("checkbox").filter((c) => (c as HTMLInputElement).checked)).toEqual([]);
+  });
+
+  it("hides the draft step until claims are sorted or matched", async () => {
+    api(READ);
+    render(<ClaimsSection topic="big" />);
+
+    await step("Read your notes");
+    expect(screen.queryByRole("region", { name: "Draft new evergreen" })).toBeNull();
+  });
+});

@@ -14,6 +14,7 @@ import { Agreement, ClaimsTable } from "./ClaimsView";
 import { CoverageBars } from "./CoverageBars";
 import { WriteCard } from "./WriteCard";
 import { WRITE_TOOLS, type PendingWrite, type WriteOutcome } from "../lib/writes";
+import { IngestButton } from "./IngestButton";
 import type { CoverageGaps, SourceCandidate, SourceCandidates } from "../lib/coverage";
 import type { ClaimsView } from "../lib/claims";
 import { usePathname } from "next/navigation";
@@ -68,7 +69,7 @@ function Folded({ summary, children }: { summary: string; children?: ReactNode }
   );
 }
 
-function CandidateCard({ candidate: c }: { candidate: SourceCandidate }) {
+function CandidateCard({ candidate: c, topic }: { candidate: SourceCandidate; topic: string | null }) {
   const vault = useContext(VaultName);
   return (
     <li className="candidate">
@@ -88,6 +89,7 @@ function CandidateCard({ candidate: c }: { candidate: SourceCandidate }) {
       <a className="candidate-preview" href={c.url} target="_blank" rel="noopener noreferrer">
         Preview
       </a>
+      <IngestButton url={c.url} title={c.title} topic={topic} vault={vault} />
     </li>
   );
 }
@@ -166,7 +168,7 @@ export function ToolCard({
       <Folded summary={`Sources to read: ${plural(candidates.length, "source")}${dropped}`}>
         <ul className="candidates">
           {candidates.map((c) => (
-            <CandidateCard key={c.url} candidate={c} />
+            <CandidateCard key={c.url} candidate={c} topic={(args as { topic?: string } | undefined)?.topic ?? null} />
           ))}
         </ul>
       </Folded>

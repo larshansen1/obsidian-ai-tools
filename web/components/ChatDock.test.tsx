@@ -1,6 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CLAIMS } from "../lib/claimsFixture";
+import { job } from "../lib/ingestFixture";
+
+const QUEUED = job({ url: "https://x.org/a", title: "A" });
 import { ChatDock, ToolCard, WorkingIndicator, WriteToolCard } from "./ChatDock";
 
 import { useDataStreamRuntime } from "@assistant-ui/react-data-stream";
@@ -172,6 +175,33 @@ describe("ToolCard", () => {
     expect(preview).toHaveAttribute("href", "https://metr.org/study");
     expect(preview).toHaveAttribute("target", "_blank");
     expect(preview).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("sends a candidate to kai with the topic the chat is on", async () => {
+    const send = vi.fn(async () => ({ ok: true, status: 201, json: async () => ({ ...QUEUED }) }));
+    vi.stubGlobal("fetch", send);
+    render(
+      <ToolCard
+        toolName="source_candidates"
+        args={{ topic: "big" }}
+        result={{
+          candidates: [
+            { url: "https://x.org/a", title: "A", type: "essay", origin: "web", cited_in: null, why: "Gap." },
+          ],
+          not_found: 0,
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Ingest" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send to kai" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Queued: Sent to kai.");
+    expect(send).toHaveBeenCalledWith("/api/ingests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "https://x.org/a", title: "A", topic: "big" }),
+    });
   });
 
   it("shows a web search candidate with its reason instead of a citing note", () => {

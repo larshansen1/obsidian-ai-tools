@@ -14,8 +14,8 @@ import {
   type StepState,
 } from "../lib/claims";
 import { logUsage } from "../lib/topicMap";
-import { Agreement, ClaimsTable } from "./ClaimsView";
-import { LinkNotes } from "./WriteActions";
+import { Agreement, ClaimsTable, type ClaimSelection } from "./ClaimsView";
+import { DraftEvergreen, LinkNotes } from "./WriteActions";
 
 type Notice = { kind: "approval" | "error"; message: string };
 
@@ -53,7 +53,8 @@ function Step({
   );
 }
 
-export function ClaimsSection({ topic }: { topic: string }) {
+// `onWrite` hears about a saved or undone evergreen, so the page can re-read its evergreens.
+export function ClaimsSection({ topic, onWrite }: { topic: string; onWrite?: () => void }) {
   const [view, setView] = useState<ClaimsView | null>(null);
   const [vault, setVault] = useState("");
   const [busy, setBusy] = useState(false);
@@ -61,6 +62,8 @@ export function ClaimsSection({ topic }: { topic: string }) {
   const [custom, setCustom] = useState("");
   // Bumped after a link write so the unlinked notes are read again.
   const [version, setVersion] = useState(0);
+  // Claims ticked for "Draft new evergreen", in the order they were ticked.
+  const [picked, setPicked] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,6 +117,21 @@ export function ClaimsSection({ topic }: { topic: string }) {
       </section>
     );
   }
+
+  const selection: ClaimSelection = {
+    selected: new Set(picked),
+    toggle: (ids) =>
+      setPicked((current) =>
+        ids.every((id) => current.includes(id))
+          ? current.filter((id) => !ids.includes(id))
+          : [...current, ...ids.filter((id) => !current.includes(id))],
+      ),
+  };
+  const afterDraft = () => {
+    setPicked([]);
+    setVersion((v) => v + 1);
+    onWrite?.();
+  };
 
   const states = stepStates(view);
   const label = runLabel(view);
@@ -211,7 +229,7 @@ export function ClaimsSection({ topic }: { topic: string }) {
         ) : states.sides === "waiting" ? (
           <p className="hint">Finish the steps above first.</p>
         ) : (
-          <ClaimsTable view={view} vault={vault} />
+          <ClaimsTable view={view} vault={vault} selection={selection} />
         )}
         {action("sort")}
       </Step>
@@ -228,6 +246,7 @@ export function ClaimsSection({ topic }: { topic: string }) {
             <Agreement
               view={view}
               vault={vault}
+              selection={selection}
               linkAction={(evergreen, notes) => (
                 <LinkNotes evergreen={evergreen} notes={notes} onChange={() => setVersion((v) => v + 1)} />
               )}
@@ -235,6 +254,13 @@ export function ClaimsSection({ topic }: { topic: string }) {
           </>
         )}
       </Step>
+
+      {states.sides === "done" || states.agree === "done" ? (
+        <section className="step" aria-label="Draft new evergreen">
+          <h3 className="step-title">Draft new evergreen</h3>
+          <DraftEvergreen topic={topic} claimIds={picked} onChange={afterDraft} />
+        </section>
+      ) : null}
     </section>
   );
 }

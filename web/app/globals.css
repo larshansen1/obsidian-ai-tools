@@ -607,6 +607,19 @@ a {
   display: grid;
   gap: 8px;
 }
+.draft-field {
+  display: grid;
+  gap: 4px;
+}
+.draft-field input,
+.draft-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+}
+.ingest {
+  margin-top: 6px;
+}
 .tag-chips {
   display: flex;
   flex-wrap: wrap;

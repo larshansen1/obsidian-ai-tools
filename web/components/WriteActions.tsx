@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { WriteCard } from "./WriteCard";
 import { planLinks, planTopicTags, splitTags, type PendingWrite, type WriteOutcome } from "../lib/writes";
+import { planEvergreen, startDraft } from "../lib/ingest";
 
 // Plans a change on demand and shows its card. `onChange` runs after a write or an undo.
 function usePlanned(onChange: () => void) {
@@ -21,8 +22,10 @@ function usePlanned(onChange: () => void) {
     }
   }
 
+  // Keyed by the preview, so a new preview after an undo starts with fresh Approve and Cancel.
   const card = pending ? (
     <WriteCard
+      key={pending.id}
       pending={pending}
       result={result}
       onResult={(o) => {
@@ -106,6 +109,83 @@ export function EditTopic({ topic, tags, onChange }: { topic: string; tags: stri
         </button>
         <button type="button" onClick={() => setEditing(false)}>
           Close
+        </button>
+      </div>
+      {error ? <p role="alert">{error}</p> : null}
+      {card}
+    </div>
+  );
+}
+
+// T8: start an evergreen from the picked claims. The draft lives only in this form until the
+// saved file is previewed and approved; Discard or Cancel leaves the vault as it was.
+export function DraftEvergreen({
+  topic,
+  claimIds,
+  onChange,
+}: {
+  topic: string;
+  claimIds: string[];
+  onChange: () => void;
+}) {
+  const [draft, setDraft] = useState<{ title: string; body: string } | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+  const { plan, card, error, open } = usePlanned(onChange);
+
+  async function start() {
+    setStarting(true);
+    setStartError(null);
+    try {
+      const { body } = await startDraft(topic, claimIds);
+      setDraft({ title: "", body });
+    } catch (e) {
+      setStartError((e as Error).message);
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  if (draft === null) {
+    return (
+      <div className="write-action" data-testid="draft-evergreen">
+        <button type="button" disabled={claimIds.length === 0 || starting} onClick={() => void start()}>
+          Draft new evergreen{claimIds.length > 0 ? ` from ${claimIds.length} claim${claimIds.length === 1 ? "" : "s"}` : ""}
+        </button>
+        {claimIds.length === 0 ? <span className="muted"> Tick claims above to start a draft.</span> : null}
+        {startError ? <p role="alert">{startError}</p> : null}
+      </div>
+    );
+  }
+  return (
+    <div className="edit-topic" data-testid="draft-evergreen">
+      <p className="muted">Nothing is saved until you approve the new note.</p>
+      <label className="draft-field">
+        Title
+        <input
+          value={draft.title}
+          onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+          placeholder="One idea, stated as a claim"
+        />
+      </label>
+      <label className="draft-field">
+        Text
+        <textarea
+          rows={10}
+          value={draft.body}
+          onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+        />
+      </label>
+      <div className="chat-actions">
+        <button
+          type="button"
+          disabled={open || draft.title.trim() === ""}
+          onClick={() => plan(() => planEvergreen(topic, draft.title, draft.body))}
+        >
+          Preview save
+        </button>
+        <button type="button" onClick={() => setDraft(null)}>
+          Discard
         </button>
       </div>
       {error ? <p role="alert">{error}</p> : null}

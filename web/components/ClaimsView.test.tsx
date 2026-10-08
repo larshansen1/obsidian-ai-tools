@@ -1,5 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { CLAIMS } from "../lib/claimsFixture";
 import { Agreement, ClaimsTable } from "./ClaimsView";
 
@@ -73,5 +73,42 @@ describe("Agreement", () => {
     render(<Agreement view={{ ...CLAIMS, shared: [] }} vault="v" />);
 
     expect(screen.getByText("No claim is shared by two or more notes yet.")).toBeInTheDocument();
+  });
+});
+
+describe("claim picking", () => {
+  it("has no checkboxes without a selection", () => {
+    render(<ClaimsTable view={CLAIMS} vault="v" />);
+
+    expect(screen.queryAllByRole("checkbox")).toEqual([]);
+  });
+
+  it("ticks single claims and a shared claim's whole group", () => {
+    const toggle = vi.fn();
+    const selection = { selected: new Set(["c2"]), toggle };
+    render(
+      <>
+        <ClaimsTable view={CLAIMS} vault="v" selection={selection} />
+        <Agreement view={CLAIMS} vault="v" selection={selection} />
+      </>,
+    );
+
+    expect(screen.getByRole("checkbox", { name: "Pick claim: Plans help." })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Pick claim: Plans fail." })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Pick claim: Agents need tools." })).not.toBeChecked();
+    expect(within(screen.getByRole("list", { name: "Supporting" })).getByRole("listitem").textContent).toBe(
+      " Plans help. A",
+    );
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Pick claim: Agents need tools." }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Pick claim: Plans help." }));
+
+    expect(toggle.mock.calls).toEqual([[["c2", "c3"]], [["c1"]]]);
+  });
+
+  it("shows a shared claim as ticked when all its claims are", () => {
+    render(<Agreement view={CLAIMS} vault="v" selection={{ selected: new Set(["c2", "c3"]), toggle: vi.fn() }} />);
+
+    expect(screen.getByRole("checkbox", { name: "Pick claim: Agents need tools." })).toBeChecked();
   });
 });
