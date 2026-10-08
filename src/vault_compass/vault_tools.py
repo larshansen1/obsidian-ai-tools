@@ -22,7 +22,6 @@ from .claims import build_claims_view
 from .config import CompassSettings
 from .coverage_gaps import build_candidates_from_citations
 from .db import readonly
-from .source_types import init_source_types_table
 from .topic_map import Window, topic_stats
 from .topic_notes import load_topic_notes
 from .topics import TopicsFile, load_topics
