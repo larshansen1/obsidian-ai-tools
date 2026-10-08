@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Vault Compass safe write-back (#137): one write layer for every change, with a preview of
+  the exact lines, an approval click, a refusal when the file changed since it was read, an
+  atomic write, and undo of the last 20 writes (Recent changes page). "Link notes" adds a
+  wikilink to an evergreen under `## Related` in each source note; "Edit topic" adds or removes
+  tags in `.kai/topics.yaml`, rewriting only that topic's tag list. In chat, `link_notes` and
+  `edit_topic` show the same card and write nothing until it is approved.
 - Vault Compass AI foundation and chat panel (#134): OpenRouter client with the model set
   in config, per-action and monthly cost limits that ask before running, AI calls logged with
   cost, folder exclusion (`ai_exclude_folders`) enforced in one place, a streaming `/chat`

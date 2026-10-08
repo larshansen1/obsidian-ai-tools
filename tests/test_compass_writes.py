@@ -1,7 +1,7 @@
 """Safe write-back: the write layer, linking and topic editing (W1, W2, W4, W5, T7): #137."""
 
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,7 +13,14 @@ from vault_compass.config import CompassSettings
 from vault_compass.db import writable
 from vault_compass.note_links import add_related_links, link_text, plan_links, vault_note
 from vault_compass.notes import refresh_notes
-from vault_compass.topic_edit import TOPICS_LABEL, dump_topics, new_tags, plan_topic_tags
+from vault_compass.topic_edit import (
+    TOPICS_LABEL,
+    dump_topics,
+    flow_list,
+    new_tags,
+    plan_topic_tags,
+    replace_tags,
+)
 from vault_compass.topics import TopicsError, load_topics, parse_topics
 from vault_compass.vault_writes import (
     LOG_KEEP,
@@ -118,7 +125,7 @@ def test_apply_writes_the_new_bytes_and_logs_them(db: Path, note: Path) -> None:
             id=outcome.id,
             kind="test",
             summary="Add three",
-            written_at=T0,
+            written_at=T0.replace(tzinfo=UTC),
             files=["a.md"],
             undone=False,
         )
@@ -253,8 +260,8 @@ def test_undo_restores_the_exact_bytes_and_is_logged(db: Path, note: Path) -> No
     assert undone == WriteOutcome(id=undone.id, status="undone", message="Undone: Change")
     assert note.read_bytes() == b"crlf\r\nno newline at end"
     assert [(w.id, w.summary, w.written_at, w.undone) for w in recent_writes(db)] == [
-        (undone.id, "Undo: Change", T0.replace(hour=13), False),
-        (written.id, "Change", T0, True),
+        (undone.id, "Undo: Change", T0.replace(hour=13, tzinfo=UTC), False),
+        (written.id, "Change", T0.replace(tzinfo=UTC), True),
     ]
 
 
@@ -541,6 +548,83 @@ def test_plan_topic_tags_writes_readable_yaml(tmp_path: Path) -> None:
     assert path.read_text(encoding="utf-8") == TOPICS_YAML
 
 
+def test_flow_list_wraps_under_the_first_tag() -> None:
+    tags = [f"tag-number-{i:02d}" for i in range(7)]
+
+    assert flow_list(["a"], 10) == "[a]"
+    assert flow_list(tags, 10) == (
+        "[tag-number-00, tag-number-01, tag-number-02, tag-number-03, tag-number-04,\n"
+        "           tag-number-05, tag-number-06]"
+    )
+    # Exactly at the width fits; one more character wraps.
+    assert flow_list(["a" * 80, "b"], 3) == "[" + "a" * 80 + ", b]"
+    assert flow_list(["a" * 81, "b"], 3) == "[" + "a" * 81 + ",\n    b]"
+
+
+HAND_EDITED = (
+    "# My topics\n"
+    "topics:\n"
+    "  big:\n"
+    "    name: Big Topic\n"
+    "    tags: [x,\n"
+    "           y]   # keep these\n"
+    "  other:\n"
+    "    name: Other\n"
+    "    tags:\n"
+    "      - z\n"
+    "      - w\n"
+    "\n"
+    "min_notes: 1  # small vault\n"
+)
+
+
+def test_replace_tags_changes_only_that_list() -> None:
+    assert replace_tags(HAND_EDITED, "big", ["x", "y", "sleep"]) == HAND_EDITED.replace(
+        "[x,\n           y]", "[x, y, sleep]"
+    )
+
+
+def test_replace_tags_turns_a_block_list_into_a_flow_list() -> None:
+    assert replace_tags(HAND_EDITED, "other", ["z"]) == HAND_EDITED.replace(
+        "      - z\n      - w\n", "      [z]\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["topics: [", "topics:\n  big: [1]\n", "other: 1\n", "topics:\n  other:\n    tags: [a]\n"],
+)
+def test_replace_tags_without_the_list_is_none(text: str) -> None:
+    assert replace_tags(text, "big", ["a"]) is None
+
+
+def test_plan_topic_tags_keeps_comments_and_layout(tmp_path: Path) -> None:
+    path = tmp_path / "topics.yaml"
+    path.write_text(HAND_EDITED, encoding="utf-8")
+
+    edit, _ = plan_topic_tags(path, "other", add=["v"], remove=["w"])
+
+    assert edit.after.decode() == HAND_EDITED.replace("      - z\n      - w\n", "      [z, v]\n")
+
+
+def test_plan_topic_tags_falls_back_to_a_full_dump_for_a_tag_that_needs_quotes(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "topics.yaml"
+    path.write_text(HAND_EDITED, encoding="utf-8")
+
+    edit, summary = plan_topic_tags(path, "big", add=["a: b"], remove=[])
+
+    assert summary == "Topic Big Topic: add a: b"
+    assert edit.after.decode() == (
+        "topics:\n"
+        "  big:\n    name: Big Topic\n    tags: [x, y, 'a: b']\n"
+        "  other:\n    name: Other\n    tags: [z, w]\n"
+        "min_notes: 1\n"
+    )
+    assert load_topics_text(edit.after) == ["x", "y", "a: b"]
+
+
 def test_dump_topics_wraps_long_tag_lists() -> None:
     tags = [f"tag-number-{i}" for i in range(8)]
     text = dump_topics({"topics": {"t": {"name": "T", "tags": tags}}})
@@ -597,6 +681,10 @@ def test_topic_edit_round_trip_through_the_write_layer(tmp_path: Path, db: Path)
     assert load_topics(path).topics["big"].tags == ["x", "y", "sleep"]
     undo_write(db, written.id)
     assert path.read_text(encoding="utf-8") == TOPICS_YAML
+
+
+def load_topics_text(data: bytes) -> list[str]:
+    return parse_topics(data.decode()).topics["big"].tags
 
 
 # ---------------------------------------------------------------------------
@@ -721,3 +809,15 @@ def test_topic_edit_errors(
 
     assert response.status_code == status
     assert response.json() == {"detail": detail}
+
+
+def test_plan_topic_tags_falls_back_when_the_small_edit_reads_back_differently(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "topics.yaml"
+    path.write_text(HAND_EDITED, encoding="utf-8")
+
+    edit, _ = plan_topic_tags(path, "big", add=["'q'"], remove=[])
+
+    assert load_topics_text(edit.after) == ["x", "y", "'q'"]
+    assert not edit.after.decode().startswith("# My topics")

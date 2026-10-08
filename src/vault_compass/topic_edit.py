@@ -1,9 +1,9 @@
 """Edit topic (W2, T7): add or remove a topic's tags in .kai/topics.yaml.
 
-Only plans the change; vault_writes applies it after approval. The file is
-written back as plain YAML with one flow list of tags per topic, so it stays
-easy to read and edit by hand. Comments are not kept; the preview shows any
-line that would go.
+Only plans the change; vault_writes applies it after approval. Only the
+edited topic's tag list is rewritten, so the rest of the file (layout,
+comments) stays exactly as it was typed. If that cannot be done safely the
+whole file is written back as plain YAML instead; the preview shows either.
 """
 
 from pathlib import Path
@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from .topics import TopicsError, parse_topics
+from .topics import TopicsError, TopicsFile, parse_topics
 from .vault_writes import FileEdit, WriteError, read_for_edit
 
 TOPICS_LABEL = ".kai/topics.yaml"
@@ -39,9 +39,63 @@ def new_tags(current: list[str], add: list[str], remove: list[str]) -> list[str]
     return tags
 
 
+WIDTH = 88
+
+
+def flow_list(tags: list[str], column: int) -> str:
+    """`[a, b, c]` starting at `column`, wrapped under the first tag past WIDTH."""
+    lines: list[str] = []
+    line = "["
+    for i, tag in enumerate(tags):
+        piece = tag + ("]" if i == len(tags) - 1 else ",")
+        if line != "[" and column + len(line) + 1 + len(piece) > WIDTH:
+            lines.append(line)
+            line = " " * (column + 1) + piece
+        else:
+            line += ("" if line == "[" else " ") + piece
+    lines.append(line)
+    return "\n".join(lines)
+
+
+def _child(node: yaml.Node, key: str) -> yaml.Node:
+    if not isinstance(node, yaml.MappingNode):
+        raise KeyError(key)
+    for k, v in node.value:
+        if k.value == key:
+            child: yaml.Node = v
+            return child
+    raise KeyError(key)
+
+
+def replace_tags(text: str, topic_id: str, tags: list[str]) -> str | None:
+    """`text` with only this topic's tag list replaced, or None if it cannot find it."""
+    try:
+        node = _child(_child(_child(yaml.compose(text), "topics"), topic_id), "tags")
+    except (KeyError, yaml.YAMLError):
+        return None
+    start, end = node.start_mark.index, node.end_mark.index
+    while end > start and text[end - 1].isspace():
+        end -= 1
+    return text[:start] + flow_list(tags, node.start_mark.column) + text[end:]
+
+
+def _edited_text(text: str, topic_id: str, tags: list[str], expected: TopicsFile) -> str:
+    """The new file text: the small edit when it reads back as `expected`, else a full dump."""
+    small = replace_tags(text, topic_id, tags)
+    if small is not None:
+        try:
+            if parse_topics(small) == expected:
+                return small
+        except TopicsError:
+            pass  # e.g. a tag that needs quoting: the full dump quotes it
+    data = yaml.safe_load(text)
+    data["topics"][topic_id]["tags"] = tags
+    return dump_topics(data)
+
+
 def dump_topics(data: dict[str, Any]) -> str:
     return yaml.safe_dump(
-        data, sort_keys=False, default_flow_style=None, width=88, allow_unicode=True
+        data, sort_keys=False, default_flow_style=None, width=WIDTH, allow_unicode=True
     )
 
 
@@ -59,9 +113,9 @@ def plan_topic_tags(
     if topic is None:
         raise WriteError(f"Unknown topic: {topic_id}")
     tags = new_tags(topic.tags, add, remove)
-    data = yaml.safe_load(text)
-    data["topics"][topic_id]["tags"] = tags
-    after = dump_topics(data)
+    expected = definitions.model_copy(deep=True)
+    expected.topics[topic_id].tags = tags
+    after = _edited_text(text, topic_id, tags, expected)
     try:
         parse_topics(after)  # never write a file the app cannot read back
     except TopicsError as e:

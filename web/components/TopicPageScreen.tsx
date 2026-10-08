@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ClaimsSection } from "./ClaimsSection";
 import { CoverageSection } from "./CoverageSection";
+import { EditTopic } from "./WriteActions";
 import { formatMomentum, formatShare, logUsage, type Window } from "../lib/topicMap";
 import {
   DUPLICATE_REASONS,
@@ -32,6 +33,8 @@ export function TopicPageScreen({
 }) {
   const [data, setData] = useState<TopicPage | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Bumped after a write so the page re-reads the refreshed data.
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     logUsage("screen_view", "topic_page", id);
@@ -51,7 +54,7 @@ export function TopicPageScreen({
     return () => {
       cancelled = true;
     };
-  }, [id, window, signal]);
+  }, [id, window, signal, version]);
 
   const back = (
     <p className="back">
@@ -93,6 +96,7 @@ export function TopicPageScreen({
           <dt>Tags</dt>
           <dd>{data.tags.join(", ")}</dd>
         </dl>
+        <EditTopic topic={id} tags={data.tags} onChange={() => setVersion((v) => v + 1)} />
         {stats.below_min_notes ? (
           <p className="warn">Fewer than {data.min_notes} notes, so the trend is not shown on the map.</p>
         ) : null}

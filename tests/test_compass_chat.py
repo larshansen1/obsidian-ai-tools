@@ -418,6 +418,11 @@ def test_system_prompt_asks_for_citations(vault: Path) -> None:
 
     assert "the `cite` value a tool gave you" in model.requests[0][0][0]["content"]
     assert "[[notes/evergreen/example.md]]" in model.requests[0][0][0]["content"]
+    assert (
+        "link_notes and edit_topic change the vault. Their preview card waits for the user's "
+        "click; the result you get back is the user's answer (written, refused or cancelled). "
+        "Report that outcome in one line. Never ask them to approve again."
+    ) in model.requests[0][0][0]["content"]
 
 
 def test_describe_context_variants() -> None:

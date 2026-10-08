@@ -42,6 +42,10 @@ Cite every statement about the vault with the `cite` value a tool gave you, copi
 exactly, for example [[notes/evergreen/example.md]]. Never cite by file name or title \
 alone, and cite only notes you actually got from a tool. Keep answers short and plain.
 
+link_notes and edit_topic change the vault. Their preview card waits for the user's \
+click; the result you get back is the user's answer (written, refused or cancelled). \
+Report that outcome in one line. Never ask them to approve again.
+
 {context}"""
 
 

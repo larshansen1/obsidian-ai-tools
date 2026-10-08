@@ -15,6 +15,7 @@ import {
 } from "../lib/claims";
 import { logUsage } from "../lib/topicMap";
 import { Agreement, ClaimsTable } from "./ClaimsView";
+import { LinkNotes } from "./WriteActions";
 
 type Notice = { kind: "approval" | "error"; message: string };
 
@@ -58,6 +59,8 @@ export function ClaimsSection({ topic }: { topic: string }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [custom, setCustom] = useState("");
+  // Bumped after a link write so the unlinked notes are read again.
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,7 +79,7 @@ export function ClaimsSection({ topic }: { topic: string }) {
     return () => {
       cancelled = true;
     };
-  }, [topic]);
+  }, [topic, version]);
 
   async function run(approved: boolean) {
     setBusy(true);
@@ -222,7 +225,13 @@ export function ClaimsSection({ topic }: { topic: string }) {
               Claims made by two or more notes that match one of your evergreens, and the notes that back an
               evergreen without linking to it.
             </p>
-            <Agreement view={view} vault={vault} />
+            <Agreement
+              view={view}
+              vault={vault}
+              linkAction={(evergreen, notes) => (
+                <LinkNotes evergreen={evergreen} notes={notes} onChange={() => setVersion((v) => v + 1)} />
+              )}
+            />
           </>
         )}
       </Step>

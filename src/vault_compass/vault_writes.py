@@ -351,6 +351,9 @@ def recent_writes(db_path: Path) -> list[LoggedWrite]:
         except duckdb.CatalogException:
             return []
     return [
-        LoggedWrite(id=i, kind=k, summary=s, written_at=t, files=list(f), undone=bool(u))
+        # Stored as naive UTC; sent with its zone so the browser shows local time.
+        LoggedWrite(
+            id=i, kind=k, summary=s, written_at=t.replace(tzinfo=UTC), files=list(f), undone=bool(u)
+        )
         for i, k, s, t, u, f in rows
     ]
