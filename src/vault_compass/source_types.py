@@ -83,7 +83,8 @@ def get_or_classify(url: str, title: str = "", db_path: Any = None) -> str:
                 ).fetchall()
                 if result:
                     return result[0][0]
-        except Exception:
+        except (OSError, TypeError, IndexError):
+            # Cache lookup failed; will classify from domain rules instead
             pass
 
     # Try domain rules
