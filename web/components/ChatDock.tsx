@@ -11,6 +11,8 @@ import {
 } from "@assistant-ui/react";
 import { useDataStreamRuntime } from "@assistant-ui/react-data-stream";
 import { Agreement, ClaimsTable } from "./ClaimsView";
+import { CoverageBars } from "./CoverageBars";
+import type { CoverageGaps, SourceCandidate, SourceCandidates } from "../lib/coverage";
 import type { ClaimsView } from "../lib/claims";
 import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
@@ -48,13 +50,6 @@ function CitedText({ text }: { text: string }) {
 
 type NoteHit = { path: string; title: string };
 type TagCount = { tag: string; notes: number };
-type CoverageGapsResult = {
-  count: number;
-  notes: number;
-  by_type: { type: string; count: number }[];
-};
-type SourceCandidate = { url: string; title: string; type: string; cited_in: string };
-type SourceCandidatesResult = { candidates: SourceCandidate[]; not_found: number };
 
 function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -68,6 +63,30 @@ function Folded({ summary, children }: { summary: string; children?: ReactNode }
       <summary className="muted">{summary}</summary>
       {children}
     </details>
+  );
+}
+
+function CandidateCard({ candidate: c }: { candidate: SourceCandidate }) {
+  const vault = useContext(VaultName);
+  return (
+    <li className="candidate">
+      <div className="candidate-head">
+        <strong>{c.title}</strong>
+        <span className="candidate-type">{c.type}</span>
+      </div>
+      <div className="muted">
+        {c.cited_in ? (
+          <>
+            Cited in <a href={noteUrl(vault, c.cited_in)}>{noteLabel(c.cited_in)}</a> but not in the vault yet.
+          </>
+        ) : (
+          c.why
+        )}
+      </div>
+      <a className="candidate-preview" href={c.url} target="_blank" rel="noopener noreferrer">
+        Preview
+      </a>
+    </li>
   );
 }
 
@@ -131,42 +150,21 @@ export function ToolCard({
     );
   }
   if (toolName === "coverage_gaps") {
-    const gaps = result as CoverageGapsResult;
-    const most = Math.max(1, ...gaps.by_type.map((g) => g.count));
+    const gaps = result as CoverageGaps;
     return (
       <Folded summary={`Coverage gaps: ${plural(gaps.count, "cited source")} not in the vault`}>
-        <ul className="coverage-bars">
-          {gaps.by_type.map((g) => (
-            <li key={g.type}>
-              <span className="coverage-type">{g.type}</span>
-              <span className="coverage-bar" style={{ width: `${(g.count / most) * 100}%` }} />
-              <span className="coverage-count">{g.count}</span>
-            </li>
-          ))}
-        </ul>
+        <CoverageBars byType={gaps.by_type} />
       </Folded>
     );
   }
   if (toolName === "source_candidates") {
-    const { candidates, not_found } = result as SourceCandidatesResult;
+    const { candidates, not_found } = result as SourceCandidates;
     const dropped = not_found ? `, ${not_found} not found online` : "";
     return (
       <Folded summary={`Sources to read: ${plural(candidates.length, "source")}${dropped}`}>
         <ul className="candidates">
           {candidates.map((c) => (
-            <li key={c.url} className="candidate">
-              <div className="candidate-head">
-                <strong>{c.title}</strong>
-                <span className="candidate-type">{c.type}</span>
-              </div>
-              <div className="muted">
-                Cited in <a href={noteUrl(vault, c.cited_in)}>{noteLabel(c.cited_in)}</a> but not in
-                the vault yet.
-              </div>
-              <a className="candidate-preview" href={c.url} target="_blank" rel="noopener noreferrer">
-                Preview
-              </a>
-            </li>
+            <CandidateCard key={c.url} candidate={c} />
           ))}
         </ul>
       </Folded>

@@ -153,6 +153,30 @@ describe("ToolCard", () => {
     expect(preview).toHaveAttribute("rel", "noopener noreferrer");
   });
 
+  it("shows a web search candidate with its reason instead of a citing note", () => {
+    render(
+      <ToolCard
+        toolName="source_candidates"
+        result={{
+          candidates: [
+            {
+              url: "https://web.example.net/one",
+              title: "Web One",
+              type: "essay",
+              origin: "web",
+              cited_in: null,
+              why: "Found by web search on Big; not in the vault yet.",
+            },
+          ],
+          not_found: 0,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Found by web search on Big; not in the vault yet.")).toBeInTheDocument();
+    expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual(["Preview"]);
+  });
+
   it("leaves out the not-found note when every candidate was found", () => {
     render(<ToolCard toolName="source_candidates" result={{ candidates: [], not_found: 0 }} />);
 

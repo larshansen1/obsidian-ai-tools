@@ -29,6 +29,7 @@ from vault_compass.app import create_app
 from vault_compass.chat import cost_approval, describe_context, to_model_messages
 from vault_compass.config import CompassSettings
 from vault_compass.notes import refresh_notes
+from vault_compass.source_ai import ActionBudget, WebHit
 from vault_compass.topics import load_topics
 from vault_compass.usage import log_usage
 from vault_compass.vault_tools import AiVault, main, run_tool
@@ -981,3 +982,82 @@ def test_topic_tags_returns_at_most_25_tags(vault: Path) -> None:
     assert len(result) == 25
     assert result[0] == {"tag": "x", "notes": 2}
     assert result[1] == {"tag": "t00", "notes": 1}
+
+
+class _SpendingSourceAi:
+    """A web search that spends from the shared budget, like the real one."""
+
+    def __init__(self, budget: ActionBudget, cost: float) -> None:
+        self.budget = budget
+        self.cost = cost
+        self.searches: list[tuple[str, list[str]]] = []
+
+    def search(self, topic_name: str, themes: list[str]) -> list[WebHit]:
+        self.searches.append((topic_name, themes))
+        self.budget.spent += self.cost
+        return []
+
+    def classify(self, sources: list[tuple[str, str]]) -> dict[str, str]:
+        return {}
+
+
+def test_tool_spend_counts_toward_the_action_limit(vault: Path) -> None:
+    model = FakeModel(
+        [[ToolCall("c1", "source_candidates", {"topic": "other"}), _usage(0.01)], [TextDelta("x")]]
+    )
+    made: list[_SpendingSourceAi] = []
+
+    def factory(settings: CompassSettings, budget: ActionBudget) -> _SpendingSourceAi:
+        made.append(_SpendingSourceAi(budget, cost=0.30))
+        return made[0]
+
+    client = TestClient(
+        create_app(
+            CompassSettings(),
+            today=lambda: TODAY,
+            model_factory=lambda _s: model,
+            source_ai_factory=factory,
+        )
+    )
+    events = _events(_post(client, [_user("what should I read?")], topic="other"))
+
+    assert len(model.requests) == 1
+    assert made[0].searches == [("Other", ["y"])]
+    assert made[0].budget.month_cost == pytest.approx(0.0)
+    assert made[0].budget.approved is False
+    assert made[0].budget.spent == pytest.approx(0.31)
+    ask = [e for e in events if isinstance(e, dict) and e.get("toolName") == "confirm_cost"]
+    assert ask[-1]["input"]["reason"] == (
+        "This action may cost up to "
+        f"${ask[-1]['input']['estimate_usd'] + 0.31:.2f}, over the $0.25 per-action limit."
+    )
+
+
+def test_tools_fall_back_to_no_web_search_when_the_source_ai_is_not_configured(
+    vault: Path,
+) -> None:
+    model = FakeModel(
+        [[ToolCall("c1", "source_candidates", {"topic": "other"}), _usage()], [TextDelta("x")]]
+    )
+
+    def factory(settings: CompassSettings, budget: ActionBudget) -> _SpendingSourceAi:
+        raise AiNotConfiguredError("Set OPENROUTER_API_KEY in .env to use the chat.")
+
+    client = TestClient(
+        create_app(
+            CompassSettings(),
+            today=lambda: TODAY,
+            model_factory=lambda _s: model,
+            source_ai_factory=factory,
+        )
+    )
+    events = _events(_post(client, [_user("what should I read?")], topic="other"))
+
+    outputs = [e["output"] for e in events if isinstance(e, dict) and "output" in e]
+    assert outputs == [
+        {
+            "candidates": [],
+            "not_found": 0,
+            "notes_for_model": ["Web search is not available here (no OpenRouter key)."],
+        }
+    ]

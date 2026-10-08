@@ -44,11 +44,14 @@ const PAGE: TopicPage = {
   signal: null,
 };
 
+const COVERAGE = { topic: "big", count: 2, notes: 1, by_type: [{ type: "study", count: 2 }] };
+
 const fetchMock = vi.fn();
 
 function respondWith(page: TopicPage) {
   fetchMock.mockImplementation((url: string) => {
     if (url === "/api/topics/big/claims") return Promise.resolve({ ok: true, json: () => Promise.resolve(CLAIMS) });
+    if (url === "/api/topics/big/coverage") return Promise.resolve({ ok: true, json: () => Promise.resolve(COVERAGE) });
     return url.startsWith("/api/topics/")
       ? Promise.resolve({ ok: true, json: () => Promise.resolve(page) })
       : Promise.resolve({ ok: true, status: 204 });
@@ -70,6 +73,19 @@ describe("TopicPageScreen", () => {
     expect(header.textContent).toBe("Notes7Momentum+200%Evergreens2Notes with links1Tagsx, x2");
     expect(screen.getByRole("heading", { level: 1, name: "Big" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/topics/big?window=30");
+  });
+
+  it("shows the coverage gaps section", async () => {
+    render(<TopicPageScreen id="big" window="30" signal={null} />);
+
+    const coverage = await screen.findByTestId("coverage");
+
+    expect(
+      await within(coverage).findByText(
+        "2 sources cited in 1 note but not in the vault. Ask the chat what to read next.",
+      ),
+    ).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/topics/big/coverage");
   });
 
   it("counts unknown sources and shows the source type shares", async () => {
