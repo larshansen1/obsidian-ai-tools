@@ -1,4 +1,4 @@
-"""Tools the assistant can call to read the vault (C4).
+"""Tools the assistant can call to read the vault (C4), and to plan writes (C8).
 
 Plain functions over `AiVault`, plus a registry (`TOOLS`) with JSON schemas.
 The chat endpoint and the `compass tool` command call the same registry, so
@@ -29,11 +29,14 @@ from .coverage_gaps import (
     summarize_gaps,
 )
 from .db import readonly
+from .note_links import plan_links
 from .source_ai import SourceAi, WebHit
 from .source_types import resolve_types
+from .topic_edit import plan_topic_tags
 from .topic_map import Window, topic_stats
 from .topic_notes import load_topic_notes
 from .topics import TopicsFile, load_topics
+from .vault_writes import WriteError, plan_write
 
 SEARCH_LIMIT = 8
 SNIPPET_CHARS = 200
@@ -102,6 +105,8 @@ class AiVault:
     definitions: TopicsFile
     # Paid web search and source typing; None means rules and cache only, no model calls.
     source_ai: SourceAi | None = None
+    # The topics file, for planning topic edits; None where editing is not offered.
+    topics_path: Path | None = None
 
     @classmethod
     def from_settings(cls, settings: CompassSettings) -> "AiVault":
@@ -109,6 +114,7 @@ class AiVault:
             settings.obsidian_vault_path,
             settings.compass_db_path,
             load_topics(settings.compass_topics_path),
+            topics_path=settings.compass_topics_path,
         )
 
     @property
@@ -273,6 +279,8 @@ class ToolSpec:
     description: str
     parameters: dict[str, Any]
     run: Callable[[AiVault, dict[str, Any]], Any]
+    # A write tool only plans: it returns a preview, and the chat waits for approval (C8).
+    writes: bool = False
 
     def as_openai(self) -> dict[str, Any]:
         return {
@@ -315,6 +323,37 @@ def _gaps(vault: AiVault, args: dict[str, Any]) -> Any:
 def _candidates(vault: AiVault, args: dict[str, Any]) -> Any:
     return vault.source_candidates(str(args.get("topic", "")))
 
+
+def _strings(args: dict[str, Any], key: str) -> list[str]:
+    value = args.get(key, [])
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise VaultToolError(f"{key} must be a list of strings")
+    return value
+
+
+def _link_notes(vault: AiVault, args: dict[str, Any]) -> Any:
+    notes = _strings(args, "notes")
+    try:
+        edits, summary = plan_links(
+            vault.vault_path, vault.db_path, vault.excluded, str(args.get("evergreen", "")), notes
+        )
+        return plan_write(vault.db_path, "link_notes", summary, edits).model_dump()
+    except WriteError as e:
+        raise VaultToolError(str(e)) from None
+
+
+def _edit_topic(vault: AiVault, args: dict[str, Any]) -> Any:
+    add, remove = _strings(args, "add_tags"), _strings(args, "remove_tags")
+    if vault.topics_path is None:
+        raise VaultToolError("Topic editing is not available here.")
+    try:
+        edit, summary = plan_topic_tags(vault.topics_path, str(args.get("topic", "")), add, remove)
+        return plan_write(vault.db_path, "edit_topic", summary, [edit]).model_dump()
+    except WriteError as e:
+        raise VaultToolError(str(e)) from None
+
+
+_APPROVAL = " Nothing is written until the user approves the preview; do not ask them first."
 
 TOOLS: dict[str, ToolSpec] = {
     spec.name: spec
@@ -399,6 +438,40 @@ TOOLS: dict[str, ToolSpec] = {
             },
             _candidates,
         ),
+        ToolSpec(
+            "link_notes",
+            "Link source notes to an evergreen: adds a wikilink to the evergreen under a "
+            "'## Related' heading at the end of each source note." + _APPROVAL,
+            {
+                "type": "object",
+                "properties": {
+                    "evergreen": {"type": "string", "description": "Vault path of the evergreen"},
+                    "notes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Vault paths of the source notes",
+                    },
+                },
+                "required": ["evergreen", "notes"],
+            },
+            _link_notes,
+            writes=True,
+        ),
+        ToolSpec(
+            "edit_topic",
+            "Add or remove tags on a topic's definition in the topics file." + _APPROVAL,
+            {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Topic id"},
+                    "add_tags": {"type": "array", "items": {"type": "string"}},
+                    "remove_tags": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["topic"],
+            },
+            _edit_topic,
+            writes=True,
+        ),
     )
 }
 
@@ -412,6 +485,11 @@ def run_tool(vault: AiVault, name: str, arguments: dict[str, Any]) -> Any:
         return spec.run(vault, arguments)
     except VaultToolError as e:
         return {"error": str(e)}
+
+
+def is_write_tool(name: str) -> bool:
+    spec = TOOLS.get(name)
+    return spec is not None and spec.writes
 
 
 def tool_schemas() -> list[dict[str, Any]]:

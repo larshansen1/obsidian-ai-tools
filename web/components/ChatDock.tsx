@@ -12,6 +12,8 @@ import {
 import { useDataStreamRuntime } from "@assistant-ui/react-data-stream";
 import { Agreement, ClaimsTable } from "./ClaimsView";
 import { CoverageBars } from "./CoverageBars";
+import { WriteCard } from "./WriteCard";
+import { WRITE_TOOLS, type PendingWrite, type WriteOutcome } from "../lib/writes";
 import type { CoverageGaps, SourceCandidate, SourceCandidates } from "../lib/coverage";
 import type { ClaimsView } from "../lib/claims";
 import { usePathname } from "next/navigation";
@@ -195,6 +197,35 @@ const CostConfirmUI = makeAssistantToolUI<
   ),
 });
 
+// A write tool's card: its preview waits for Approve or Cancel (C8). If planning failed,
+// the server already sent the error as the result and the usual line shows it.
+export function WriteToolCard({
+  toolName,
+  args,
+  result,
+  addResult,
+}: {
+  toolName: string;
+  args: { preview?: PendingWrite };
+  result?: WriteOutcome;
+  addResult: (outcome: WriteOutcome) => void;
+}) {
+  if (!args.preview) return <ToolCard toolName={toolName} args={args} result={result} />;
+  return <WriteCard pending={args.preview} result={result} onResult={addResult} />;
+}
+
+function writeToolUI(toolName: string) {
+  return makeAssistantToolUI<{ preview?: PendingWrite }, WriteOutcome>({
+    toolName,
+    display: "standalone",
+    render: ({ args, result, addResult }) => (
+      <WriteToolCard toolName={toolName} args={args} result={result} addResult={addResult} />
+    ),
+  });
+}
+
+const WRITE_TOOL_UIS = WRITE_TOOLS.map((name) => ({ name, UI: writeToolUI(name) }));
+
 function UserMessage() {
   return (
     <MessagePrimitive.Root className="chat-msg chat-user">
@@ -313,13 +344,19 @@ export function ChatDock({ children }: { children: ReactNode }) {
   const runtime = useDataStreamRuntime({
     api: "/api/chat",
     body: async () => ({ screen: scopeRef.current.screen, topic: scopeRef.current.topic }),
-    // The cost question waits for a click, like any write (spike finding 4).
-    unstable_humanToolNames: [CONFIRM_TOOL],
+    // The cost question and every write wait for a click (spike finding 4, C8).
+    unstable_humanToolNames: [CONFIRM_TOOL, ...WRITE_TOOLS],
+    // The default (2) counts every server step of the reply, so a write card after two
+    // tool steps would never resume after its click. The server caps steps itself.
+    maxSteps: 50,
   });
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <CostConfirmUI />
+      {WRITE_TOOL_UIS.map(({ name, UI }) => (
+        <UI key={name} />
+      ))}
       <ThreadPersistence topic={scope.topic} open={open} onStatus={setStatus} />
       <VaultName.Provider value={status?.vault_name ?? ""}>
         <div className={open ? "dock dock-open" : "dock"}>

@@ -564,3 +564,61 @@ a {
   border-radius: 6px;
   text-decoration: none;
 }
+
+/* Write-back: preview, approval and undo (W1, W2, W5) */
+.write-card {
+  display: grid;
+  gap: 8px;
+}
+.write-file-name {
+  font-weight: 600;
+  font-size: 0.9em;
+}
+.write-diff {
+  margin: 4px 0 0;
+  padding: 8px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+}
+.write-line-add {
+  color: #1a7f37;
+}
+.write-line-del {
+  color: #cf222e;
+  text-decoration: line-through;
+}
+.write-line-gap {
+  opacity: 0.6;
+}
+.write-outcome {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.write-action {
+  margin-top: 6px;
+}
+.edit-topic {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+.tag-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tag-chip[aria-pressed="true"] {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.change {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}

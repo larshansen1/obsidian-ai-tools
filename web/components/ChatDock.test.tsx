@@ -1,7 +1,14 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CLAIMS } from "../lib/claimsFixture";
-import { ChatDock, ToolCard, WorkingIndicator } from "./ChatDock";
+import { ChatDock, ToolCard, WorkingIndicator, WriteToolCard } from "./ChatDock";
+
+import { useDataStreamRuntime } from "@assistant-ui/react-data-stream";
+
+vi.mock("@assistant-ui/react-data-stream", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@assistant-ui/react-data-stream")>();
+  return { ...real, useDataStreamRuntime: vi.fn(real.useDataStreamRuntime) };
+});
 
 let pathname = "/topics/big";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
@@ -75,6 +82,20 @@ describe("ChatDock", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/chat/history"));
     expect(screen.getByText("Ask about your vault.")).toBeVisible();
+  });
+});
+
+describe("ChatDock runtime", () => {
+  it("waits for a click on cost questions and writes, and lets a reply resume after many steps", () => {
+    mockApi();
+    render(<ChatDock>x</ChatDock>);
+
+    expect(useDataStreamRuntime).toHaveBeenCalledWith({
+      api: "/api/chat",
+      body: expect.any(Function),
+      unstable_humanToolNames: ["confirm_cost", "link_notes", "edit_topic"],
+      maxSteps: 50,
+    });
   });
 });
 
@@ -240,5 +261,50 @@ describe("WorkingIndicator", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chat" }));
 
     expect(screen.queryByRole("status")).toBeNull();
+  });
+});
+
+describe("WriteToolCard", () => {
+  const preview = {
+    id: "p1",
+    kind: "link_notes",
+    summary: "Link 1 note to [[E]]",
+    files: [{ file: "notes/a.md", lines: [{ op: "+" as const, text: "- [[E]]" }] }],
+  };
+
+  it("shows the preview with Approve and Cancel and writes nothing yet", () => {
+    const fetchMock = mockApi();
+    const addResult = vi.fn();
+    render(<WriteToolCard toolName="link_notes" args={{ preview }} addResult={addResult} />);
+
+    expect(screen.getByTestId("write-card")).toHaveTextContent("Link 1 note to [[E]]");
+    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(addResult).not.toHaveBeenCalled();
+  });
+
+  it("hands the outcome of Approve to the thread", async () => {
+    const outcome = { id: "l1", status: "written", message: "Link 1 note to [[E]]" };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => outcome })));
+    const addResult = vi.fn();
+    render(<WriteToolCard toolName="link_notes" args={{ preview }} addResult={addResult} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => expect(addResult).toHaveBeenCalledWith(outcome));
+  });
+
+  it("shows a planning error as one line", () => {
+    render(
+      <WriteToolCard
+        toolName="link_notes"
+        args={{}}
+        result={{ error: "Not an evergreen note: a.md" } as never}
+        addResult={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Not an evergreen note: a.md")).toBeInTheDocument();
+    expect(screen.queryByTestId("write-card")).toBeNull();
   });
 });

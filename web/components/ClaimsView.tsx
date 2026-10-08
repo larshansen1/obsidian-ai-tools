@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { noteLabel, noteUrl } from "../lib/chat";
 import type { ClaimItem, ClaimsView, SharedClaim } from "../lib/claims";
 
@@ -58,7 +59,10 @@ export function ClaimsTable({ view, vault }: { view: ClaimsView; vault: string }
   );
 }
 
-function Shared({ item, vault }: { item: SharedClaim; vault: string }) {
+// Renders an action for a shared claim's unlinked notes (the topic page's Link button).
+export type LinkAction = (evergreen: string, notes: string[]) => ReactNode;
+
+function Shared({ item, vault, linkAction }: { item: SharedClaim; vault: string; linkAction?: LinkAction }) {
   return (
     <li>
       <strong>{item.text}</strong>
@@ -82,6 +86,12 @@ function Shared({ item, vault }: { item: SharedClaim; vault: string }) {
               <SourceLink vault={vault} path={n.path} title={n.title} />
             </span>
           ))}
+          {linkAction && item.evergreen
+            ? linkAction(
+                item.evergreen.path,
+                item.unlinked_notes.map((n) => n.path),
+              )
+            : null}
         </div>
       ) : null}
     </li>
@@ -89,12 +99,12 @@ function Shared({ item, vault }: { item: SharedClaim; vault: string }) {
 }
 
 // Shared claims against my evergreens, with the supporting notes that lack a link (T4).
-export function Agreement({ view, vault }: { view: ClaimsView; vault: string }) {
+export function Agreement({ view, vault, linkAction }: { view: ClaimsView; vault: string; linkAction?: LinkAction }) {
   if (view.shared.length === 0) return <p className="hint">No claim is shared by two or more notes yet.</p>;
   return (
     <ul className="list" data-testid="agreement">
       {view.shared.map((item) => (
-        <Shared key={item.text} item={item} vault={vault} />
+        <Shared key={item.text} item={item} vault={vault} linkAction={linkAction} />
       ))}
     </ul>
   );

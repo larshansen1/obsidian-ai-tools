@@ -339,3 +339,30 @@ describe("ClaimsSection actions", () => {
     expect(screen.queryByRole("region", { name: "Read your notes" })).toBeNull();
   });
 });
+
+describe("ClaimsSection link notes", () => {
+  it("links the unlinked notes and reads the claims again after the write", async () => {
+    const preview = { id: "p1", kind: "link_notes", summary: "Link 1 note to [[Ev]]", files: [] };
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/ai/status") return { ok: true, json: async () => ({ vault_name: "v" }) };
+      if (url === "/api/topics/big/claims") return { ok: true, json: async () => CLAIMS };
+      if (url === "/api/writes/links") return { ok: true, status: 200, json: async () => preview };
+      if (url === "/api/writes/p1/apply") {
+        return { ok: true, status: 200, json: async () => ({ id: "l1", status: "written", message: "ok" }) };
+      }
+      return { ok: true, status: 204 };
+    });
+    render(<ClaimsSection topic="big" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Link it to the evergreen" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+
+    const claimReads = () => fetchMock.mock.calls.filter(([url]) => url === "/api/topics/big/claims").length;
+    await waitFor(() => expect(claimReads()).toBe(2));
+    expect(fetchMock).toHaveBeenCalledWith("/api/writes/links", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ evergreen: "notes/evergreen/ev.md", notes: ["notes/b.md"] }),
+    });
+  });
+});

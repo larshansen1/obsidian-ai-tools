@@ -2,7 +2,7 @@
 
 The file is the only source of truth. Compass reads it on every scan, builds
 the topic_tags table and the note_topics view, and lists tags that map to no
-topic. It never rewrites an existing file.
+topic. Only "Edit topic" rewrites it, through the write layer (topic_edit.py).
 """
 
 from datetime import date

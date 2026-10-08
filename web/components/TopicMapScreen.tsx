@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BubbleChart } from "./BubbleChart";
 import { SummaryTiles } from "./SummaryTiles";
@@ -52,6 +53,9 @@ export function TopicMapScreen() {
   return (
     <main className="page">
       <h1 className="page-title">Topic map</h1>
+      <p className="muted">
+        <Link href="/changes">Recent changes</Link>
+      </p>
       <SummaryTiles tiles={data.tiles} />
       <SignalsList signals={data.signals} window={window} />
       <div className="toolbar">
