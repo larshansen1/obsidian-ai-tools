@@ -22,7 +22,7 @@ from .claims import build_claims_view
 from .config import CompassSettings
 from .coverage_gaps import build_candidates_from_citations
 from .db import readonly
-from .source_types import get_or_classify, init_source_types_table
+from .source_types import init_source_types_table
 from .topic_map import Window, topic_stats
 from .topic_notes import load_topic_notes
 from .topics import TopicsFile, load_topics
@@ -403,7 +403,7 @@ TOOLS: dict[str, ToolSpec] = {
         ),
         ToolSpec(
             "coverage_gaps",
-            "Coverage gaps for a topic: sources cited in notes but not yet ingested. Shows bars by source type.",
+            "Coverage gaps for a topic: sources cited but not yet ingested.",
             {
                 "type": "object",
                 "properties": {"topic": {"type": "string", "description": "Topic id"}},
