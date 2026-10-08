@@ -403,6 +403,8 @@ def test_system_prompt_carries_screen_and_topic(vault: Path) -> None:
         "topic_tags",
         "topic_claims",
         "topic_stats",
+        "coverage_gaps",
+        "source_candidates",
     ]
 
 

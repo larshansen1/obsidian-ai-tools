@@ -20,7 +20,9 @@ from typing import Any
 from .ai_policy import is_excluded
 from .claims import build_claims_view
 from .config import CompassSettings
+from .coverage_gaps import build_candidates_from_citations
 from .db import readonly
+from .source_types import get_or_classify, init_source_types_table
 from .topic_map import Window, topic_stats
 from .topic_notes import load_topic_notes
 from .topics import TopicsFile, load_topics
@@ -218,6 +220,76 @@ class AiVault:
         )
         return stats.model_dump(mode="json")
 
+    def coverage_gaps(self, topic: str) -> Any:
+        """Coverage gaps for a topic: sources cited but not yet ingested."""
+        if topic not in self.definitions.topics:
+            raise VaultToolError(f"Unknown topic: {topic}")
+        if not self.db_path.exists():
+            raise VaultToolError("No topic data yet. Run `compass scan` first.")
+
+        candidates = build_candidates_from_citations(
+            self.vault_path, self.db_path, topic, self.definitions
+        )
+
+        if not candidates:
+            return {"gaps": [], "count": 0}
+
+        # Group by source type for the bars
+        by_type = {}
+        for candidate in candidates:
+            if candidate.source_type not in by_type:
+                by_type[candidate.source_type] = 0
+            by_type[candidate.source_type] += 1
+
+        return {
+            "gaps": [
+                {
+                    "url": c.url,
+                    "title": c.title,
+                    "type": c.source_type,
+                    "from_citations": c.from_citations,
+                    "note_path": c.note_path,
+                }
+                for c in candidates
+            ],
+            "count": len(candidates),
+            "by_type": by_type,
+        }
+
+    def source_candidates(self, topic: str) -> Any:
+        """Source candidates to fill gaps: citations first, then (later) web search."""
+        if topic not in self.definitions.topics:
+            raise VaultToolError(f"Unknown topic: {topic}")
+        if not self.db_path.exists():
+            raise VaultToolError("No topic data yet. Run `compass scan` first.")
+
+        candidates = build_candidates_from_citations(
+            self.vault_path, self.db_path, topic, self.definitions
+        )
+
+        if not candidates:
+            return {
+                "candidates": [],
+                "count": 0,
+                "sources": {"citations": 0, "web": 0},
+            }
+
+        # For now, all are from citations (web search comes in a later issue)
+        return {
+            "candidates": [
+                {
+                    "url": c.url,
+                    "title": c.title,
+                    "type": c.source_type,
+                    "from_citations": c.from_citations,
+                    "note_path": c.note_path,
+                }
+                for c in candidates
+            ],
+            "count": len(candidates),
+            "sources": {"citations": len(candidates), "web": 0},
+        }
+
 
 @dataclass(frozen=True)
 class ToolSpec:
@@ -258,6 +330,14 @@ def _stats(vault: AiVault, args: dict[str, Any]) -> Any:
     if window not in ("30", "90", "all"):
         raise VaultToolError("window must be 30, 90 or all")
     return vault.topic_stats(str(args.get("topic", "")), window)
+
+
+def _gaps(vault: AiVault, args: dict[str, Any]) -> Any:
+    return vault.coverage_gaps(str(args.get("topic", "")))
+
+
+def _candidates(vault: AiVault, args: dict[str, Any]) -> Any:
+    return vault.source_candidates(str(args.get("topic", "")))
 
 
 TOOLS: dict[str, ToolSpec] = {
@@ -320,6 +400,27 @@ TOOLS: dict[str, ToolSpec] = {
                 "required": ["topic"],
             },
             _stats,
+        ),
+        ToolSpec(
+            "coverage_gaps",
+            "Coverage gaps for a topic: sources cited in notes but not yet ingested. Shows bars by source type.",
+            {
+                "type": "object",
+                "properties": {"topic": {"type": "string", "description": "Topic id"}},
+                "required": ["topic"],
+            },
+            _gaps,
+        ),
+        ToolSpec(
+            "source_candidates",
+            "Source candidates to fill gaps: citations from notes first, then web results. "
+            "Each shows title, type (study, report, essay, talk) and why it fills a gap.",
+            {
+                "type": "object",
+                "properties": {"topic": {"type": "string", "description": "Topic id"}},
+                "required": ["topic"],
+            },
+            _candidates,
         ),
     )
 }
