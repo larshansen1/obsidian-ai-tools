@@ -140,7 +140,7 @@ def find_coverage_gaps(
                             if url not in citation_sources:
                                 citation_sources[url] = note_path
 
-                except (UnicodeDecodeError, IOError) as e:
+                except (UnicodeDecodeError, OSError) as e:
                     logger.warning(f"Could not read {note_path}: {e}")
                     continue
 
@@ -196,13 +196,13 @@ def _extract_title_from_url(url: str, vault_path: Path, note_path: str) -> str:
     try:
         note_file = vault_path / note_path
         if note_file.exists():
-            with open(note_file, "r", encoding="utf-8") as f:
+            with open(note_file, encoding="utf-8") as f:
                 content = f.read()
             # Find line containing the URL and extract context
             for line in content.split("\n"):
                 if url in line:
                     # Strip markdown link syntax and markdown formatting
-                    title = line.replace(f"[", "").replace("]", "").replace(f"({url})", "").replace(url, "").strip()
+                    title = line.replace("[", "").replace("]", "").replace(f"({url})", "").replace(url, "").strip()
                     if title and len(title) < 200:
                         return title
     except Exception:
