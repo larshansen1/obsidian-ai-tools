@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, BadRequestError
 
 from .config import CompassSettings
 
@@ -62,9 +62,22 @@ class OpenRouterModel:
             raise AiNotConfiguredError("Set OPENROUTER_API_KEY in .env to use the chat.")
         self._model = settings.llm_model
         self._max_tokens = settings.compass_ai_max_output_tokens
+        self._reasoning = settings.compass_ai_reasoning
         self._client = AsyncOpenAI(
             api_key=settings.openrouter_api_key, base_url=settings.llm_base_url
         )
+
+    async def _create(self, kwargs: dict[str, Any]) -> Any:
+        try:
+            return await self._client.chat.completions.create(**kwargs)
+        except BadRequestError:
+            # A model that cannot switch thinking off rejects the option: ask without it.
+            if "reasoning" not in kwargs["extra_body"]:
+                raise
+            kwargs["extra_body"] = {
+                k: v for k, v in kwargs["extra_body"].items() if k != "reasoning"
+            }
+            return await self._client.chat.completions.create(**kwargs)
 
     async def stream(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
@@ -80,7 +93,9 @@ class OpenRouterModel:
         }
         if tools:
             kwargs["tools"] = tools
-        response = await self._client.chat.completions.create(**kwargs)
+        if not self._reasoning:
+            kwargs["extra_body"]["reasoning"] = {"enabled": False}
+        response = await self._create(kwargs)
         pending: dict[int, dict[str, str]] = {}
         usage: Usage | None = None
         async for chunk in response:

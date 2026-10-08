@@ -430,3 +430,70 @@ a {
     content: "...";
   }
 }
+
+.claims-question {
+  font-weight: 600;
+}
+
+.claims-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.step {
+  border-top: 1px solid var(--border, #2b3340);
+  margin-top: 16px;
+  padding-top: 12px;
+}
+
+.step-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+}
+
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  font-size: 0.85em;
+}
+
+.step-badge {
+  margin-left: auto;
+  font-size: 0.75em;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid currentColor;
+}
+
+.step-done {
+  color: #4caf7d;
+}
+
+.step-next {
+  color: #e0a526;
+}
+
+.step-waiting {
+  color: #8b95a5;
+}
+
+.step-status {
+  margin: 0 0 8px;
+}
+
+.step-action {
+  margin-top: 12px;
+}
+
+.step-action .primary {
+  font-weight: 600;
+}

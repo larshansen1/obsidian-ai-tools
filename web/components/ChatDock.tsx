@@ -10,6 +10,8 @@ import {
   makeAssistantToolUI,
 } from "@assistant-ui/react";
 import { useDataStreamRuntime } from "@assistant-ui/react-data-stream";
+import { Agreement, ClaimsTable } from "./ClaimsView";
+import type { ClaimsView } from "../lib/claims";
 import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -103,6 +105,15 @@ export function ToolCard({
     return (
       <Folded summary={`Looked at ${plural(tags.length, "tag")} on the topic`}>
         <p className="chat-text">{tags.map((t) => `${t.tag} (${t.notes})`).join(", ")}</p>
+      </Folded>
+    );
+  }
+  if (toolName === "topic_claims") {
+    const view = result as ClaimsView;
+    return (
+      <Folded summary={`Claims on the topic: ${plural(view.claim_count, "claim")}`}>
+        <ClaimsTable view={view} vault={vault} />
+        <Agreement view={view} vault={vault} />
       </Folded>
     );
   }

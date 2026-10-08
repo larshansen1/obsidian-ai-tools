@@ -11,8 +11,10 @@ from pathlib import Path
 
 import duckdb
 
+from .ai_client import Usage
 from .config import CompassSettings
 from .db import readonly
+from .usage import log_usage
 
 CHARS_PER_TOKEN = 4
 
@@ -84,3 +86,27 @@ def check_limits(
             f"{_usd(settings.compass_ai_monthly_limit_usd)} monthly limit.",
         )
     return LimitCheck(True, None)
+
+
+def record_call(settings: CompassSettings, usage: Usage, name: str, detail: str | None) -> float:
+    """Log one model call as an `ai_call` row and return its USD cost.
+
+    Uses the cost OpenRouter reported; falls back to the configured per-token prices.
+    """
+    cost = usage.cost_usd
+    if cost is None:
+        cost = (
+            usage.input_tokens * settings.compass_ai_input_usd_per_mtok
+            + usage.output_tokens * settings.compass_ai_output_usd_per_mtok
+        ) / 1_000_000
+    log_usage(
+        settings.compass_db_path,
+        "ai_call",
+        name,
+        detail=detail,
+        model=usage.model,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cost_usd=cost,
+    )
+    return cost

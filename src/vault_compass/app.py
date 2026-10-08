@@ -12,14 +12,16 @@ from typing import Any, Literal
 import duckdb
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .ai_client import ChatModel, OpenRouterModel
 from .ai_cost import month_spend
 from .chat import STREAM_HEADERS, chat_stream
 from .chat_history import GLOBAL_KEY, load_history, save_history
+from .claims import ClaimsView, build_claims_view, save_chosen_question
+from .claims_run import RunStatus, run_topic_claims
 from .config import CompassSettings, get_compass_settings
-from .db import DB_LOCK
+from .db import DB_LOCK, writable
 from .notes import UNMAPPED_TAGS_SQL
 from .signals import SignalKind
 from .topic_map import TopicMapResponse, Window, build_topic_map
@@ -72,6 +74,30 @@ class ChatRequest(BaseModel):
     # Where the user is (C3). The topic is a topic id.
     screen: str | None = Field(default=None, max_length=100)
     topic: str | None = Field(default=None, max_length=200)
+
+
+class ClaimsRunRequest(BaseModel):
+    # True after the user agreed to go over a cost limit (N3).
+    approved: bool = False
+
+
+class ClaimsRunResponse(BaseModel):
+    status: RunStatus
+    message: str | None
+    estimate_usd: float | None
+    view: ClaimsView
+
+
+class QuestionRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=300)
+
+    @field_validator("question")
+    @classmethod
+    def _trim(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("question must not be blank")
+        return trimmed
 
 
 class AiStatus(BaseModel):
@@ -203,6 +229,39 @@ def create_app(
             return build_topic_page(
                 con, definitions, topic_id, today=today(), window=window, signal=signal
             )
+
+    def _claims_view(cfg: CompassSettings, topic_id: str) -> ClaimsView:
+        vault = _vault(cfg)
+        if topic_id not in vault.definitions.topics:
+            raise HTTPException(status_code=404, detail=f"Unknown topic: {topic_id}")
+        with _compass_db(cfg) as con:
+            return build_claims_view(con, vault.definitions, topic_id)
+
+    @app.get("/topics/{topic_id}/claims")
+    def topic_claims(topic_id: str) -> ClaimsView:
+        return _claims_view(current(), topic_id)
+
+    @app.post("/topics/{topic_id}/claims/run")
+    async def run_claims(topic_id: str, request: ClaimsRunRequest) -> ClaimsRunResponse:
+        cfg = current()
+        await asyncio.to_thread(_claims_view, cfg, topic_id)  # 404s before any model work
+        outcome = await run_topic_claims(
+            cfg, _vault(cfg), model_factory, topic_id, approved=request.approved
+        )
+        return ClaimsRunResponse(
+            status=outcome.status,
+            message=outcome.message,
+            estimate_usd=outcome.estimate_usd,
+            view=await asyncio.to_thread(_claims_view, cfg, topic_id),
+        )
+
+    @app.put("/topics/{topic_id}/claims/question")
+    def put_claims_question(topic_id: str, request: QuestionRequest) -> ClaimsView:
+        cfg = current()
+        _claims_view(cfg, topic_id)
+        with writable(cfg.compass_db_path) as con:
+            save_chosen_question(con, topic_id, request.question)
+        return _claims_view(cfg, topic_id)
 
     def _vault(cfg: CompassSettings) -> AiVault:
         try:

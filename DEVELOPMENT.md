@@ -152,6 +152,20 @@ optional except the key, read from the same `.env`:
   notes through it.
 - The assistant's tools (`search_notes`, `read_note`, `topic_stats`) also run from a script:
   `uv run python -m vault_compass.vault_tools search_notes '{"query": "agents"}'`.
+- Claims (#135, T3/T4): `POST /topics/{id}/claims/run` reads a topic's unread notes (at most 30 per
+  run; notes with a `## Key Claims` section cost no model call), then proposes questions, finds
+  claims shared by 2+ notes and sorts claims by the chosen question. Everything is cached in
+  `compass.duckdb` (`note_claims`, `claim_reads`, `topic_questions`, `claim_analysis`) and a step
+  whose cache is current makes no model call. Each call is checked against the cost limits first.
+  `GET /topics/{id}/claims` and the `topic_claims` chat tool only read the cache.
+  Claims calls switch model thinking off (`COMPASS_AI_REASONING` stays on for chat) and use
+  `COMPASS_AI_CLAIMS_MAX_OUTPUT_TOKENS` (default 4000), because a thinking model can spend its whole
+  output budget thinking and return an empty answer. The view's `next_step` (read, analyse, sort,
+  done) drives the four-step screen.
+- Before calling a claims change done, run it on real data: `uv run python scripts/replay_claims.py
+  <topic>` copies your `compass.duckdb`, runs the whole flow with the real model and runs it again to
+  check nothing repeats (`--dry` shows the cached state for free). Mocked tests cannot show how a
+  real model answers: it has thought itself out of tokens and repeated one letter 2,700 times.
 - Chat history is one thread per topic (plus one shared thread) in the `chat_history` table.
 
 **Import rule.** `vault_compass` may import `obsidian_ai_tools`; `obsidian_ai_tools` must never
