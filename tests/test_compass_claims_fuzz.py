@@ -94,7 +94,8 @@ def shaped(kind: str, rng: random.Random) -> Any:
         }
         return {"matches": rng.choice([[item() for _ in range(rng.randint(0, 4))], junk(rng)])}
     return {
-        "s": rng.choice(["".join(rng.choices("SPUspu ,x!\n", k=rng.randint(0, 40))), junk(rng)])
+        "supporting": rng.choice([number_list(rng), junk(rng)]),
+        "pushing_back": rng.choice([number_list(rng), junk(rng)]),
     }
 
 
@@ -179,7 +180,7 @@ def _check_db(db: Path) -> None:
         for kind, payload in con.execute("SELECT kind, payload FROM claim_analysis").fetchall():
             data = json.loads(payload)
             assert isinstance(
-                data, dict if kind.endswith("progress") or kind == "stances" else list
+                data, dict if kind.startswith("stances") or kind.endswith("progress") else list
             )
 
 

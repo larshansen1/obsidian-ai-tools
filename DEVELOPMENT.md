@@ -162,6 +162,10 @@ optional except the key, read from the same `.env`:
   `COMPASS_AI_CLAIMS_MAX_OUTPUT_TOKENS` (default 4000), because a thinking model can spend its whole
   output budget thinking and return an empty answer. The view's `next_step` (read, analyse, sort,
   done) drives the four-step screen.
+- Before calling a claims change done, run it on real data: `uv run python scripts/replay_claims.py
+  <topic>` copies your `compass.duckdb`, runs the whole flow with the real model and runs it again to
+  check nothing repeats (`--dry` shows the cached state for free). Mocked tests cannot show how a
+  real model answers: it has thought itself out of tokens and repeated one letter 2,700 times.
 - Chat history is one thread per topic (plus one shared thread) in the `chat_history` table.
 
 **Import rule.** `vault_compass` may import `obsidian_ai_tools`; `obsidian_ai_tools` must never

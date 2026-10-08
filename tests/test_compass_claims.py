@@ -146,7 +146,11 @@ class AutoModel:
             }
         question, lines = user.split("\n\nCLAIMS\n")
         texts = [line.split(". ", 1)[1] for line in lines.split("\n")]
-        return {"s": self.stance(question.removeprefix("QUESTION\n"), texts)}
+        letters = self.stance(question.removeprefix("QUESTION\n"), texts)
+        return {
+            "supporting": [n for n, ch in enumerate(letters, start=1) if ch == "S"],
+            "pushing_back": [n for n, ch in enumerate(letters, start=1) if ch == "P"],
+        }
 
 
 def _write(vault: Path, rel: str, body: str, links: str = "", tags: str = "[x]") -> None:
@@ -339,46 +343,35 @@ def test_finalize_shared_needs_two_distinct_notes_and_sorts_by_support() -> None
     ]
 
 
-def test_parse_stances_reads_one_letter_per_claim() -> None:
+def test_parse_stances_reads_the_two_number_lists() -> None:
     chunk = [_item(i) for i in range(5)]
-    assert parse_stances({"s": "SPUsp"}, chunk) == {
+    data = {"supporting": [1, 4], "pushing_back": [2]}
+    assert parse_stances(data, chunk) == {
         "id0": "supporting",
         "id1": "pushing_back",
         "id2": "unrelated",
         "id3": "supporting",
-        "id4": "pushing_back",
+        "id4": "unrelated",
     }
 
 
-def test_parse_stances_ignores_spaces_and_stray_characters() -> None:
-    chunk = [_item(i) for i in range(3)]
-    assert parse_stances({"s": "S, P x\nU!"}, chunk) == {
-        "id0": "supporting",
-        "id1": "pushing_back",
-        "id2": "unrelated",
-    }
-
-
-def test_parse_stances_treats_a_short_or_missing_answer_as_unrelated() -> None:
-    chunk = [_item(i) for i in range(3)]
-    assert parse_stances({"s": "S"}, chunk) == {
+def test_parse_stances_leaves_a_claim_listed_on_both_sides_unrelated() -> None:
+    chunk = [_item(i) for i in range(2)]
+    assert parse_stances({"supporting": [1, 2], "pushing_back": [2]}, chunk) == {
         "id0": "supporting",
         "id1": "unrelated",
-        "id2": "unrelated",
     }
-    assert parse_stances({"s": 5}, chunk[:1]) == {"id0": "unrelated"}
-    assert parse_stances({}, chunk[:1]) == {"id0": "unrelated"}
 
 
-def test_parse_stances_ignores_letters_past_the_last_claim() -> None:
-    assert parse_stances({"s": "SSSS"}, [_item(0)]) == {"id0": "supporting"}
+def test_parse_stances_ignores_numbers_outside_the_chunk() -> None:
+    chunk = [_item(0), _item(1)]
+    data = {"supporting": [0, 3, -1, 10**30, True, "1", 1.0], "pushing_back": [2]}
+    assert parse_stances(data, chunk) == {"id0": "unrelated", "id1": "pushing_back"}
 
 
-def test_the_prompts_ask_for_yes_or_no_questions_and_every_matching_claim() -> None:
-    assert "answerable with yes or no" in QUESTIONS_SYSTEM
-    assert "Which, What, How or Why" in QUESTIONS_SYSTEM
-    assert "Include every claim that matches" in AGREEMENT_SYSTEM
-    assert "supports a yes" in STANCE_SYSTEM
+@pytest.mark.parametrize("data", [{}, {"supporting": 5, "pushing_back": "x"}, {"supporting": None}])
+def test_parse_stances_treats_a_missing_or_wrong_answer_as_unrelated(data: dict[str, Any]) -> None:
+    assert parse_stances(data, [_item(0)]) == {"id0": "unrelated"}
 
 
 # --- chunking helpers -------------------------------------------------------------
@@ -610,8 +603,8 @@ def test_switching_questions_only_sorts_again(vault: Path) -> None:
     assert model.calls == []
 
 
-def test_a_stance_answer_with_no_letters_leaves_every_claim_unrelated(vault: Path) -> None:
-    model = AutoModel(raw={("stances", 0): {"s": ""}})
+def test_a_stance_answer_with_no_numbers_leaves_every_claim_unrelated(vault: Path) -> None:
+    model = AutoModel(raw={("stances", 0): {"supporting": [], "pushing_back": []}})
     client = _client(model)
     _run(client)
     client.put("/topics/big/claims/question", json={"question": "Q?"})
@@ -916,7 +909,7 @@ def test_a_big_topic_is_analysed_in_chunks_of_150_claims(big_vault: Path) -> Non
     model.calls.clear()
     sorted_view = _run(client)["view"]
     lines = [len(u.split("\n\nCLAIMS\n")[1].split("\n")) for u in model.users("stances")]
-    assert lines == [150, 20]
+    assert lines == [75, 75, 20]
     assert len(sorted_view["supporting"]) == 43  # 42 "claim 1" + "Tools help."
     assert len(sorted_view["pushing_back"]) == 43  # 42 "claim 2" + "Plans fail."
     assert sorted_view["unrelated"] == 84  # the "claim 3" and "claim 4" of 42 notes
@@ -946,15 +939,35 @@ def test_a_stopped_sort_resumes_at_the_chunk_it_stopped_on(big_vault: Path) -> N
     assert view["stale"] is True  # half a sort is never shown as the answer
     first_chunk_lines = failing.users("stances")[0].split("\n\nCLAIMS\n")[1].split("\n")
 
+    assert len(first_chunk_lines) == 75
+
     healthy = AutoModel()
     final = _run(_client(healthy))["view"]
-    assert healthy.kinds() == ["stances"]
-    resumed = healthy.users("stances")[0].split("\n\nCLAIMS\n")[1].split("\n")
-    assert len(resumed) == 20
-    assert not set(first_chunk_lines) & set(resumed)
+    assert healthy.kinds() == ["stances", "stances"]
+    resumed = [u.split("\n\nCLAIMS\n")[1].split("\n") for u in healthy.users("stances")]
+    assert [len(r) for r in resumed] == [75, 20]
+    assert not set(first_chunk_lines) & {line for r in resumed for line in r}
     assert final["stale"] is False
     assert len(final["supporting"]) + len(final["pushing_back"]) + final["unrelated"] == TOTAL_BIG
     assert _run(_client(None))["view"] == final
+
+
+def test_sorts_saved_in_an_older_format_are_ignored(big_vault: Path) -> None:
+    client = _client(AutoModel())
+    _finish_reading(client)
+    client.put("/topics/big/claims/question", json={"question": "Q?"})
+    view = _view(client)
+    sig = signature(c["id"] for c in view["shared"][0]["claims"])
+    garbage = {c["id"]: "supporting" for c in view["shared"][0]["claims"]}
+    with duckdb.connect(str(_db(big_vault))) as con:
+        for kind in ("stances", "stances_progress"):
+            save_analysis(con, "big", kind, "Q?", sig, garbage)
+    again = _view(client)
+    assert (again["next_step"], again["supporting"]) == ("sort", [])
+    model = AutoModel()
+    final = _run(_client(model))["view"]
+    assert model.kinds() == ["stances", "stances", "stances"]
+    assert len(final["supporting"]) == 43
 
 
 def test_a_stopped_agreement_resumes_at_the_chunk_it_stopped_on(big_vault: Path) -> None:
@@ -983,7 +996,15 @@ def test_changed_notes_restart_the_analysis_not_the_reading(big_vault: Path) -> 
     _rescan(big_vault)
     model.calls.clear()
     view = _run(client)["view"]
-    assert model.kinds() == ["extract", "questions", "agree", "agree", "stances", "stances"]
+    assert model.kinds() == [
+        "extract",
+        "questions",
+        "agree",
+        "agree",
+        "stances",
+        "stances",
+        "stances",
+    ]
     assert view["claim_count"] == TOTAL_BIG
     assert view["stale"] is False
 

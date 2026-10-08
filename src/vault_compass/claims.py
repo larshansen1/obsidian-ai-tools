@@ -27,10 +27,11 @@ Stance = Literal["supporting", "pushing_back", "unrelated"]
 NextStep = Literal["read", "analyse", "sort", "done"]
 
 AGREEMENT_KIND = "agreement"
-STANCES_KIND = "stances"
+# "_v2": the sort answer format changed; sorts saved in the old format are ignored.
+STANCES_KIND = "stances_v2"
 # Work saved part-way through a long step, so a stopped run resumes instead of starting over.
 AGREEMENT_PROGRESS_KIND = "agreement_progress"
-STANCES_PROGRESS_KIND = "stances_progress"
+STANCES_PROGRESS_KIND = "stances_progress_v2"
 
 CLAIMS_DDL = (
     """

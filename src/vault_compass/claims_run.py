@@ -50,6 +50,8 @@ MAX_CLAIMS_PER_NOTE = 4
 MAX_CLAIM_CHARS = 300
 MAX_PROMPT_CLAIMS = 150
 CHUNK_CLAIMS = 150
+# Sorting needs more care per claim than matching, so it takes smaller chunks.
+STANCE_CHUNK_CLAIMS = 75
 MAX_EVERGREENS = 40
 EVERGREEN_CHARS = 300
 MAX_QUESTIONS = 3
@@ -81,9 +83,10 @@ matches. Reply with JSON only: {"matches": [{"e": <evergreen number>, "text": ".
 "c": [<claim numbers>]}]}"""
 
 STANCE_SYSTEM = """\
-You are given a question and numbered claims. For each claim, in order, answer one letter: \
-S if it supports a yes to the question, P if it pushes back against it, U if it is unrelated. \
-Reply with JSON only: {"s": "<one letter per claim, no spaces>"}"""
+You are given a question and numbered claims. List the numbers of the claims that support a \
+yes to the question, and the numbers of the claims that push back (point to a no). Leave out \
+claims that are unrelated to the question. Use only the numbers you were given. Reply with JSON \
+only: {"supporting": [<numbers>], "pushing_back": [<numbers>]}"""
 
 _KEY_CLAIMS_HEADING = re.compile(r"^#{1,6}\s*key claims\s*$", re.IGNORECASE | re.MULTILINE)
 _NEXT_HEADING = re.compile(r"^#{1,6}\s", re.MULTILINE)
@@ -218,17 +221,19 @@ def finalize_shared(
     return sorted(shared, key=lambda item: (-len(item["claim_ids"]), item["evergreen"]))
 
 
-_STANCE_CODES = {"S": "supporting", "P": "pushing_back"}
-
-
 def parse_stances(data: dict[str, Any], chunk: list[ClaimItem]) -> dict[str, str]:
-    """One stance per claim from a string of S, P and U letters; anything missing is unrelated."""
-    raw = data.get("s")
-    letters = [ch for ch in (raw.upper() if isinstance(raw, str) else "") if ch in "SPU"]
-    return {
-        c.id: _STANCE_CODES.get(letters[i] if i < len(letters) else "U", "unrelated")
-        for i, c in enumerate(chunk)
-    }
+    """One stance per claim from the two number lists; unlisted or doubly listed is unrelated."""
+    supporting = set(_numbers(data.get("supporting"), len(chunk)))
+    pushing = set(_numbers(data.get("pushing_back"), len(chunk)))
+    stances = {}
+    for n, claim in enumerate(chunk, start=1):
+        if n in supporting and n not in pushing:
+            stances[claim.id] = "supporting"
+        elif n in pushing and n not in supporting:
+            stances[claim.id] = "pushing_back"
+        else:
+            stances[claim.id] = "unrelated"
+    return stances
 
 
 @dataclass(frozen=True)
@@ -380,8 +385,8 @@ async def _extract_batch(run: _Run, batch: list[tuple[EligibleNote, str]]) -> No
     await asyncio.to_thread(_store_claims, run, results)
 
 
-def _chunks(claims: list[ClaimItem]) -> list[list[ClaimItem]]:
-    return [claims[i : i + CHUNK_CLAIMS] for i in range(0, len(claims), CHUNK_CLAIMS)]
+def _chunks(claims: list[ClaimItem], size: int = CHUNK_CLAIMS) -> list[list[ClaimItem]]:
+    return [claims[i : i + size] for i in range(0, len(claims), size)]
 
 
 def _numbered(claims: list[ClaimItem], *, titles: bool) -> str:
@@ -459,7 +464,7 @@ async def _sort(run: _Run, snap: _Snapshot) -> None:
     saved = await asyncio.to_thread(_progress, run, STANCES_PROGRESS_KIND, question, snap.sig)
     done: dict[str, str] = saved or {}
     todo = [c for c in snap.claims if c.id not in done]
-    for chunk in _chunks(todo):
+    for chunk in _chunks(todo, STANCE_CHUNK_CLAIMS):
         data = await run.ask(
             STANCE_SYSTEM, f"QUESTION\n{question}\n\nCLAIMS\n{_numbered(chunk, titles=False)}"
         )
