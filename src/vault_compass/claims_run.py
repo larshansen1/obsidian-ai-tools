@@ -139,6 +139,11 @@ def parse_json_object(text: str) -> dict[str, Any]:
     return data
 
 
+def _items(value: Any) -> list[Any]:
+    """`value` if the model sent a list; anything else (a number, a string, a dict) is no list."""
+    return value if isinstance(value, list) else []
+
+
 def _text(value: Any) -> str:
     return value.strip()[:MAX_CLAIM_CHARS] if isinstance(value, str) else ""
 
@@ -146,11 +151,11 @@ def _text(value: Any) -> str:
 def parse_extracted(data: dict[str, Any], paths: set[str]) -> dict[str, list[str]]:
     """Claims per note path. Claims naming a note outside the batch are dropped."""
     out: dict[str, list[str]] = {}
-    for item in data.get("claims") or []:
+    for item in _items(data.get("claims")):
         if not isinstance(item, dict):
             continue
         note, text = item.get("note"), _text(item.get("text"))
-        if note not in paths or not text:
+        if not isinstance(note, str) or note not in paths or not text:
             continue
         bucket = out.setdefault(note, [])
         if len(bucket) < MAX_CLAIMS_PER_NOTE:
@@ -160,7 +165,7 @@ def parse_extracted(data: dict[str, Any], paths: set[str]) -> dict[str, list[str
 
 def parse_questions(data: dict[str, Any]) -> list[str]:
     questions: list[str] = []
-    for value in data.get("questions") or []:
+    for value in _items(data.get("questions")):
         text = _text(value)
         if text and text not in questions:
             questions.append(text)
@@ -169,7 +174,7 @@ def parse_questions(data: dict[str, Any]) -> list[str]:
 
 def _numbers(value: Any, limit: int) -> list[int]:
     """The distinct integers in `value` that fall in 1..limit, in order."""
-    found = [n for n in value or [] if isinstance(n, int) and not isinstance(n, bool)]
+    found = [n for n in _items(value) if isinstance(n, int) and not isinstance(n, bool)]
     return list(dict.fromkeys(n for n in found if 1 <= n <= limit))
 
 
@@ -178,7 +183,7 @@ def parse_matches(
 ) -> list[tuple[str, str, list[str]]]:
     """(evergreen path, shared point, claim ids) per match; out-of-range numbers dropped."""
     out = []
-    for item in data.get("matches") or []:
+    for item in _items(data.get("matches")):
         if not isinstance(item, dict):
             continue
         nums = _numbers([item.get("e")], len(evergreens))
@@ -494,4 +499,9 @@ async def run_topic_claims(
             await _sort(run, snap)
     except _Stop as stop:
         return stop.outcome
+    except Exception as exc:
+        # A bug or odd data must not become an opaque 500: say what happened, keep the log.
+        logger.exception("claims run crashed")
+        message = f"Unexpected error ({type(exc).__name__}: {str(exc)[:150]}). See the server log."
+        return RunOutcome("failed", message)
     return RunOutcome("done")

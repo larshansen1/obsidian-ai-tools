@@ -831,6 +831,30 @@ def test_notes_are_sent_in_batches_of_at_most_four(vault: Path) -> None:
     assert [u.count("### NOTE") for u in model.users("extract")] == [4, 4]
 
 
+@pytest.mark.parametrize("bad", [5, 1.5, True, "text", {"a": 1}, [[1]], [{"a": 1}], [None]])
+def test_parsers_ignore_values_of_the_wrong_type(bad: Any) -> None:
+    chunk = [_item(1)]
+    assert parse_extracted({"claims": bad}, {A}) == {}
+    assert parse_questions({"questions": bad}) == []
+    assert parse_matches({"matches": bad}, chunk, _evergreens(1)) == []
+    assert (
+        parse_matches({"matches": [{"e": 1, "text": "t", "c": bad}]}, chunk, _evergreens(1)) == []
+    )
+    assert parse_extracted({"claims": [{"note": bad, "text": "t"}]}, {A}) == {}
+
+
+def test_an_unexpected_crash_becomes_a_failed_message_not_a_500(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(*_a: Any, **_k: Any) -> Any:
+        raise KeyError("surprise")
+
+    monkeypatch.setattr("vault_compass.claims_run.parse_extracted", boom)
+    body = _run(_client(AutoModel()))
+    assert body["status"] == "failed"
+    assert body["message"] == "Unexpected error (KeyError: 'surprise'). See the server log."
+
+
 def test_a_blank_note_is_marked_read_without_a_model_call(vault: Path) -> None:
     _write(vault, "notes/blank.md", "   ")
     _rescan(vault)
