@@ -125,11 +125,15 @@ def find_coverage_gaps(
                         continue
 
                     # Check which URLs are already in the vault as source_url
-                    placeholders = ",".join("?" * len(urls))
-                    ingested = con.execute(
-                        f"SELECT source_url FROM notes WHERE source_url IN ({placeholders})",
-                        list(urls),
-                    ).fetchall()
+                    if urls:
+                        placeholders = ",".join("?" * len(urls))
+                        # nosec B608: placeholders constructed internally, not from user input
+                        ingested = con.execute(
+                            f"SELECT source_url FROM notes WHERE source_url IN ({placeholders})",
+                            list(urls),
+                        ).fetchall()
+                    else:
+                        ingested = []
                     ingested_urls = {row[0] for row in ingested}
 
                     # URLs mentioned but not ingested = gaps
@@ -211,7 +215,8 @@ def _extract_title_from_url(url: str, vault_path: Path, note_path: str) -> str:
                     )
                     if title and len(title) < 200:
                         return title
-    except Exception:
+    except (UnicodeDecodeError, OSError, KeyError, IndexError):
+        # Unable to extract title from note context; will fall back to domain
         pass
 
     # Fallback: extract domain from URL
@@ -219,5 +224,6 @@ def _extract_title_from_url(url: str, vault_path: Path, note_path: str) -> str:
         from urllib.parse import urlparse
         domain = urlparse(url).netloc
         return domain or url
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
+        # URL parsing failed; return URL as-is
         return url
