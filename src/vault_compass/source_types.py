@@ -68,7 +68,7 @@ def get_or_classify(url: str, title: str = "", db_path: Any = None) -> str:
                     "SELECT type FROM source_types WHERE url = ?", [url]
                 ).fetchall()
                 if result:
-                    return result[0][0]
+                    return str(result[0][0])
         except (OSError, TypeError, IndexError):
             # Cache lookup failed; will classify from domain rules instead
             pass
