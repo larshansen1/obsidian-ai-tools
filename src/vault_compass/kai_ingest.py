@@ -48,7 +48,14 @@ _DDL = """
     )
 """
 
-_COLUMNS = "id, url, title, topic, status, message, note_path, new_note, requested_at, finished_at"
+_SELECT_JOB = (
+    "SELECT id, url, title, topic, status, message, note_path, new_note, requested_at, finished_at "
+    "FROM ingest_jobs WHERE id = ?"
+)
+_SELECT_RECENT = (
+    "SELECT id, url, title, topic, status, message, note_path, new_note, requested_at, finished_at "
+    "FROM ingest_jobs ORDER BY requested_at DESC, id LIMIT ?"
+)
 
 JobStatus = Literal["queued", "done", "failed"]
 
@@ -229,8 +236,9 @@ class IngestQueue:
             if busy is not None:
                 raise IngestError("This source is already on its way to kai.")
             con.execute(
-                f"INSERT INTO ingest_jobs ({_COLUMNS}) VALUES (?, ?, ?, ?, 'queued', ?, NULL, "
-                "false, ?, NULL)",
+                "INSERT INTO ingest_jobs (id, url, title, topic, status, message, note_path, "
+                "new_note, requested_at, finished_at) "
+                "VALUES (?, ?, ?, ?, 'queued', ?, NULL, false, ?, NULL)",
                 [job_id, url, title.strip() or url, topic, "Sent to kai.", self._now()],
             )
             self._active.add(job_id)
@@ -283,14 +291,14 @@ class IngestQueue:
             return con.execute(sql, params).fetchall()
 
     def job(self, job_id: str) -> IngestJob:
-        rows = self._rows(f"SELECT {_COLUMNS} FROM ingest_jobs WHERE id = ?", [job_id])
+        rows = self._rows(_SELECT_JOB, [job_id])
         if not rows:
             raise IngestError("No such ingest.")
         return _job(rows[0])
 
     def log(self) -> IngestLog:
         jobs = self._rows(
-            f"SELECT {_COLUMNS} FROM ingest_jobs ORDER BY requested_at DESC, id LIMIT ?",
+            _SELECT_RECENT,
             [RECENT_JOBS],
         )
         return IngestLog(jobs=[_job(r) for r in jobs], per_month=self.per_month())

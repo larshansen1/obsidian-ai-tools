@@ -25,7 +25,7 @@ MAX_TITLE = 200
 # Letters NFKD does not split into a base letter and a mark.
 _LETTERS = str.maketrans({"æ": "ae", "ø": "o", "ß": "ss", "œ": "oe", "đ": "d", "ł": "l"})
 
-_CLAIMS_SQL = "SELECT claim_id, path, text FROM note_claims WHERE claim_id IN ({})"
+_CLAIMS_SQL = "SELECT claim_id, path, text FROM note_claims WHERE list_contains(?, claim_id)"
 
 
 def slugify(title: str) -> str:
@@ -50,7 +50,7 @@ def draft_body(db_path: Path, claim_ids: list[str]) -> str:
         raise WriteError("No topic data yet. Run `compass scan` first.")
     with readonly(db_path) as con:
         try:
-            rows = con.execute(_CLAIMS_SQL.format(", ".join("?" * len(ids))), ids).fetchall()
+            rows = con.execute(_CLAIMS_SQL, [ids]).fetchall()
         except duckdb.CatalogException:
             rows = []
         found = {cid: (path, text) for cid, path, text in rows}
