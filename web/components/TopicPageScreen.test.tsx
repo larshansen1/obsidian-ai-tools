@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CLAIMS } from "../lib/claimsFixture";
 import { TopicPageScreen } from "./TopicPageScreen";
@@ -197,5 +197,29 @@ describe("TopicPageScreen", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Unknown topic: nope");
     expect(screen.getByRole("link", { name: "Back to topic map" })).toHaveAttribute("href", "/");
+  });
+});
+
+describe("TopicPageScreen edit topic", () => {
+  it("reads the page again after a topic edit is saved", async () => {
+    const preview = { id: "p1", kind: "edit_topic", summary: "Topic Big: remove x2", files: [] };
+    fetchMock.mockImplementation((url: string) => {
+      const json = (body: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+      if (url === "/api/topics/big/claims") return json(CLAIMS);
+      if (url === "/api/topics/big/coverage") return json(COVERAGE);
+      if (url === "/api/topics/big/tags") return json(preview);
+      if (url === "/api/writes/p1/apply") return json({ id: "l1", status: "written", message: "Topic Big: remove x2" });
+      if (url.startsWith("/api/topics/big?")) return json(PAGE);
+      return Promise.resolve({ ok: true, status: 204 });
+    });
+    render(<TopicPageScreen id="big" window="30" signal={null} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit topic" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove x2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview change" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+
+    const pageReads = () => fetchMock.mock.calls.filter(([url]) => url === "/api/topics/big?window=30").length;
+    await waitFor(() => expect(pageReads()).toBe(2));
   });
 });

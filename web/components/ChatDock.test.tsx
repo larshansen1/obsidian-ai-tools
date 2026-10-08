@@ -3,6 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CLAIMS } from "../lib/claimsFixture";
 import { ChatDock, ToolCard, WorkingIndicator, WriteToolCard } from "./ChatDock";
 
+import { useDataStreamRuntime } from "@assistant-ui/react-data-stream";
+
+vi.mock("@assistant-ui/react-data-stream", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@assistant-ui/react-data-stream")>();
+  return { ...real, useDataStreamRuntime: vi.fn(real.useDataStreamRuntime) };
+});
+
 let pathname = "/topics/big";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
 
@@ -75,6 +82,20 @@ describe("ChatDock", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/chat/history"));
     expect(screen.getByText("Ask about your vault.")).toBeVisible();
+  });
+});
+
+describe("ChatDock runtime", () => {
+  it("waits for a click on cost questions and writes, and lets a reply resume after many steps", () => {
+    mockApi();
+    render(<ChatDock>x</ChatDock>);
+
+    expect(useDataStreamRuntime).toHaveBeenCalledWith({
+      api: "/api/chat",
+      body: expect.any(Function),
+      unstable_humanToolNames: ["confirm_cost", "link_notes", "edit_topic"],
+      maxSteps: 50,
+    });
   });
 });
 
