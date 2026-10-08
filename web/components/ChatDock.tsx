@@ -48,6 +48,24 @@ function CitedText({ text }: { text: string }) {
 
 type NoteHit = { path: string; title: string };
 type TagCount = { tag: string; notes: number };
+type CoverageGap = {
+  url: string;
+  title: string;
+  type: string;
+  from_citations: boolean;
+  note_path?: string;
+};
+type CoverageGapsResult = {
+  gaps: CoverageGap[];
+  count: number;
+  by_type: { [key: string]: number };
+};
+type SourceCandidate = CoverageGap;
+type SourceCandidatesResult = {
+  candidates: SourceCandidate[];
+  count: number;
+  sources: { citations: number; web: number };
+};
 
 function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -121,6 +139,49 @@ export function ToolCard({
     const stats = result as { name: string; note_count: number; evergreens: number };
     return (
       <Folded summary={`${stats.name}: ${plural(stats.note_count, "note")}, ${plural(stats.evergreens, "evergreen")}`} />
+    );
+  }
+  if (toolName === "coverage_gaps") {
+    const gaps = result as CoverageGapsResult;
+    return (
+      <Folded
+        summary={`Coverage gaps: ${plural(gaps.count, "source")} cited but not ingested`}
+      >
+        <div className="chat-coverage-gaps">
+          {Object.entries(gaps.by_type).map(([type, count]) => (
+            <div key={type} className="chat-gap-bar">
+              <span className="gap-type">{type}</span>
+              <span className="gap-count">{count}</span>
+            </div>
+          ))}
+        </div>
+      </Folded>
+    );
+  }
+  if (toolName === "source_candidates") {
+    const candidates = result as SourceCandidatesResult;
+    return (
+      <Folded
+        summary={`Source candidates: ${plural(candidates.count, "source")} to fill gaps`}
+      >
+        <ul className="chat-candidates">
+          {candidates.candidates.map((source) => (
+            <li key={source.url} className="chat-candidate">
+              <div className="candidate-header">
+                <a href={source.url} target="_blank" rel="noopener noreferrer">
+                  {source.title}
+                </a>
+                <span className="candidate-type">{source.type}</span>
+              </div>
+              {source.note_path && (
+                <div className="candidate-from muted">
+                  From: <a href={noteUrl(vault, source.note_path)}>{noteLabel(source.note_path)}</a>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      </Folded>
     );
   }
   return <Folded summary={`${toolName} done`} />;

@@ -497,3 +497,70 @@ a {
 .step-action .primary {
   font-weight: 600;
 }
+
+.chat-coverage-gaps {
+  display: flex;
+  gap: 16px;
+  margin: 8px 0;
+}
+
+.chat-gap-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--accent-soft);
+  border-radius: 6px;
+}
+
+.gap-type {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+  min-width: 60px;
+}
+
+.gap-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.chat-candidates {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.chat-candidate {
+  list-style: none;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.candidate-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.candidate-header a {
+  flex: 1;
+  font-size: 13px;
+}
+
+.candidate-type {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.candidate-from {
+  margin-top: 4px;
+  font-size: 12px;
+}
