@@ -43,8 +43,9 @@ logger = logging.getLogger(__name__)
 
 MAX_NOTES_PER_RUN = 30
 NOTE_CHARS = 3000
-BATCH_CHARS = 18000
-MAX_CLAIMS_PER_NOTE = 5
+BATCH_CHARS = 12000
+MAX_NOTES_PER_BATCH = 4
+MAX_CLAIMS_PER_NOTE = 4
 MAX_CLAIM_CHARS = 300
 MAX_PROMPT_CLAIMS = 150
 EVERGREEN_CHARS = 400
@@ -93,6 +94,10 @@ class _Stop(Exception):
     def __init__(self, outcome: RunOutcome) -> None:
         super().__init__(outcome.message)
         self.outcome = outcome
+
+
+class _Unreadable(_Stop):
+    """The model answered, but not with usable JSON (often a reply cut off at the token limit)."""
 
 
 def key_claims(body: str) -> list[str]:
@@ -222,7 +227,7 @@ class _Run:
             return parse_json_object(text)
         except ValueError:
             logger.warning("claims answer was not JSON: %.200s", text)
-            raise _Stop(
+            raise _Unreadable(
                 RunOutcome("failed", "The model's answer could not be read. Try again.")
             ) from None
 
@@ -275,7 +280,7 @@ def _batches(notes: list[tuple[EligibleNote, str]]) -> list[list[tuple[EligibleN
     size = 0
     for item in notes:
         cost = len(item[1])
-        if not batches or size + cost > BATCH_CHARS:
+        if not batches or size + cost > BATCH_CHARS or len(batches[-1]) >= MAX_NOTES_PER_BATCH:
             batches.append([])
             size = 0
         batches[-1].append(item)
@@ -307,10 +312,22 @@ async def _read_notes(run: _Run, pending: list[EligibleNote]) -> None:
             free.append((note, [], MODEL_ORIGIN))
     await asyncio.to_thread(_store_claims, run, free)
     for batch in _batches(for_model):
+        await _extract_batch(run, batch)
+
+
+async def _extract_batch(run: _Run, batch: list[tuple[EligibleNote, str]]) -> None:
+    """Read one batch; if the answer is unusable, read its notes one by one instead."""
+    try:
         data = await run.ask(EXTRACT_SYSTEM, "\n\n".join(block for _n, block in batch))
-        found = parse_extracted(data, {n.path for n, _b in batch})
-        results = [(n, found.get(n.path, []), MODEL_ORIGIN) for n, _b in batch]
-        await asyncio.to_thread(_store_claims, run, results)
+    except _Unreadable:
+        if len(batch) == 1:
+            raise
+        for single in ([item] for item in batch):
+            await _extract_batch(run, single)
+        return
+    found = parse_extracted(data, {n.path for n, _b in batch})
+    results = [(n, found.get(n.path, []), MODEL_ORIGIN) for n, _b in batch]
+    await asyncio.to_thread(_store_claims, run, results)
 
 
 def _claim_lines(claims: list[ClaimItem]) -> str:

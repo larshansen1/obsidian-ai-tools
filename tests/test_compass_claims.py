@@ -176,7 +176,7 @@ def test_parse_extracted_drops_other_notes_blanks_and_extra_claims() -> None:
             *({"note": B, "text": f"c{i}"} for i in range(7)),
         ]
     }
-    assert parse_extracted(data, {A, B}) == {A: ["one"], B: ["c0", "c1", "c2", "c3", "c4"]}
+    assert parse_extracted(data, {A, B}) == {A: ["one"], B: ["c0", "c1", "c2", "c3"]}
 
 
 def test_parse_questions_keeps_three_unique_non_blank() -> None:
@@ -451,12 +451,49 @@ def test_run_keeps_free_claims_when_the_model_fails(vault: Path) -> None:
     assert body["view"]["pending_notes"] == 2
 
 
-def test_run_fails_cleanly_on_an_unreadable_answer(vault: Path) -> None:
-    body = _client(ScriptedModel(["not json at all"])).post("/topics/big/claims/run", json={})
-    assert (body.json()["status"], body.json()["message"]) == (
+def test_run_fails_cleanly_when_even_single_notes_are_unreadable(vault: Path) -> None:
+    model = ScriptedModel(["not json at all", "still not json"])
+    body = _client(model).post("/topics/big/claims/run", json={}).json()
+    assert (body["status"], body["message"]) == (
         "failed",
         "The model's answer could not be read. Try again.",
     )
+    assert body["view"]["claim_count"] == 2
+
+
+def test_unreadable_batch_is_retried_one_note_at_a_time(vault: Path) -> None:
+    ids = _ids()
+    model = ScriptedModel(
+        [
+            '{"claims": [{"note": "notes/a.md", "text": "cut off',
+            {"claims": [{"note": A, "text": "Agents plan before acting."}]},
+            {"claims": [{"note": B, "text": "Agents rely on tools."}]},
+            {"questions": ["Q?"]},
+            {"shared": []},
+        ]
+    )
+    view = _client(model).post("/topics/big/claims/run", json={}).json()["view"]
+    assert view["claim_count"] == 4
+    assert view["questions"] == ["Q?"]
+    assert ids["a"] in {c.id for c in _all_claims(vault)}
+    assert [p.count("### NOTE") for p in model.prompts[:3]] == [2, 1, 1]
+
+
+def test_notes_are_sent_in_batches_of_at_most_four(vault: Path) -> None:
+    for i in range(5):
+        _write(vault, f"notes/n{i}.md", f"Body {i}.")
+    refresh_notes(vault, _db(vault), load_topics(vault / ".kai" / "topics.yaml"))
+    model = ScriptedModel([{"claims": []}, {"claims": []}, {"claims": []}])
+    _client(model).post("/topics/big/claims/run", json={})
+    assert [p.count("### NOTE") for p in model.prompts[:2]] == [4, 3]
+
+
+def _all_claims(vault: Path) -> list[Any]:
+    from vault_compass.claims import ClaimItem
+
+    with duckdb.connect(str(_db(vault)), read_only=True) as con:
+        rows = con.execute("SELECT claim_id, text, path FROM note_claims").fetchall()
+    return [ClaimItem(id=i, text=t, path=p, title="") for i, t, p in rows]
 
 
 def test_run_reads_at_most_30_notes_and_analyses_after_the_rest(vault: Path) -> None:
