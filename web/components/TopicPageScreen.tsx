@@ -150,7 +150,7 @@ export function TopicPageScreen({
         </ul>
       </section>
 
-      <ClaimsSection topic={id} />
+      <ClaimsSection topic={id} onWrite={() => setVersion((v) => v + 1)} />
 
       <CoverageSection topic={id} />
 

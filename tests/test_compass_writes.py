@@ -211,10 +211,10 @@ def test_failed_write_puts_back_the_files_already_written(
     pending = plan_write(db, "test", "s", [_edit(note, "x\n", "a.md"), _edit(other, "y\n", "b.md")])
     real = atomic_write
 
-    def flaky(path: Path, data: bytes) -> None:
+    def flaky(path: Path, data: bytes, *, create: bool = False) -> None:
         if path == other:
             raise OSError("disk full")
-        real(path, data)
+        real(path, data, create=create)
 
     with patch("vault_compass.vault_writes.atomic_write", side_effect=flaky):
         with pytest.raises(WriteError) as exc_info:

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Agreement } from "./ClaimsView";
-import { EditTopic, LinkNotes } from "./WriteActions";
+import { DraftEvergreen, EditTopic, LinkNotes } from "./WriteActions";
 import { CLAIMS } from "../lib/claimsFixture";
 
 const fetchMock = vi.fn();
@@ -121,5 +121,125 @@ describe("Agreement link action", () => {
     render(<Agreement view={view} vault="v" linkAction={linkAction} />);
 
     expect(linkAction).not.toHaveBeenCalled();
+  });
+});
+
+const DRAFT_PREVIEW = {
+  id: "p9",
+  kind: "evergreen",
+  summary: "New evergreen: Plans help",
+  files: [{ file: "notes/evergreen/plans-help.md", lines: [{ op: "+", text: "# Plans help" }] }],
+};
+
+describe("DraftEvergreen", () => {
+  it("waits for picked claims", () => {
+    render(<DraftEvergreen topic="big" claimIds={[]} onChange={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Draft new evergreen" })).toBeDisabled();
+    expect(screen.getByText("Tick claims above to start a draft.")).toBeInTheDocument();
+  });
+
+  it("opens the draft for review and saves only on Approve", async () => {
+    respond({ body: "## Claims this draws on\n\n- Plans help. ([[a]])\n" });
+    respond(DRAFT_PREVIEW);
+    respond({ id: "l9", status: "written", message: "New evergreen: Plans help" });
+    const onChange = vi.fn();
+    render(<DraftEvergreen topic="big" claimIds={["c1", "c3"]} onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Draft new evergreen from 2 claims" }));
+
+    expect(await screen.findByRole("textbox", { name: "Text" })).toHaveValue(
+      "## Claims this draws on\n\n- Plans help. ([[a]])\n",
+    );
+    expect(fetchMock).toHaveBeenCalledWith("/api/topics/big/evergreen-draft", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ claim_ids: ["c1", "c3"] }),
+    });
+    expect(screen.getByRole("button", { name: "Preview save" })).toBeDisabled();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Title" }), { target: { value: "Plans help" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Text" }), { target: { value: "Mine." } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview save" }));
+
+    expect(await screen.findByText("New evergreen: Plans help")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/writes/evergreen", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ topic: "big", title: "Plans help", body: "Mine." }),
+    });
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/writes/p9/apply", {
+      method: "POST",
+      headers: undefined,
+      body: undefined,
+    });
+  });
+
+  it("offers Approve again on a new preview after an undo", async () => {
+    respond({ body: "draft" });
+    respond(DRAFT_PREVIEW);
+    respond({ id: "l9", status: "written", message: "New evergreen: Plans help" });
+    respond({ id: "u9", status: "undone", message: "Undone: New evergreen: Plans help" });
+    respond({ ...DRAFT_PREVIEW, id: "p10" });
+    render(<DraftEvergreen topic="big" claimIds={["c1"]} onChange={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Draft new evergreen from 1 claim" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Title" }), { target: { value: "T" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview save" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Undone: New evergreen: Plans help");
+    fireEvent.click(screen.getByRole("button", { name: "Preview save" }));
+
+    expect(await screen.findByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("Discard closes the draft without a save", async () => {
+    respond({ body: "draft" });
+    const onChange = vi.fn();
+    render(<DraftEvergreen topic="big" claimIds={["c1"]} onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Draft new evergreen from 1 claim" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+
+    expect(screen.getByRole("button", { name: "Draft new evergreen from 1 claim" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("Cancel on the preview forgets the planned note", async () => {
+    respond({ body: "draft" });
+    respond(DRAFT_PREVIEW);
+    respond(undefined, true, 204);
+    const onChange = vi.fn();
+    render(<DraftEvergreen topic="big" claimIds={["c1"]} onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Draft new evergreen from 1 claim" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Title" }), { target: { value: "T" } });
+    fireEvent.click(screen.getByRole("button", { name: "Preview save" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    expect(await screen.findByText("Cancelled. Nothing was written.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/writes/p9", {
+      method: "DELETE",
+      headers: undefined,
+      body: undefined,
+    });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("shows why a draft cannot start", async () => {
+    respond({ detail: "Unknown claim: c1. Read the notes again." }, false, 400);
+    render(<DraftEvergreen topic="big" claimIds={["c1"]} onChange={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Draft new evergreen from 1 claim" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unknown claim: c1. Read the notes again.");
   });
 });

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Vault Compass sends sources to kai and drafts evergreens (#138). Ingest on a suggested
+  source asks first, then sends it to `kai serve`'s `/ingest` in the background and shows
+  queued, done or failed, with a clear message (and nothing queued) when kai is not running.
+  Every send is logged on Recent changes with a per-month count of new notes, the
+  "sources ingested from app suggestions" measure (`COMPASS_KAI_URL`, default
+  `http://127.0.0.1:8765`). "Draft new evergreen" starts a note in `notes/evergreen` from
+  ticked claims, each linked to its note; it opens for review and is saved only on approval
+  through the write layer, which can now create a note and undo that by removing it.
 - Vault Compass safe write-back (#137): one write layer for every change, with a preview of
   the exact lines, an approval click, a refusal when the file changed since it was read, an
   atomic write, and undo of the last 20 writes (Recent changes page). "Link notes" adds a

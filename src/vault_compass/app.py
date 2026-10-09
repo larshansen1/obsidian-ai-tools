@@ -22,6 +22,17 @@ from .claims import ClaimsView, build_claims_view, save_chosen_question
 from .claims_run import RunStatus, run_topic_claims
 from .config import CompassSettings, get_compass_settings
 from .db import DB_LOCK, writable
+from .evergreen_draft import MAX_CLAIMS, MAX_TITLE, draft_body, plan_evergreen
+from .kai_ingest import (
+    MAX_URL,
+    IngestError,
+    IngestJob,
+    IngestLog,
+    IngestQueue,
+    KaiClient,
+    KaiNotRunning,
+    start_thread,
+)
 from .note_links import plan_links
 from .notes import UNMAPPED_TAGS_SQL
 from .signals import SignalKind
@@ -124,6 +135,26 @@ class TopicTagsRequest(BaseModel):
     remove: list[str] = Field(default_factory=list, max_length=50)
 
 
+class IngestRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=MAX_URL)
+    title: str = Field(default="", max_length=500)
+    topic: str | None = Field(default=None, max_length=200)
+
+
+class DraftRequest(BaseModel):
+    claim_ids: list[str] = Field(min_length=1, max_length=MAX_CLAIMS)
+
+
+class Draft(BaseModel):
+    body: str
+
+
+class EvergreenRequest(BaseModel):
+    topic: str = Field(min_length=1, max_length=200)
+    title: str = Field(min_length=1, max_length=MAX_TITLE)
+    body: str = Field(default="", max_length=100_000)
+
+
 class AiStatus(BaseModel):
     configured: bool
     model: str
@@ -161,10 +192,12 @@ def create_app(
     today: Callable[[], date] = date.today,
     model_factory: Callable[[CompassSettings], ChatModel] = OpenRouterModel,
     source_ai_factory: Callable[[CompassSettings, ActionBudget], SourceAi] = OpenRouterSourceAi,
+    kai_factory: Callable[[CompassSettings], KaiClient] = lambda s: KaiClient(s.compass_kai_url),
+    spawn: Callable[[Callable[[], None]], None] = start_thread,
 ) -> FastAPI:
     """Build the Compass app. Used by uvicorn as a factory.
 
-    `today`, `model_factory` and `source_ai_factory` are test seams.
+    `today`, `model_factory`, `source_ai_factory`, `kai_factory` and `spawn` are test seams.
     """
 
     def current() -> CompassSettings:
@@ -412,6 +445,70 @@ def create_app(
         if outcome.status == "undone":
             refresh_once(cfg)
         return outcome
+
+    # --- Send a source to kai (W3) and draft a new evergreen (T8) ---
+
+    queues: dict[str, IngestQueue] = {}
+
+    def _queue() -> IngestQueue:
+        # One queue per app: it knows which jobs its own threads are still running.
+        if "kai" not in queues:
+            cfg = current()
+            queues["kai"] = IngestQueue(
+                cfg.compass_db_path,
+                cfg.obsidian_vault_path,
+                kai_factory(cfg),
+                spawn=spawn,
+                on_done=lambda: refresh_once(cfg),
+            )
+        return queues["kai"]
+
+    @app.post("/ingests", status_code=201)
+    def send_to_kai(request: IngestRequest) -> IngestJob:
+        try:
+            return _queue().submit(request.url, request.title, request.topic)
+        except KaiNotRunning as e:
+            raise HTTPException(status_code=503, detail=str(e)) from None
+        except IngestError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.get("/ingests")
+    def ingests() -> IngestLog:
+        return _queue().log()
+
+    @app.get("/ingests/{job_id}")
+    def ingest_job(job_id: str) -> IngestJob:
+        try:
+            return _queue().job(job_id)
+        except IngestError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from None
+
+    @app.post("/topics/{topic_id}/evergreen-draft")
+    def start_draft(topic_id: str, request: DraftRequest) -> Draft:
+        cfg = current()
+        if topic_id not in _vault(cfg).definitions.topics:
+            raise HTTPException(status_code=404, detail=f"Unknown topic: {topic_id}")
+        try:
+            return Draft(body=draft_body(cfg.compass_db_path, request.claim_ids))
+        except WriteError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.post("/writes/evergreen")
+    def plan_evergreen_write(request: EvergreenRequest) -> PendingWrite:
+        cfg = current()
+        try:
+            edit, summary = plan_evergreen(
+                cfg.obsidian_vault_path,
+                _vault(cfg).definitions,
+                request.topic,
+                request.title,
+                request.body,
+                today(),
+            )
+        except WriteError as e:
+            status = 404 if str(e).startswith("Unknown topic") else 400
+            raise HTTPException(status_code=status, detail=str(e)) from None
+        return plan_write(cfg.compass_db_path, "evergreen", summary, [edit])
 
     @app.post("/usage", status_code=204)
     def usage(event: UsageEvent) -> Response:
