@@ -24,6 +24,7 @@ from obsidian_ai_tools.ingestion import (
     ingest_content,
 )
 from obsidian_ai_tools.models import ArticleMetadata, CostInfo, Note
+from obsidian_ai_tools.providers.web import WebProvider
 from obsidian_ai_tools.server import app as server_app
 from obsidian_ai_tools.server.app import create_app
 
@@ -206,6 +207,18 @@ def test_ingest_content_runs_shared_pipeline_and_emits_progress(tmp_path: Path) 
                 "captured_author": "handle",
                 "captured_date": "2026-09-07T09:00:00.000Z",
             },
+        ),
+        (
+            "web",
+            IngestionRequest(url="https://example.com/post", captured_html="<html>post</html>"),
+            {"captured_html": "<html>post</html>"},
+        ),
+        (
+            "youtube",
+            IngestionRequest(
+                url="https://youtube.com/watch?v=test", captured_html="<html>page</html>"
+            ),
+            {},
         ),
     ],
 )
@@ -553,6 +566,103 @@ def test_http_lookup_requires_url(tmp_path: Path) -> None:
         response = TestClient(create_app()).get("/lookup")
 
     assert response.status_code == 422
+
+
+JS_SHELL_URL = "https://www.goodboy.ninja/blog/post/vibrating-trackpads-and-the-culture-of-software"
+JS_SHELL_HTML = (
+    Path(__file__).parent / "fixtures" / "web" / "goodboy_js_rendered_post.html"
+).read_text(encoding="utf-8")
+JS_SHELL_DETAIL = (
+    "Content fetch failed: The page loads its article with JavaScript, so kai could not "
+    "read it. Use the Chrome extension to capture it."
+)
+
+
+def _js_shell_web_provider() -> WebProvider:
+    provider = WebProvider()
+    provider.supadata_key = None
+    return provider
+
+
+def test_ingest_content_js_rendered_shell_fails_before_note_generation(tmp_path: Path) -> None:
+    """A JS-rendered shell raises ContentFetchError; no LLM call and no note (#150)."""
+    with (
+        patch(
+            "obsidian_ai_tools.ingestion.ProviderFactory.get_provider",
+            return_value=_js_shell_web_provider(),
+        ),
+        patch("obsidian_ai_tools.providers.get_db"),
+        patch("obsidian_ai_tools.providers.web._limiter"),
+        patch(
+            "obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=JS_SHELL_HTML
+        ) as mock_fetch,
+        patch("obsidian_ai_tools.ingestion.generate_note") as mock_generate,
+        patch("obsidian_ai_tools.ingestion.write_note") as mock_write,
+    ):
+        with pytest.raises(ContentFetchError) as exc_info:
+            ingest_content(IngestionRequest(url=JS_SHELL_URL), _settings(tmp_path))  # type: ignore[arg-type]
+
+    assert str(exc_info.value) == JS_SHELL_DETAIL
+    mock_fetch.assert_called_once_with(JS_SHELL_URL)
+    mock_generate.assert_not_called()
+    mock_write.assert_not_called()
+    assert not (tmp_path / "inbox").exists()
+
+
+def test_http_ingest_js_rendered_shell_returns_422(tmp_path: Path) -> None:
+    """/ingest answers 422 with the JS-rendered detail and writes no note (#150)."""
+    with (
+        patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+        patch(
+            "obsidian_ai_tools.ingestion.ProviderFactory.get_provider",
+            return_value=_js_shell_web_provider(),
+        ),
+        patch("obsidian_ai_tools.providers.get_db"),
+        patch("obsidian_ai_tools.providers.web._limiter"),
+        patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=JS_SHELL_HTML),
+        patch("obsidian_ai_tools.ingestion.generate_note") as mock_generate,
+    ):
+        response = TestClient(create_app()).post(
+            "/ingest", json={"url": JS_SHELL_URL, "vault_path": str(tmp_path)}
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": JS_SHELL_DETAIL}
+    mock_generate.assert_not_called()
+    assert not (tmp_path / "inbox").exists()
+
+
+def test_http_ingest_forwards_captured_html(tmp_path: Path) -> None:
+    """The webhook adapter forwards the extension's rendered page HTML."""
+    metadata = _metadata()
+    result = IngestionResult(
+        provider_name="web",
+        prompt_version="article_v1",
+        metadata=metadata,
+        note=_note(),
+        file_path=tmp_path / "inbox" / "web-generated-note.md",
+    )
+
+    with (
+        patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+        patch("obsidian_ai_tools.server.app.ingest_content", return_value=result) as mock_ingest,
+    ):
+        response = TestClient(create_app()).post(
+            "/ingest",
+            json={
+                "url": metadata.url,
+                "vault_path": str(tmp_path),
+                "captured_html": "<html><body>Rendered post</body></html>",
+            },
+        )
+
+    assert response.status_code == 200
+    request = mock_ingest.call_args.args[0]
+    assert request == IngestionRequest(
+        url=metadata.url,
+        vault_path=tmp_path,
+        captured_html="<html><body>Rendered post</body></html>",
+    )
 
 
 IN_FLIGHT_URL = "https://in-flight.example/video"
