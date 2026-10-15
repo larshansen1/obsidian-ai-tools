@@ -7,11 +7,13 @@ Start with: kai serve
 import logging
 import math
 import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 from typing import Any
 
+import structlog
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
@@ -174,6 +176,14 @@ def create_app() -> FastAPI:
 
     @app.post("/ingest", response_model=IngestResponse)
     def ingest(req: IngestRequest) -> IngestResponse:
+        # setup_logging() binds one trace_id at server start; without a fresh
+        # one per request every ingest of a session shares it. The context
+        # manager restores the old value on exit so no ID leaks to the next
+        # request handled by the same threadpool worker.
+        with structlog.contextvars.bound_contextvars(trace_id=str(uuid.uuid4())):
+            return _ingest(req)
+
+    def _ingest(req: IngestRequest) -> IngestResponse:
         from ..observability import get_db
 
         settings = get_settings()
