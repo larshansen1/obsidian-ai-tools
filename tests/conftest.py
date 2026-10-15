@@ -27,6 +27,19 @@ def _obs_db_tmp(tmp_path: Path) -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
+def _log_file_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep setup_logging() away from the real ~/.kai/logs/ingest.log.
+
+    CLI tests run the app callback, which calls setup_logging(); without this
+    every later log record of the session landed in the developer's real log,
+    mixing test ingests into it under one trace ID (#151).
+    """
+    log_dir = tmp_path / "_kai_test_logs"
+    monkeypatch.setattr("obsidian_ai_tools.logging.LOG_DIR", log_dir)
+    monkeypatch.setattr("obsidian_ai_tools.logging.LOG_FILE", log_dir / "ingest.log")
+
+
+@pytest.fixture(autouse=True)
 def _isolate_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Guarantee no test can read the developer's real .env.
 

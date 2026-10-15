@@ -1,11 +1,13 @@
 """Tests for the shared ingestion orchestration service."""
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 import pytest
+import structlog
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
@@ -1269,3 +1271,80 @@ def test_discover_existing_tags_swallows_scan_failures(tmp_path: Path) -> None:
         exc_info=True,
     )
     assert mock_logging.getLogger.call_args == call("obsidian_ai_tools.ingestion")
+
+
+class _TraceCapture(logging.Handler):
+    """Records (message, bound trace_id) at emit time, as merge_contextvars sees it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: list[tuple[str, str | None]] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        trace_id = structlog.contextvars.get_contextvars().get("trace_id")
+        self.records.append((record.getMessage(), trace_id))
+
+
+def test_http_ingest_binds_a_fresh_trace_id_per_request(tmp_path: Path) -> None:
+    """Each /ingest logs under its own trace ID, never the startup one (#151)."""
+    first_id = "11111111-1111-1111-1111-111111111111"
+    second_id = "22222222-2222-2222-2222-222222222222"
+    startup_id = "00000000-0000-0000-0000-000000000000"
+    pipeline_logger = logging.getLogger("obsidian_ai_tools.ingestion")
+    result = IngestionResult(
+        provider_name="web",
+        prompt_version="article_v1",
+        metadata=_metadata(),
+        note=_note(),
+        file_path=tmp_path / "inbox" / "web-generated-note.md",
+    )
+    calls = 0
+
+    def fake_ingest(_request: IngestionRequest, _settings: object) -> IngestionResult:
+        nonlocal calls
+        calls += 1
+        pipeline_logger.info("fetch")
+        pipeline_logger.info("llm")
+        if calls == 2:
+            raise ContentFetchError("boom")
+        pipeline_logger.info("persisted")
+        return result
+
+    capture = _TraceCapture()
+    root = logging.getLogger("obsidian_ai_tools")
+    old_level = root.level
+    root.addHandler(capture)
+    root.setLevel(logging.INFO)
+    structlog.contextvars.bind_contextvars(trace_id=startup_id)
+    try:
+        with (
+            patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+            patch("obsidian_ai_tools.server.app.ingest_content", side_effect=fake_ingest),
+            patch("obsidian_ai_tools.observability.get_db"),
+            patch("obsidian_ai_tools.server.app.uuid") as mock_uuid,
+        ):
+            mock_uuid.uuid4.side_effect = [first_id, second_id]
+            client = TestClient(create_app())
+            first = client.post("/ingest", json={"url": "https://example.com/a"})
+            second = client.post("/ingest", json={"url": "https://example.com/b"})
+        after = structlog.contextvars.get_contextvars()
+    finally:
+        root.removeHandler(capture)
+        root.setLevel(old_level)
+        structlog.contextvars.clear_contextvars()
+
+    assert first.status_code == 200
+    assert second.status_code == 422
+    assert mock_uuid.uuid4.call_args_list == [call(), call()]
+    assert capture.records == [
+        ("Server ingest started", first_id),
+        ("fetch", first_id),
+        ("llm", first_id),
+        ("persisted", first_id),
+        ("Server ingest finished", first_id),
+        ("Server ingest started", second_id),
+        ("fetch", second_id),
+        ("llm", second_id),
+        ("Server ingest finished", second_id),
+    ]
+    assert after == {"trace_id": startup_id}
