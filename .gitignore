@@ -34,3 +34,8 @@ mutants/
 
 # git worktrees for parallel agent workflow
 .worktrees/
+
+# local-only webhook security fuzz kit (see #100-#104); not part of CI
+tests/fuzz/
+scripts/fuzz_webhook.py
+docs/security-fuzzing.md
