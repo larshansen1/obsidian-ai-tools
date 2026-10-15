@@ -22,6 +22,7 @@ from ..config import get_settings
 from ..dedup import ExistingNote, find_note_by_source, normalize_source_url
 from ..ingestion import (
     ContentFetchError,
+    IngestionResult,
     NoteGenerationStageError,
     ProviderSelectionError,
     VaultWriteError,
@@ -113,6 +114,71 @@ def _utcnow() -> datetime:
 # ---------------------------------------------------------------------------
 
 
+def _service_request(req: IngestRequest) -> ServiceIngestionRequest:
+    """Translate the HTTP request body into the ingestion service request."""
+    return ServiceIngestionRequest(
+        url=req.url,
+        vault_path=Path(req.vault_path) if req.vault_path else None,
+        prompt_version=req.prompt_version,
+        transcript_providers=req.transcript_providers,
+        max_pages=req.max_pages,
+        captured_content=req.captured_content,
+        captured_title=req.captured_title,
+        captured_author=req.captured_author,
+        captured_date=req.captured_date,
+        captured_html=req.captured_html,
+        update=req.update,
+    )
+
+
+def _record_ingest_finished(url: str, outcome: str, elapsed: float, error_type: str | None) -> None:
+    """Log the finished ingest and record it; a metrics failure never fails the request."""
+    from ..observability import get_db
+
+    _server_logger.info(
+        "Server ingest finished",
+        extra={
+            "url": url,
+            "outcome": outcome,
+            "duration_seconds": elapsed,
+            "error_type": error_type,
+        },
+    )
+    try:
+        get_db().record_invocation("serve:ingest", outcome, elapsed, error_type)
+    except Exception:  # nosec B110
+        pass
+
+
+def _ingest_response(
+    req: IngestRequest, result: IngestionResult | ExistingNote, default_vault: Path
+) -> IngestResponse:
+    """Build the reply for a new note or for one that already existed."""
+    vault_path = Path(req.vault_path) if req.vault_path else default_vault
+    try:
+        obsidian_url: str | None = build_obsidian_url(vault_path, result.file_path)
+    except ValueError:
+        obsidian_url = None
+
+    if isinstance(result, ExistingNote):
+        return IngestResponse(
+            status="exists",
+            title=result.title,
+            file_path=str(result.file_path),
+            tags=result.tags,
+            source_type=result.source_type or "unknown",
+            obsidian_url=obsidian_url,
+        )
+
+    return IngestResponse(
+        title=result.note.title,
+        file_path=str(result.file_path),
+        tags=result.note.tags,
+        source_type=result.note.source_type,
+        obsidian_url=obsidian_url,
+    )
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="kai",
@@ -184,8 +250,6 @@ def create_app() -> FastAPI:
             return _ingest(req)
 
     def _ingest(req: IngestRequest) -> IngestResponse:
-        from ..observability import get_db
-
         settings = get_settings()
         key = normalize_source_url(req.url)
         with _in_flight_lock:
@@ -204,22 +268,7 @@ def create_app() -> FastAPI:
         _outcome = "success"
         _error_type: str | None = None
         try:
-            result = ingest_content(
-                ServiceIngestionRequest(
-                    url=req.url,
-                    vault_path=Path(req.vault_path) if req.vault_path else None,
-                    prompt_version=req.prompt_version,
-                    transcript_providers=req.transcript_providers,
-                    max_pages=req.max_pages,
-                    captured_content=req.captured_content,
-                    captured_title=req.captured_title,
-                    captured_author=req.captured_author,
-                    captured_date=req.captured_date,
-                    captured_html=req.captured_html,
-                    update=req.update,
-                ),
-                settings,
-            )
+            result = ingest_content(_service_request(req), settings)
         except ProviderSelectionError as exc:
             _outcome, _error_type = "error", "ProviderSelectionError"
             raise HTTPException(status_code=400, detail=f"No provider for URL: {req.url}") from exc
@@ -232,43 +281,8 @@ def create_app() -> FastAPI:
         finally:
             with _in_flight_lock:
                 _in_flight.pop(key, None)
-            elapsed = time.monotonic() - _start
-            _server_logger.info(
-                "Server ingest finished",
-                extra={
-                    "url": req.url,
-                    "outcome": _outcome,
-                    "duration_seconds": elapsed,
-                    "error_type": _error_type,
-                },
-            )
-            try:
-                get_db().record_invocation("serve:ingest", _outcome, elapsed, _error_type)
-            except Exception:  # nosec B110
-                pass
+            _record_ingest_finished(req.url, _outcome, time.monotonic() - _start, _error_type)
 
-        vault_path = Path(req.vault_path) if req.vault_path else settings.obsidian_vault_path
-        try:
-            obsidian_url: str | None = build_obsidian_url(vault_path, result.file_path)
-        except ValueError:
-            obsidian_url = None
-
-        if isinstance(result, ExistingNote):
-            return IngestResponse(
-                status="exists",
-                title=result.title,
-                file_path=str(result.file_path),
-                tags=result.tags,
-                source_type=result.source_type or "unknown",
-                obsidian_url=obsidian_url,
-            )
-
-        return IngestResponse(
-            title=result.note.title,
-            file_path=str(result.file_path),
-            tags=result.note.tags,
-            source_type=result.note.source_type,
-            obsidian_url=obsidian_url,
-        )
+        return _ingest_response(req, result, settings.obsidian_vault_path)
 
     return app

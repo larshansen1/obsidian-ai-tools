@@ -12,8 +12,9 @@ its recorded CRAP value but fails if it ever exceeds it. This is
 deliberate grandfathering, NOT a threshold raise — a single threshold
 that cleared the worst hotspot (CRAP ~756) would tolerate CRAP up to 756
 everywhere and gut the gate. The recorded caps keep the gate red the
-moment a grandfathered function worsens; fixing the hotspots is a
-refactor tracked as a follow-up.
+moment a grandfathered function worsens. The original hotspots were
+fixed in #112, so the dict is empty; keep it that way and fix new
+hotspots instead of adding entries.
 
 Stdlib only: intended to work under plain ``python3`` in CI.
 """
@@ -34,12 +35,7 @@ from dataclasses import dataclass
 # recorded at the same 2-decimal precision the report prints, and the
 # gate compares at that precision, so a score that displays at its cap
 # passes (coverage-iteration drift below a cent must not flip it red).
-BASELINE: dict[str, float] = {
-    "src/obsidian_ai_tools/commands/vault.py:process_inbox": 755.69,
-    "src/obsidian_ai_tools/server/app.py:create_app.<locals>._ingest": 106.31,
-    "src/obsidian_ai_tools/_vault_store.py:VaultStore.iter_notes": 48.44,
-    "src/obsidian_ai_tools/commands/preview.py:preview": 31.16,
-}
+BASELINE: dict[str, float] = {}
 
 
 def crap(complexity: float, coverage: float) -> float:

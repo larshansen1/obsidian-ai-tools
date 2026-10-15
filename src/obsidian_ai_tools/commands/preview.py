@@ -107,6 +107,41 @@ def _run_interactive_action(preview_info: PreviewInfo, target_url: str, vault_pa
         typer.echo("  ✓ Skipped")
 
 
+def _preview_one(
+    target_url: str, format_type: str, *, interactive: bool, vault_path: Path
+) -> PreviewInfo | None:
+    """Preview one URL, print it, and record its metric; None when it failed."""
+    # Interactive mode stays inside the try: saving to the reading list can
+    # raise PreviewError, which must warn rather than abort the run.
+    start_time = time.time()
+    try:
+        typer.echo(f"\n🔍 Previewing: {target_url[:80]}...")
+        preview_info = generate_preview(target_url)
+        _record_preview_metric(preview_info.source_type, "success", time.time() - start_time)
+        if format_type == "json":
+            typer.echo(format_preview_json(preview_info))
+        else:
+            typer.echo(format_preview_terminal(preview_info))
+        if interactive:
+            _run_interactive_action(preview_info, target_url, vault_path)
+        return preview_info
+    except (UnsupportedURLError, PreviewError) as e:
+        label = "Unsupported URL type" if isinstance(e, UnsupportedURLError) else "Preview failed"
+        typer.echo(f"⚠️  {label}: {e}", err=True)
+        _record_preview_metric(
+            "unknown", "failure", time.time() - start_time, error_type=type(e).__name__
+        )
+        return None
+
+
+def _echo_batch_summary(previews: list[PreviewInfo], url_count: int) -> None:
+    """Print how many URLs previewed and their total estimated cost."""
+    typer.echo(f"\n✅ Previewed {len(previews)}/{url_count} URL(s)")
+    if previews:
+        total_cost = sum(p.estimated_cost_usd for p in previews)
+        typer.echo(f"   Total estimated cost: ${total_cost:.4f}")
+
+
 @track_command("preview")
 def preview(
     url: Annotated[
@@ -153,41 +188,11 @@ def preview(
     previews: list[PreviewInfo] = []
 
     for target_url in urls:
-        start_time = time.time()
-        try:
-            typer.echo(f"\n🔍 Previewing: {target_url[:80]}...")
-            preview_info = generate_preview(target_url)
+        preview_info = _preview_one(
+            target_url, format_type, interactive=interactive and not batch, vault_path=vault_path
+        )
+        if preview_info is not None:
             previews.append(preview_info)
-            duration = time.time() - start_time
-            _record_preview_metric(preview_info.source_type, "success", duration)
-
-            if format_type == "json":
-                typer.echo(format_preview_json(preview_info))
-            else:
-                typer.echo(format_preview_terminal(preview_info))
-
-            if interactive and not batch:
-                _run_interactive_action(preview_info, target_url, vault_path)
-
-        except UnsupportedURLError as e:
-            typer.echo(f"⚠️  Unsupported URL type: {e}", err=True)
-            _record_preview_metric(
-                "unknown",
-                "failure",
-                time.time() - start_time,
-                error_type="UnsupportedURLError",
-            )
-        except PreviewError as e:
-            typer.echo(f"⚠️  Preview failed: {e}", err=True)
-            _record_preview_metric(
-                "unknown",
-                "failure",
-                time.time() - start_time,
-                error_type="PreviewError",
-            )
 
     if batch and len(urls) > 1:
-        typer.echo(f"\n✅ Previewed {len(previews)}/{len(urls)} URL(s)")
-        if previews:
-            total_cost = sum(p.estimated_cost_usd for p in previews)
-            typer.echo(f"   Total estimated cost: ${total_cost:.4f}")
+        _echo_batch_summary(previews, len(urls))
