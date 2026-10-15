@@ -65,8 +65,13 @@ addopts = [
     "--disable-warnings",
 ]
 testpaths = ["tests"]
+# tests/fuzz is a local-only security fuzz kit (gitignored, needs hypothesis).
+# Skip it on a plain run; run it on purpose with `pytest tests/fuzz`.
+# The other entries are pytest's defaults, which this setting replaces.
+norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules", "venv", "{arch}", "fuzz"]
 markers = [
     "slow: tests excluded from the fast pre-commit suite",
+    "fuzz: local-only security fuzz tests in tests/fuzz",
 ]
 
 [tool.coverage.run]
