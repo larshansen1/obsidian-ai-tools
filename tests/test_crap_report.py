@@ -414,24 +414,26 @@ BASELINE_NOTE = (
 )
 
 
-def test_baseline_at_recorded_value_passes(tmp_path: Path) -> None:
-    # VaultStore.iter_notes at 1/6 of its lines covered scores 48.4444,
-    # which displays as 48.44 — its recorded cap. The raw float is above
-    # the cap but the reported value equals it, so it passes: the gate
-    # compares at reported precision. The row is tagged in the table.
+# The grandfathering tests patch BASELINE with a synthetic entry so they keep
+# working as real hotspots are fixed and leave the list (#112).
+_BASELINED_KEY = "src/pkg/store.py:Store.walk"
+
+
+def _baselined_method_fixture(tmp_path: Path, executed: list[int]) -> None:
+    """A CC-4, six-line method ``Store.walk`` with *executed* lines covered."""
     _fixture_files(
         tmp_path,
         {
-            "src/obsidian_ai_tools/_vault_store.py": [
+            "src/pkg/store.py": [
                 {
                     "type": "class",
-                    "name": "VaultStore",
+                    "name": "Store",
                     "lineno": 1,
                     "endline": 6,
                     "methods": [
                         {
                             "type": "method",
-                            "name": "iter_notes",
+                            "name": "walk",
                             "complexity": 4,
                             "lineno": 1,
                             "endline": 6,
@@ -442,101 +444,51 @@ def test_baseline_at_recorded_value_passes(tmp_path: Path) -> None:
             ]
         },
         {
-            "src/obsidian_ai_tools/_vault_store.py": {
-                "executed_lines": [1],
-                "missing_lines": [2, 3, 4, 5, 6],
+            "src/pkg/store.py": {
+                "executed_lines": executed,
+                "missing_lines": [n for n in range(1, 7) if n not in executed],
             }
         },
     )
-    result = _run_report(tmp_path)
-    assert result.returncode == 0
-    assert result.stderr == BASELINE_NOTE + "\n"
-    assert (
-        result.stdout.splitlines()[2] == "  4   17%    48.44  "
-        "src/obsidian_ai_tools/_vault_store.py:VaultStore.iter_notes  BASELINE"
-    )
 
 
-def test_baseline_over_threshold_but_under_cap_passes(tmp_path: Path) -> None:
-    # VaultStore.iter_notes (cap 48.44) at CC 4, 2/6 lines covered scores
-    # 32.44: over the 30 threshold, yet passes — grandfathering is what
-    # lets a score in (threshold, cap] through.
-    _fixture_files(
-        tmp_path,
-        {
-            "src/obsidian_ai_tools/_vault_store.py": [
-                {
-                    "type": "class",
-                    "name": "VaultStore",
-                    "lineno": 1,
-                    "endline": 6,
-                    "methods": [
-                        {
-                            "type": "method",
-                            "name": "iter_notes",
-                            "complexity": 4,
-                            "lineno": 1,
-                            "endline": 6,
-                            "closures": [],
-                        }
-                    ],
-                }
-            ]
-        },
-        {
-            "src/obsidian_ai_tools/_vault_store.py": {
-                "executed_lines": [1, 2],
-                "missing_lines": [3, 4, 5, 6],
-            }
-        },
-    )
-    result = _run_report(tmp_path)
-    assert result.returncode == 0
-    assert result.stderr == BASELINE_NOTE + "\n"
-    assert (
-        result.stdout.splitlines()[2] == "  4   33%    32.44  "
-        "src/obsidian_ai_tools/_vault_store.py:VaultStore.iter_notes  BASELINE"
-    )
+def _run_with_baseline(monkeypatch, tmp_path: Path) -> int:
+    monkeypatch.delenv("CRAP_THRESHOLD", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(crap_report, "BASELINE", {_BASELINED_KEY: 48.44})
+    return main([])
 
 
-def test_baseline_exceeding_cap_fails(tmp_path: Path) -> None:
-    # Same function at 0% coverage scores CRAP 68.00 > cap 48.44: the cap
+def test_baseline_at_recorded_value_passes(monkeypatch, tmp_path: Path, capsys) -> None:
+    # CC 4 at 1/6 of its lines covered scores 48.4444, which displays as
+    # 48.44 — the recorded cap. The raw float is above the cap but the
+    # reported value equals it, so it passes: the gate compares at
+    # reported precision. The row is tagged in the table.
+    _baselined_method_fixture(tmp_path, [1])
+    assert _run_with_baseline(monkeypatch, tmp_path) == 0
+    out = capsys.readouterr()
+    assert out.err == BASELINE_NOTE + "\n"
+    assert out.out.splitlines()[2] == f"  4   17%    48.44  {_BASELINED_KEY}  BASELINE"
+
+
+def test_baseline_over_threshold_but_under_cap_passes(monkeypatch, tmp_path: Path, capsys) -> None:
+    # Cap 48.44, CC 4, 2/6 lines covered scores 32.44: over the 30
+    # threshold, yet passes — grandfathering is what lets a score in
+    # (threshold, cap] through.
+    _baselined_method_fixture(tmp_path, [1, 2])
+    assert _run_with_baseline(monkeypatch, tmp_path) == 0
+    out = capsys.readouterr()
+    assert out.err == BASELINE_NOTE + "\n"
+    assert out.out.splitlines()[2] == f"  4   33%    32.44  {_BASELINED_KEY}  BASELINE"
+
+
+def test_baseline_exceeding_cap_fails(monkeypatch, tmp_path: Path, capsys) -> None:
+    # Same method at 0% coverage scores CRAP 68.00 > cap 48.44: the cap
     # still fails, and the FAIL line names the cap as its limit.
-    _fixture_files(
-        tmp_path,
-        {
-            "src/obsidian_ai_tools/_vault_store.py": [
-                {
-                    "type": "class",
-                    "name": "VaultStore",
-                    "lineno": 1,
-                    "endline": 6,
-                    "methods": [
-                        {
-                            "type": "method",
-                            "name": "iter_notes",
-                            "complexity": 4,
-                            "lineno": 1,
-                            "endline": 6,
-                            "closures": [],
-                        }
-                    ],
-                }
-            ]
-        },
-        {
-            "src/obsidian_ai_tools/_vault_store.py": {
-                "executed_lines": [],
-                "missing_lines": [1, 2, 3, 4, 5, 6],
-            }
-        },
-    )
-    result = _run_report(tmp_path)
-    assert result.returncode == 1
-    assert result.stderr == (
-        BASELINE_NOTE + "\nFAIL: src/obsidian_ai_tools/_vault_store.py:VaultStore.iter_notes "
-        "has CRAP 68.00 > 48.44\n"
-    )
+    _baselined_method_fixture(tmp_path, [])
+    assert _run_with_baseline(monkeypatch, tmp_path) == 1
+    out = capsys.readouterr()
+    assert out.err == (BASELINE_NOTE + f"\nFAIL: {_BASELINED_KEY} has CRAP 68.00 > 48.44\n")
 
 
 def test_baseline_exact_cap_passes_and_epsilon_fails(monkeypatch, tmp_path: Path, capsys) -> None:

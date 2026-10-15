@@ -8,7 +8,6 @@ calls on vault paths outside of this file.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -105,16 +104,6 @@ class VaultStore:
         """Check whether a note file exists inside the vault."""
         resolved = self.validate_path(path)
         return resolved.exists()
-
-    # ── iteration ───────────────────────────────────────────────────────────
-
-    def iter_notes(self, glob_pattern: str = "**/*.md") -> Iterator[Path]:
-        """Yield note paths matching *glob_pattern*, sorted, skipping hidden dirs."""
-        for path in sorted(self._vault_path.glob(glob_pattern)):
-            rel = path.relative_to(self._vault_path)
-            if any(part.startswith(".") for part in rel.parts):
-                continue
-            yield path
 
     # ── JSON I/O (index / metadata files) ────────────────────────────────────
 

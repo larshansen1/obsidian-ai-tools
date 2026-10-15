@@ -12,6 +12,7 @@ import typer
 from typer.testing import CliRunner
 
 from obsidian_ai_tools.commands.preview import (
+    _echo_batch_summary,
     _record_preview_metric,
     _resolve_urls,
     _run_interactive_action,
@@ -895,6 +896,30 @@ class TestPreviewCommand:
 # =============================================================================
 # Tests for preview command helpers
 # =============================================================================
+
+
+class TestPreviewCommandEdges:
+    """Config failure and the batch summary when nothing previewed."""
+
+    @patch("obsidian_ai_tools.commands.preview.generate_preview")
+    @patch("obsidian_ai_tools.commands.preview.get_settings")
+    def test_config_error_exits_before_previewing(
+        self, mock_settings: MagicMock, mock_generate: MagicMock
+    ) -> None:
+        from obsidian_ai_tools.cli import app
+
+        mock_settings.side_effect = ValueError("missing key")
+
+        result = CliRunner().invoke(app, ["preview", "https://example.com"])
+
+        assert result.exit_code == 1
+        assert result.stderr == "❌ Configuration error: missing key\n"
+        mock_settings.assert_called_once_with()
+        mock_generate.assert_not_called()
+
+    def test_batch_summary_with_no_previews_omits_cost(self, capsys) -> None:
+        _echo_batch_summary([], 3)
+        assert capsys.readouterr().out == "\n✅ Previewed 0/3 URL(s)\n"
 
 
 class TestResolveUrls:

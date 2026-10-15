@@ -161,14 +161,7 @@ def process_inbox(
         kai process-inbox --confirm              # Execute with confirmation
         kai process-inbox --confirm --yes        # Execute without confirmation
     """
-    from ..folder_organizer import (
-        InvalidRulesError,
-        PathTraversalError,
-        load_folder_rules,
-        move_note,
-        scan_inbox_notes,
-        track_move,
-    )
+    from ..folder_organizer import scan_inbox_notes
 
     try:
         settings = get_settings()
@@ -178,11 +171,30 @@ def process_inbox(
         raise typer.Exit(1) from e
 
     vault_path = vault or settings.obsidian_vault_path
+    rules = _load_rules_or_exit(vault_path)
+
+    typer.echo("📥 Scanning inbox for notes...")
+    notes, failed_files = scan_inbox_notes(vault_path, settings.obsidian_inbox_folder, rules)
+    if failed_files:
+        _warn_unparsed(failed_files)
+
+    if not notes:
+        typer.echo("✅ No notes to move (inbox is empty or no notes match rules)")
+        return
+
+    _display_batch_summary(notes, dry_run)
+    if dry_run or not _confirmed(len(notes), confirm, yes):
+        return
+    _move_notes(notes, vault_path)
+
+
+def _load_rules_or_exit(vault_path: Path) -> dict[str, str]:
+    """Load folder_rules.json, exiting with an example file on bad rules."""
+    from ..folder_organizer import InvalidRulesError, PathTraversalError, load_folder_rules
 
     try:
         typer.echo("📂 Loading folder rules...")
         rules = load_folder_rules(vault_path)
-        typer.echo(f"   ✓ Loaded {len(rules)} rule(s)")
     except (InvalidRulesError, PathTraversalError) as e:
         typer.echo(f"❌ {e}", err=True)
         typer.echo(
@@ -194,54 +206,48 @@ def process_inbox(
             err=True,
         )
         raise typer.Exit(1) from e
+    typer.echo(f"   ✓ Loaded {len(rules)} rule(s)")
+    return rules
 
-    typer.echo("📥 Scanning inbox for notes...")
-    notes, failed_files = scan_inbox_notes(vault_path, settings.obsidian_inbox_folder, rules)
 
-    if failed_files:
-        typer.echo(
-            f"⚠️  Warning: Could not parse {len(failed_files)} file(s): "
-            f"{', '.join(failed_files[:5])}"
-            + (f" and {len(failed_files) - 5} more" if len(failed_files) > 5 else ""),
-            err=True,
-        )
+def _warn_unparsed(failed_files: list[str]) -> None:
+    """Warn about inbox files that could not be parsed, naming the first five."""
+    more = f" and {len(failed_files) - 5} more" if len(failed_files) > 5 else ""
+    typer.echo(
+        f"⚠️  Warning: Could not parse {len(failed_files)} file(s): "
+        f"{', '.join(failed_files[:5])}{more}",
+        err=True,
+    )
 
-    if not notes:
-        typer.echo("✅ No notes to move (inbox is empty or no notes match rules)")
-        return
 
-    _display_batch_summary(notes, dry_run)
-
-    if dry_run:
-        return
-
+def _confirmed(note_count: int, confirm: bool, yes: bool) -> bool:
+    """True when moves should run: --confirm given and, without --yes, the user agrees."""
     if not confirm:
         typer.echo("\n⚠️  Add --confirm to execute moves")
-        return
+        return False
+    if yes:
+        return True
+    if not typer.confirm(f"\n❓ Move {note_count} note(s)?"):
+        typer.echo("❌ Cancelled")
+        return False
+    typer.echo("\n💾 Moving notes...")
+    return True
 
-    if not yes:
-        user_confirm = typer.confirm(f"\n❓ Move {len(notes)} note(s)?")
-        if not user_confirm:
-            typer.echo("❌ Cancelled")
-            return
-        typer.echo("\n💾 Moving notes...")
 
-    results = []
+def _move_notes(notes: list["NoteToMove"], vault_path: Path) -> None:
+    """Move each note, record successful moves, and report the tally."""
+    from ..folder_organizer import move_note, track_move
+
+    success_count = 0
     for note in notes:
-        result = move_note(note, vault_path, dry_run)
-        results.append(result)
-        if not dry_run:
-            if result.success:
-                track_move(result, vault_path)
-                typer.echo(f"   ✓ Moved {result.file} → {result.to_folder}")
-            else:
-                typer.echo(f"   ✗ Failed to move {result.file}: {result.error}", err=True)
-
-    if not dry_run:
-        success_count = sum(1 for r in results if r.success)
-        typer.echo(f"\n✅ Successfully moved {success_count}/{len(results)} note(s)")
-    else:
-        typer.echo(f"\n🔍 Dry run complete - {len(notes)} note(s) would be moved")
+        result = move_note(note, vault_path)
+        if result.success:
+            success_count += 1
+            track_move(result, vault_path)
+            typer.echo(f"   ✓ Moved {result.file} → {result.to_folder}")
+        else:
+            typer.echo(f"   ✗ Failed to move {result.file}: {result.error}", err=True)
+    typer.echo(f"\n✅ Successfully moved {success_count}/{len(notes)} note(s)")
 
 
 def _display_batch_summary(notes: list["NoteToMove"], dry_run: bool = False) -> None:
