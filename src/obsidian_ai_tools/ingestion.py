@@ -59,6 +59,7 @@ class IngestionRequest:
     captured_title: str | None = None
     captured_author: str | None = None
     captured_date: str | None = None
+    captured_html: str | None = None
     update: bool = False
 
 
@@ -192,6 +193,9 @@ def ingest_content(
         ):
             if value is not None:
                 kwargs[key] = value
+    # Rendered page HTML from the extension; only the web provider extracts from it.
+    if provider.name == "web" and request.captured_html is not None:
+        kwargs["captured_html"] = request.captured_html
 
     try:
         metadata = provider.ingest(request.url, **kwargs)

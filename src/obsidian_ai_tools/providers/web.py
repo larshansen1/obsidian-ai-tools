@@ -1,6 +1,7 @@
 """Web content provider implementation using Trafilatura with Supadata fallback."""
 
 import logging
+import re
 import time
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -15,6 +16,38 @@ from . import _limiter, _record_attempt
 from .base import BaseProvider
 
 logger = logging.getLogger(__name__)
+
+JS_RENDERED_MESSAGE = (
+    "The page loads its article with JavaScript, so kai could not read it. "
+    "Use the Chrome extension to capture it."
+)
+
+# A whole text node that is only a loading placeholder, e.g. "Loading Blog Post...".
+# Kept narrow (no "Loading comments...") so long articles with lazy widgets pass.
+_LOADING_PLACEHOLDER_RE = re.compile(
+    r">\s*(Loading(?:\s+(?:blog\s+)?(?:post|article|content|story|page))?\s*(?:\.{3}|\u2026))\s*<",
+    re.IGNORECASE,
+)
+# Below this the extracted text is too short to be the article a placeholder stands in for.
+_THIN_TEXT_CHARS = 1500
+
+
+class JavaScriptRenderedPageError(ValueError):
+    """The fetched HTML is an empty shell whose article loads with JavaScript.
+
+    A ValueError so BaseProvider.ingest does not retry: refetching returns the same shell.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(JS_RENDERED_MESSAGE)
+
+
+def find_js_placeholder(html: str, text: str) -> str | None:
+    """Return the loading placeholder if the extraction looks like a JS-rendered shell."""
+    if len(text) >= _THIN_TEXT_CHARS:
+        return None
+    match = _LOADING_PLACEHOLDER_RE.search(html)
+    return match.group(1) if match else None
 
 
 class WebProvider(BaseProvider):
@@ -87,15 +120,25 @@ class WebProvider(BaseProvider):
             _record_attempt("web", "raw", "success", time.monotonic() - _t0, url=source)
             return ArticleMetadata(**raw_result)
 
-        # 2. Try direct extraction (Trafilatura)
+        # 2. Try direct extraction (Trafilatura), on the browser-rendered HTML when the
+        # extension sent it, so pages that load their article with JavaScript still work.
+        captured_html = kwargs.get("captured_html")
+        js_error: JavaScriptRenderedPageError | None = None
         _t0 = time.monotonic()
         try:
-            result = self._fetch_direct(source)
+            result = self._fetch_direct(
+                source, html=captured_html if isinstance(captured_html, str) else None
+            )
             if result:
                 logger.info("Successfully fetched article using Trafilatura")
                 _record_attempt("web", "primary", "success", time.monotonic() - _t0, url=source)
                 return ArticleMetadata(**result)
             _record_attempt("web", "primary", "failure", time.monotonic() - _t0, url=source)
+        except JavaScriptRenderedPageError as e:
+            js_error = e
+            _record_attempt(
+                "web", "primary", "failure", time.monotonic() - _t0, type(e).__name__, source
+            )
         except Exception as e:
             logger.warning(f"Direct extraction failed: {e}. Attempting fallback.")
             _record_attempt(
@@ -121,6 +164,8 @@ class WebProvider(BaseProvider):
                 )
                 raise RuntimeError(f"Failed to fetch article from {source}: {e}") from e
 
+        if js_error is not None:
+            raise js_error
         raise RuntimeError(f"Failed to fetch content from {source} and no fallback configured")
 
     def _check_raw_content(self, url: str) -> dict[str, Any] | None:
@@ -171,9 +216,9 @@ class WebProvider(BaseProvider):
             "url": url,
         }
 
-    def _fetch_direct(self, url: str) -> dict[str, Any] | None:
-        """Fetch using Trafilatura."""
-        downloaded = trafilatura.fetch_url(url)
+    def _fetch_direct(self, url: str, html: str | None = None) -> dict[str, Any] | None:
+        """Extract with Trafilatura from ``html``, or from a fresh download of ``url``."""
+        downloaded = html if html else trafilatura.fetch_url(url)
         if not downloaded:
             logger.warning(f"Trafilatura failed to download {url}")
             return None
@@ -199,6 +244,13 @@ class WebProvider(BaseProvider):
         if not data.get("text"):
             logger.warning("No text content extracted")
             return None
+
+        placeholder = find_js_placeholder(downloaded, data["text"])
+        if placeholder:
+            logger.warning(
+                f"JavaScript-rendered page detected for {url}: placeholder {placeholder!r}"
+            )
+            raise JavaScriptRenderedPageError()
 
         return {
             "content": data.get("text"),

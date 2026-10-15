@@ -58,6 +58,7 @@ class IngestRequest(BaseModel):
     captured_title: str | None = None
     captured_author: str | None = None
     captured_date: str | None = None
+    captured_html: str | None = None
     update: bool = False
 
 
@@ -204,6 +205,7 @@ def create_app() -> FastAPI:
                     captured_title=req.captured_title,
                     captured_author=req.captured_author,
                     captured_date=req.captured_date,
+                    captured_html=req.captured_html,
                     update=req.update,
                 ),
                 settings,

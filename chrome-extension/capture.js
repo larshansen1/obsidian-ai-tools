@@ -98,8 +98,42 @@ export async function captureTwitterPage(tabId, url) {
   }
 }
 
+// YouTube ingests use the transcript, not the page, so their DOM is never sent.
+const NO_HTML_HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"]);
+
+export function isWebPageUrl(url) {
+  try {
+    const u = new URL(url);
+    return (u.protocol === "http:" || u.protocol === "https:") && !NO_HTML_HOSTS.has(u.hostname);
+  } catch (_) {
+    return false;
+  }
+}
+
+// Runs in the page context, so it must be self-contained. Sends the rendered
+// HTML so kai can read articles that load with JavaScript. Page markup only:
+// no cookies, tokens, or auth headers.
+export function extractPageHtml(doc = document) {
+  return { captured_html: doc.documentElement.outerHTML };
+}
+
+export async function captureWebPage(tabId, url) {
+  if (!tabId || !isWebPageUrl(url)) return {};
+
+  try {
+    const [injection] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: extractPageHtml,
+    });
+    return injection.result?.captured_html ? injection.result : {};
+  } catch (e) {
+    console.warn("kai: could not capture page html", e.message);
+    return {};
+  }
+}
+
 export async function capturePage(tabId, url) {
   if (isChatUrl(url)) return captureChatPage(tabId, url);
   if (isTwitterUrl(url)) return captureTwitterPage(tabId, url);
-  return {};
+  return captureWebPage(tabId, url);
 }

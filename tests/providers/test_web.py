@@ -13,17 +13,29 @@ mocked so nothing touches the network or sleeps.
 
 import json
 import logging
+from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 import requests
 
-from obsidian_ai_tools.providers.web import WebProvider
+from obsidian_ai_tools.providers.web import (
+    JS_RENDERED_MESSAGE,
+    JavaScriptRenderedPageError,
+    WebProvider,
+    find_js_placeholder,
+)
 
 SRC = "https://example.com/article"
 RAW_URL = "https://raw.githubusercontent.com/user/repo/main/README.md"
 
 WEB_LOGGER = "obsidian_ai_tools.providers.web"
+
+# Server HTML of a post whose body loads with JavaScript (scripts, styles and svgs
+# stripped). Trafilatura only finds the "You might also like" teasers in it (#150).
+JS_SHELL_HTML = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "web" / "goodboy_js_rendered_post.html"
+).read_text(encoding="utf-8")
 
 
 @pytest.fixture
@@ -616,3 +628,177 @@ class TestWebProviderIngest:
         )
         assert db.record_provider_attempt.call_count == 2
         assert "Supadata extraction failed: boom" in caplog.messages
+
+
+class TestFindJsPlaceholder:
+    """Detection of JS-rendered shells: a loading placeholder plus thin extracted text."""
+
+    def test_placeholder_with_text_just_under_threshold_is_detected(self) -> None:
+        html = "<p><small>Loading Blog Post...</small></p>"
+        assert find_js_placeholder(html, "x" * 1499) == "Loading Blog Post..."
+
+    def test_text_at_threshold_is_not_detected(self) -> None:
+        html = "<p><small>Loading Blog Post...</small></p>"
+        assert find_js_placeholder(html, "x" * 1500) is None
+
+    def test_no_placeholder_is_not_detected(self) -> None:
+        assert find_js_placeholder("<p>A short real article.</p>", "short") is None
+
+    def test_bare_loading_with_unicode_ellipsis_is_detected(self) -> None:
+        assert find_js_placeholder("<div> Loading\u2026 </div>", "short") == "Loading\u2026"
+
+    @pytest.mark.parametrize("noun", ["post", "article", "content", "story", "page"])
+    def test_placeholder_nouns_are_detected(self, noun: str) -> None:
+        html = f"<span>loading {noun}...</span>"
+        assert find_js_placeholder(html, "short") == f"loading {noun}..."
+
+    def test_loading_comments_is_not_detected(self) -> None:
+        """Lazy widgets next to a short static article must not trip the guard."""
+        assert find_js_placeholder("<div>Loading comments...</div>", "short") is None
+
+    def test_loading_inside_a_sentence_is_not_detected(self) -> None:
+        html = "<p>Loading... is what the spinner says while you wait.</p>"
+        assert find_js_placeholder(html, "short") is None
+
+
+class TestJavaScriptRenderedPages:
+    """JS-rendered shells fail loudly; browser-captured HTML is extracted instead (#150)."""
+
+    def test_saved_shell_raises_with_exact_message_and_log(
+        self, provider: WebProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Real trafilatura on the saved goodboy.ninja shell raises instead of returning teasers."""
+        caplog.set_level(logging.WARNING, logger=WEB_LOGGER)
+        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch:
+            mock_fetch.return_value = JS_SHELL_HTML
+            with pytest.raises(JavaScriptRenderedPageError) as exc_info:
+                provider._fetch_direct(SRC)
+
+        mock_fetch.assert_called_once_with(SRC)
+        assert str(exc_info.value) == (
+            "The page loads its article with JavaScript, so kai could not read it. "
+            "Use the Chrome extension to capture it."
+        )
+        assert str(exc_info.value) == JS_RENDERED_MESSAGE
+        assert caplog.messages == [
+            f"JavaScript-rendered page detected for {SRC}: placeholder 'Loading Blog Post...'"
+        ]
+
+    def test_captured_html_is_extracted_without_downloading(self, provider: WebProvider) -> None:
+        """Browser-rendered HTML goes straight to trafilatura; the URL is not fetched."""
+        html = "<html><body><article>Rendered post</article></body></html>"
+        payload = {"text": "Rendered post", "title": "Post"}
+        with (
+            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch,
+            patch("obsidian_ai_tools.providers.web.trafilatura.extract") as mock_extract,
+        ):
+            mock_extract.return_value = json.dumps(payload)
+            result = provider._fetch_direct(SRC, html=html)
+
+        mock_fetch.assert_not_called()
+        mock_extract.assert_called_once_with(
+            html,
+            include_comments=False,
+            include_tables=True,
+            no_fallback=False,
+            output_format="json",
+            with_metadata=True,
+        )
+        assert result == {
+            "content": "Rendered post",
+            "title": "Post",
+            "author": "Unknown Author",
+            "date": None,
+            "site_name": "Web Source",
+            "url": SRC,
+        }
+
+    def test_ingest_uses_captured_html(self, provider: WebProvider, fake_clock: None) -> None:
+        """_ingest passes the extension's captured_html to direct extraction."""
+        html = "<html><body><article>Rendered post body</article></body></html>"
+        payload = {"text": "Rendered post body", "title": "Post", "sitename": "Site"}
+        db = _mock_db()
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.web._limiter"),
+            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch,
+            patch(
+                "obsidian_ai_tools.providers.web.trafilatura.extract",
+                return_value=json.dumps(payload),
+            ) as mock_extract,
+        ):
+            result = provider._ingest(SRC, captured_html=html)
+
+        mock_fetch.assert_not_called()
+        mock_extract.assert_called_once_with(
+            html,
+            include_comments=False,
+            include_tables=True,
+            no_fallback=False,
+            output_format="json",
+            with_metadata=True,
+        )
+        assert result.content == "Rendered post body"
+        assert result.title == "Post"
+        assert result.site_name == "Site"
+        assert result.url == SRC
+        db.record_provider_attempt.assert_called_once_with(
+            "web", "primary", "success", 1.0, None, SRC
+        )
+
+    def test_ingest_shell_without_fallback_raises_js_error(
+        self, provider: WebProvider, fake_clock: None
+    ) -> None:
+        """With no Supadata key the JS-rendered error surfaces, not the generic one."""
+        provider.supadata_key = None
+        db = _mock_db()
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.web._limiter"),
+            patch(
+                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                return_value=JS_SHELL_HTML,
+            ),
+        ):
+            with pytest.raises(JavaScriptRenderedPageError) as exc_info:
+                provider._ingest(SRC)
+
+        assert str(exc_info.value) == JS_RENDERED_MESSAGE
+        db.record_provider_attempt.assert_called_once_with(
+            "web", "primary", "failure", 1.0, "JavaScriptRenderedPageError", SRC
+        )
+
+    def test_ingest_shell_falls_back_to_supadata(
+        self, provider: WebProvider, fake_clock: None
+    ) -> None:
+        """With a Supadata key, a JS-rendered shell still tries the fallback."""
+        provider.supadata_key = "test-key"
+        db = _mock_db()
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.web._limiter"),
+            patch(
+                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                return_value=JS_SHELL_HTML,
+            ),
+            patch(
+                "obsidian_ai_tools.providers.web.requests.get",
+                return_value=_json_response({"content": "Full post", "name": "Vibrating"}),
+            ) as mock_get,
+        ):
+            result = provider._ingest(SRC)
+
+        mock_get.assert_called_once_with(
+            "https://api.supadata.ai/v1/web/scrape",
+            headers={"x-api-key": "test-key"},
+            params={"url": SRC},
+            timeout=30,
+        )
+        assert result.content == "Full post"
+        db.record_provider_attempt.assert_has_calls(
+            [
+                call("web", "primary", "failure", 1.0, "JavaScriptRenderedPageError", SRC),
+                call("web", "fallback", "success", 1.0, None, SRC),
+            ]
+        )
+        assert db.record_provider_attempt.call_count == 2

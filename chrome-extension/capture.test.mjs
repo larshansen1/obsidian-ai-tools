@@ -8,6 +8,8 @@ import {
   extractTwitterThread,
   buildTwitterPayload,
   TWEET_SEPARATOR,
+  isWebPageUrl,
+  extractPageHtml,
 } from "./capture.js";
 
 // Minimal fake DOM: querySelectorAll returns article stubs, each stub has
@@ -99,4 +101,23 @@ test("auth material never leaves the page", () => {
     assert.equal(serialized.includes(secret), false, `payload leaked: ${secret}`);
   }
   assert.equal(payload.captured_content, "The only visible tweet");
+});
+
+test("isWebPageUrl accepts http(s) pages and rejects YouTube and non-web URLs", () => {
+  assert.equal(isWebPageUrl("https://www.goodboy.ninja/blog/post/x"), true);
+  assert.equal(isWebPageUrl("http://example.com/"), true);
+  assert.equal(isWebPageUrl("https://www.youtube.com/watch?v=abc"), false);
+  assert.equal(isWebPageUrl("https://youtube.com/watch?v=abc"), false);
+  assert.equal(isWebPageUrl("https://m.youtube.com/watch?v=abc"), false);
+  assert.equal(isWebPageUrl("https://youtu.be/abc"), false);
+  assert.equal(isWebPageUrl("chrome://extensions"), false);
+  assert.equal(isWebPageUrl("file:///tmp/a.html"), false);
+  assert.equal(isWebPageUrl("not a url"), false);
+});
+
+test("extractPageHtml sends the rendered document HTML and nothing else", () => {
+  const doc = { documentElement: { outerHTML: "<html><body><p>Rendered post</p></body></html>" } };
+  assert.deepEqual(extractPageHtml(doc), {
+    captured_html: "<html><body><p>Rendered post</p></body></html>",
+  });
 });
