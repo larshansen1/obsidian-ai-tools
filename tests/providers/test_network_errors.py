@@ -147,7 +147,7 @@ class TestWebProviderNetworkErrors:
         """Handle connection timeout when all methods fail."""
         provider.supadata_key = None  # Disable fallback
 
-        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None):
+        with patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value=None):
             with pytest.raises(RuntimeError) as exc_info:
                 provider.ingest("https://example.com/article")
 
@@ -155,7 +155,7 @@ class TestWebProviderNetworkErrors:
 
     def test_web_dns_failure(self, provider: WebProvider) -> None:
         """Handle DNS resolution failure."""
-        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch:
+        with patch("obsidian_ai_tools.providers.web.WebProvider._download") as mock_fetch:
             mock_fetch.side_effect = Exception("Name or service not known")
 
             with pytest.raises(RuntimeError) as exc_info:
@@ -165,7 +165,7 @@ class TestWebProviderNetworkErrors:
 
     def test_web_ssl_error(self, provider: WebProvider) -> None:
         """Handle SSL certificate errors."""
-        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch:
+        with patch("obsidian_ai_tools.providers.web.WebProvider._download") as mock_fetch:
             mock_fetch.side_effect = requests.exceptions.SSLError(
                 "SSL certificate verification failed"
             )
@@ -177,7 +177,7 @@ class TestWebProviderNetworkErrors:
 
     def test_web_500_server_error(self, provider: WebProvider) -> None:
         """Handle 500 Internal Server Error."""
-        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch:
+        with patch("obsidian_ai_tools.providers.web.WebProvider._download") as mock_fetch:
             mock_fetch.side_effect = Exception("500 Internal Server Error")
 
             with pytest.raises(RuntimeError) as exc_info:
@@ -187,7 +187,7 @@ class TestWebProviderNetworkErrors:
 
     def test_web_supadata_fallback_also_fails(self, provider: WebProvider) -> None:
         """Handle case when both direct and fallback fail."""
-        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None):
+        with patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value=None):
             with patch("obsidian_ai_tools.providers.web.requests.get") as mock_get:
                 mock_get.side_effect = requests.exceptions.ConnectionError("Connection refused")
 
@@ -201,7 +201,7 @@ class TestWebProviderNetworkErrors:
         with patch("obsidian_ai_tools.providers.web.requests.get") as mock_get:
             mock_get.side_effect = requests.exceptions.Timeout("Request timed out")
             # This should try raw, fail, then try trafilatura
-            with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None):
+            with patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value=None):
                 with pytest.raises(RuntimeError):
                     provider.ingest("https://raw.githubusercontent.com/user/repo/main/file.md")
 

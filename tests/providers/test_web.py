@@ -16,12 +16,14 @@ import logging
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
+import httpx
 import pytest
 import requests
 
 from obsidian_ai_tools.providers.web import (
     BOT_CHECK_MESSAGE,
     JS_RENDERED_MESSAGE,
+    USER_AGENT,
     BotCheckPageError,
     JavaScriptRenderedPageError,
     WebProvider,
@@ -103,22 +105,93 @@ def _json_response(payload: dict) -> MagicMock:
 class TestWebProviderInit:
     """Provider construction wiring."""
 
-    def test_init_wires_user_agent_and_supadata(self) -> None:
-        """Constructor configures trafilatura and reads Supadata settings."""
-        config = MagicMock()
+    def test_init_reads_supadata_settings(self) -> None:
+        """Constructor reads Supadata settings."""
         settings = MagicMock(supadata_key="secret-key-123")
 
-        with (
-            patch("obsidian_ai_tools.providers.web.use_config", return_value=config),
-            patch("obsidian_ai_tools.providers.web.get_settings", return_value=settings),
-        ):
+        with patch(
+            "obsidian_ai_tools.providers.web.get_settings", return_value=settings
+        ) as mock_settings:
             constructed = WebProvider()
 
-        config.set.assert_called_once_with(
-            "DEFAULT", "USER_AGENT", "Mozilla/5.0 (compatible; ObsidianAI/1.0)"
-        )
+        mock_settings.assert_called_once_with()
         assert constructed.supadata_key == "secret-key-123"
         assert constructed.supadata_url == "https://api.supadata.ai/v1/web/scrape"
+
+
+class TestWebProviderDownload:
+    """httpx download used by direct extraction (#156)."""
+
+    def test_user_agent_value(self) -> None:
+        """The user agent sent on direct downloads is kai's own."""
+        assert USER_AGENT == "Mozilla/5.0 (compatible; ObsidianAI/1.0)"
+
+    def test_success_decodes_body(self, provider: WebProvider) -> None:
+        """A 200 response is fetched with kai's user agent and decoded to text."""
+        response = httpx.Response(200, content="<p>caf\u00e9</p>".encode())
+        with patch("obsidian_ai_tools.providers.web.httpx.get", return_value=response) as mock_get:
+            result = provider._download(SRC)
+
+        mock_get.assert_called_once_with(
+            SRC, headers={"User-Agent": USER_AGENT}, follow_redirects=True, timeout=30
+        )
+        assert result == "<p>caf\u00e9</p>"
+
+    @pytest.mark.parametrize("status", [199, 201, 403, 500])
+    def test_non_200_returns_none_and_warns(
+        self, provider: WebProvider, caplog: pytest.LogCaptureFixture, status: int
+    ) -> None:
+        """Any status other than exactly 200 is a failed download."""
+        caplog.set_level(logging.WARNING, logger=WEB_LOGGER)
+        response = httpx.Response(status, content=b"<title>403</title>403 Forbidden")
+        with patch("obsidian_ai_tools.providers.web.httpx.get", return_value=response) as mock_get:
+            result = provider._download(SRC)
+
+        mock_get.assert_called_once_with(
+            SRC, headers={"User-Agent": USER_AGENT}, follow_redirects=True, timeout=30
+        )
+        assert result is None
+        assert caplog.messages == [f"Direct download of {SRC} returned HTTP {status}"]
+
+    def test_transport_error_returns_none_and_warns(
+        self, provider: WebProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Network errors are logged and turned into None, not raised."""
+        caplog.set_level(logging.WARNING, logger=WEB_LOGGER)
+        with patch(
+            "obsidian_ai_tools.providers.web.httpx.get",
+            side_effect=httpx.ConnectError("boom"),
+        ) as mock_get:
+            result = provider._download(SRC)
+
+        mock_get.assert_called_once_with(
+            SRC, headers={"User-Agent": USER_AGENT}, follow_redirects=True, timeout=30
+        )
+        assert result is None
+        assert caplog.messages == [f"Direct download of {SRC} failed: boom"]
+
+    def test_fetch_direct_uses_download(self, provider: WebProvider) -> None:
+        """Without supplied HTML, _fetch_direct extracts what _download returned."""
+        with (
+            patch.object(provider, "_download", return_value="<html />") as mock_download,
+            patch(
+                "obsidian_ai_tools.providers.web.trafilatura.extract",
+                return_value=json.dumps({"text": "Body text"}),
+            ) as mock_extract,
+        ):
+            result = provider._fetch_direct(SRC)
+
+        mock_download.assert_called_once_with(SRC)
+        mock_extract.assert_called_once_with(
+            "<html />",
+            include_comments=False,
+            include_tables=True,
+            no_fallback=False,
+            output_format="json",
+            with_metadata=True,
+        )
+        assert result is not None
+        assert result["content"] == "Body text"
 
 
 class TestWebProviderValidate:
@@ -272,7 +345,7 @@ class TestWebProviderFetchDirect:
         }
 
         with (
-            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch,
+            patch("obsidian_ai_tools.providers.web.WebProvider._download") as mock_fetch,
             patch("obsidian_ai_tools.providers.web.trafilatura.extract") as mock_extract,
         ):
             mock_fetch.return_value = html
@@ -301,7 +374,7 @@ class TestWebProviderFetchDirect:
         """Missing sitename/hostname metadata falls back to Web Source."""
         with (
             patch(
-                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                "obsidian_ai_tools.providers.web.WebProvider._download",
                 return_value="<html />",
             ),
             patch(
@@ -321,7 +394,7 @@ class TestWebProviderFetchDirect:
     ) -> None:
         """Failed downloads return None and log the URL."""
         caplog.set_level(logging.WARNING, logger=WEB_LOGGER)
-        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None):
+        with patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value=None):
             result = provider._fetch_direct(SRC)
 
         assert result is None
@@ -334,7 +407,7 @@ class TestWebProviderFetchDirect:
         caplog.set_level(logging.WARNING, logger=WEB_LOGGER)
         with (
             patch(
-                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                "obsidian_ai_tools.providers.web.WebProvider._download",
                 return_value="<html />",
             ),
             patch(
@@ -354,7 +427,7 @@ class TestWebProviderFetchDirect:
         caplog.set_level(logging.WARNING, logger=WEB_LOGGER)
         with (
             patch(
-                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                "obsidian_ai_tools.providers.web.WebProvider._download",
                 return_value="<html />",
             ),
             patch(
@@ -457,7 +530,7 @@ class TestWebProviderIngest:
         db = _mock_db()
         with (
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
-            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch,
+            patch("obsidian_ai_tools.providers.web.WebProvider._download") as mock_fetch,
         ):
             result = provider._ingest(
                 SRC, captured_content="  hello\nworld  ", captured_title="Chat Title"
@@ -479,7 +552,7 @@ class TestWebProviderIngest:
         db = _mock_db()
         with (
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
-            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url"),
+            patch("obsidian_ai_tools.providers.web.WebProvider._download"),
         ):
             result = provider._ingest(SRC, captured_content="hello")
 
@@ -522,7 +595,7 @@ class TestWebProviderIngest:
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
             patch(
-                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                "obsidian_ai_tools.providers.web.WebProvider._download",
                 return_value="<html />",
             ),
             patch(
@@ -546,7 +619,7 @@ class TestWebProviderIngest:
         with (
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
-            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None),
+            patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value=None),
         ):
             with pytest.raises(RuntimeError) as exc_info:
                 provider._ingest(SRC)
@@ -569,7 +642,7 @@ class TestWebProviderIngest:
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
             patch(
-                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                "obsidian_ai_tools.providers.web.WebProvider._download",
                 side_effect=ValueError("bad html"),
             ),
         ):
@@ -591,7 +664,7 @@ class TestWebProviderIngest:
         with (
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
-            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None),
+            patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value=None),
             patch("obsidian_ai_tools.providers.web.requests.get") as mock_get,
         ):
             mock_get.return_value = _json_response(
@@ -627,7 +700,7 @@ class TestWebProviderIngest:
         with (
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
-            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None),
+            patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value=None),
             patch(
                 "obsidian_ai_tools.providers.web.requests.get",
                 side_effect=requests.exceptions.ConnectionError("boom"),
@@ -686,7 +759,7 @@ class TestJavaScriptRenderedPages:
     ) -> None:
         """Real trafilatura on the saved goodboy.ninja shell raises instead of returning teasers."""
         caplog.set_level(logging.WARNING, logger=WEB_LOGGER)
-        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch:
+        with patch("obsidian_ai_tools.providers.web.WebProvider._download") as mock_fetch:
             mock_fetch.return_value = JS_SHELL_HTML
             with pytest.raises(JavaScriptRenderedPageError) as exc_info:
                 provider._fetch_direct(SRC)
@@ -706,7 +779,7 @@ class TestJavaScriptRenderedPages:
         html = "<html><body><article>Rendered post</article></body></html>"
         payload = {"text": "Rendered post", "title": "Post"}
         with (
-            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch,
+            patch("obsidian_ai_tools.providers.web.WebProvider._download") as mock_fetch,
             patch("obsidian_ai_tools.providers.web.trafilatura.extract") as mock_extract,
         ):
             mock_extract.return_value = json.dumps(payload)
@@ -738,7 +811,7 @@ class TestJavaScriptRenderedPages:
         with (
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
-            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch,
+            patch("obsidian_ai_tools.providers.web.WebProvider._download") as mock_fetch,
             patch(
                 "obsidian_ai_tools.providers.web.trafilatura.extract",
                 return_value=json.dumps(payload),
@@ -773,7 +846,7 @@ class TestJavaScriptRenderedPages:
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
             patch(
-                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                "obsidian_ai_tools.providers.web.WebProvider._download",
                 return_value=JS_SHELL_HTML,
             ),
         ):
@@ -795,7 +868,7 @@ class TestJavaScriptRenderedPages:
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
             patch(
-                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                "obsidian_ai_tools.providers.web.WebProvider._download",
                 return_value=JS_SHELL_HTML,
             ),
             patch(
@@ -881,7 +954,7 @@ class TestBotCheckPages:
     ) -> None:
         """Real trafilatura on the saved PMC interstitial raises instead of returning it."""
         caplog.set_level(logging.WARNING, logger=WEB_LOGGER)
-        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch:
+        with patch("obsidian_ai_tools.providers.web.WebProvider._download") as mock_fetch:
             mock_fetch.return_value = BOT_CHECK_HTML
             with pytest.raises(BotCheckPageError) as exc_info:
                 provider._fetch_direct(SRC)
@@ -930,7 +1003,7 @@ class TestBotCheckPages:
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
             patch(
-                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                "obsidian_ai_tools.providers.web.WebProvider._download",
                 return_value=BOT_CHECK_HTML,
             ),
         ):
@@ -952,7 +1025,7 @@ class TestBotCheckPages:
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
             patch(
-                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                "obsidian_ai_tools.providers.web.WebProvider._download",
                 return_value=BOT_CHECK_HTML,
             ),
             patch(
@@ -982,7 +1055,7 @@ class TestBotCheckPages:
         with (
             patch("obsidian_ai_tools.providers.get_db", return_value=db),
             patch("obsidian_ai_tools.providers.web._limiter"),
-            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None),
+            patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value=None),
             patch(
                 "obsidian_ai_tools.providers.web.requests.get",
                 return_value=_json_response(BOT_CHECK_SUPADATA),
@@ -1009,7 +1082,7 @@ class TestBotCheckPages:
         with (
             patch("obsidian_ai_tools.providers.get_db", return_value=_mock_db()),
             patch("obsidian_ai_tools.providers.web._limiter"),
-            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value="<html>"),
+            patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value="<html>"),
             patch(
                 "obsidian_ai_tools.providers.web.trafilatura.extract",
                 return_value=json.dumps(payload),

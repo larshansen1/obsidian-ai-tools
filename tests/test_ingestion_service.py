@@ -596,7 +596,7 @@ def test_ingest_content_js_rendered_shell_fails_before_note_generation(tmp_path:
         patch("obsidian_ai_tools.providers.get_db"),
         patch("obsidian_ai_tools.providers.web._limiter"),
         patch(
-            "obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=JS_SHELL_HTML
+            "obsidian_ai_tools.providers.web.WebProvider._download", return_value=JS_SHELL_HTML
         ) as mock_fetch,
         patch("obsidian_ai_tools.ingestion.generate_note") as mock_generate,
         patch("obsidian_ai_tools.ingestion.write_note") as mock_write,
@@ -621,7 +621,7 @@ def test_http_ingest_js_rendered_shell_returns_422(tmp_path: Path) -> None:
         ),
         patch("obsidian_ai_tools.providers.get_db"),
         patch("obsidian_ai_tools.providers.web._limiter"),
-        patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=JS_SHELL_HTML),
+        patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value=JS_SHELL_HTML),
         patch("obsidian_ai_tools.ingestion.generate_note") as mock_generate,
     ):
         response = TestClient(create_app()).post(
@@ -654,7 +654,7 @@ def test_ingest_content_bot_check_fails_before_note_generation(tmp_path: Path) -
         patch("obsidian_ai_tools.providers.get_db"),
         patch("obsidian_ai_tools.providers.web._limiter"),
         patch(
-            "obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=BOT_CHECK_HTML
+            "obsidian_ai_tools.providers.web.WebProvider._download", return_value=BOT_CHECK_HTML
         ) as mock_fetch,
         patch("obsidian_ai_tools.ingestion.generate_note") as mock_generate,
         patch("obsidian_ai_tools.ingestion.write_note") as mock_write,
@@ -679,7 +679,7 @@ def test_http_ingest_bot_check_returns_422(tmp_path: Path) -> None:
         ),
         patch("obsidian_ai_tools.providers.get_db"),
         patch("obsidian_ai_tools.providers.web._limiter"),
-        patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=BOT_CHECK_HTML),
+        patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value=BOT_CHECK_HTML),
         patch("obsidian_ai_tools.ingestion.generate_note") as mock_generate,
     ):
         response = TestClient(create_app()).post(
