@@ -217,7 +217,7 @@ class TestWebProviderIngest:
         provider = WebProvider()
         provider.supadata_key = "test-key"
 
-        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None):
+        with patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value=None):
             mock_response = MagicMock()
             mock_response.json.return_value = {
                 "content": "Fallback content via Supadata",
@@ -240,7 +240,7 @@ class TestWebProviderIngest:
         provider = WebProvider()
         provider.supadata_key = "test-key"
 
-        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None):
+        with patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value=None):
             with patch("obsidian_ai_tools.providers.web.requests.get") as mock_get:
                 mock_get.side_effect = Exception("Network error")
 
@@ -253,7 +253,7 @@ class TestWebProviderIngest:
 
         provider = WebProvider()
 
-        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as fetch_url:
+        with patch("obsidian_ai_tools.providers.web.WebProvider._download") as fetch_url:
             result = provider._ingest(
                 "https://chatgpt.com/c/example",
                 captured_content="  User: question\nAssistant: answer  ",
@@ -314,7 +314,7 @@ class TestWebProviderIngest:
 
         provider = WebProvider()
         with (
-            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value="<html />"),
+            patch("obsidian_ai_tools.providers.web.WebProvider._download", return_value="<html />"),
             patch(
                 "obsidian_ai_tools.providers.web.trafilatura.extract",
                 return_value='{"text": "Article body", "hostname": "example.com"}',

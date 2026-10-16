@@ -6,9 +6,10 @@ import time
 from typing import Any, cast
 from urllib.parse import urlparse
 
+import httpx
 import requests
 import trafilatura
-from trafilatura.settings import use_config
+from trafilatura.utils import decode_file
 
 from ..config import get_settings
 from ..models import ArticleMetadata
@@ -16,6 +17,8 @@ from . import _limiter, _record_attempt
 from .base import BaseProvider
 
 logger = logging.getLogger(__name__)
+
+USER_AGENT = "Mozilla/5.0 (compatible; ObsidianAI/1.0)"
 
 JS_RENDERED_MESSAGE = (
     "The page loads its article with JavaScript, so kai could not read it. "
@@ -106,10 +109,6 @@ class WebProvider(BaseProvider):
 
     def __init__(self) -> None:
         """Initialize provider with configuration."""
-        self.config = use_config()
-        # Set user agent to avoid basic blocking
-        self.config.set("DEFAULT", "USER_AGENT", "Mozilla/5.0 (compatible; ObsidianAI/1.0)")
-
         settings = get_settings()
         self.supadata_key = settings.supadata_key
         self.supadata_url = "https://api.supadata.ai/v1/web/scrape"
@@ -268,9 +267,28 @@ class WebProvider(BaseProvider):
             "url": url,
         }
 
+    def _download(self, url: str) -> str | None:
+        """Download ``url`` and decode it, or return None on any failure.
+
+        Uses httpx rather than ``trafilatura.fetch_url``: trafilatura's urllib3
+        client sets up TLS in a way some sites (PMC) answer with 403, while a
+        standard TLS client gets the page (#156).
+        """
+        try:
+            response = httpx.get(
+                url, headers={"User-Agent": USER_AGENT}, follow_redirects=True, timeout=30
+            )
+        except httpx.HTTPError as e:
+            logger.warning(f"Direct download of {url} failed: {e}")
+            return None
+        if response.status_code != 200:
+            logger.warning(f"Direct download of {url} returned HTTP {response.status_code}")
+            return None
+        return decode_file(response.content)
+
     def _fetch_direct(self, url: str, html: str | None = None) -> dict[str, Any] | None:
         """Extract with Trafilatura from ``html``, or from a fresh download of ``url``."""
-        downloaded = html if html else trafilatura.fetch_url(url)
+        downloaded = html if html else self._download(url)
         if not downloaded:
             logger.warning(f"Trafilatura failed to download {url}")
             return None
