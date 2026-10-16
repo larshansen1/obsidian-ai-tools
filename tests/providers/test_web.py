@@ -20,9 +20,12 @@ import pytest
 import requests
 
 from obsidian_ai_tools.providers.web import (
+    BOT_CHECK_MESSAGE,
     JS_RENDERED_MESSAGE,
+    BotCheckPageError,
     JavaScriptRenderedPageError,
     WebProvider,
+    find_bot_check,
     find_js_placeholder,
 )
 
@@ -36,6 +39,20 @@ WEB_LOGGER = "obsidian_ai_tools.providers.web"
 JS_SHELL_HTML = (
     Path(__file__).resolve().parents[1] / "fixtures" / "web" / "goodboy_js_rendered_post.html"
 ).read_text(encoding="utf-8")
+
+# Bot-check interstitial PMC served instead of an article (#147).
+BOT_CHECK_HTML = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "web" / "pmc_bot_check.html"
+).read_text(encoding="utf-8")
+# What Supadata returned for the same PMC article (#147).
+BOT_CHECK_SUPADATA = {
+    "name": "Checking your browser - reCAPTCHA",
+    "content": (
+        "Checking your browser before accessing pmc.ncbi.nlm.nih.gov ...\n\n"
+        "Click [here](https://pmc.ncbi.nlm.nih.gov/articles/PMC5509825/#) if you are not "
+        "automatically redirected after 5 seconds."
+    ),
+}
 
 
 @pytest.fixture
@@ -802,3 +819,203 @@ class TestJavaScriptRenderedPages:
             ]
         )
         assert db.record_provider_attempt.call_count == 2
+
+
+class TestFindBotCheck:
+    """Detection of bot-check pages: a known interstitial phrase plus thin text (#147)."""
+
+    def test_phrase_with_text_just_under_threshold_is_detected(self) -> None:
+        text = "Checking your browser" + "x" * 1478
+        assert len(text) == 1499
+        assert find_bot_check("", text) == "Checking your browser"
+
+    def test_text_at_threshold_is_not_detected(self) -> None:
+        text = "Checking your browser" + "x" * 1479
+        assert len(text) == 1500
+        assert find_bot_check("", text) is None
+
+    def test_phrase_in_title_only_is_detected(self) -> None:
+        assert find_bot_check("Just a moment...", "Redirecting") == "Just a moment..."
+
+    def test_short_article_without_phrase_is_not_detected(self) -> None:
+        assert find_bot_check("A short note", "Bots are everywhere these days.") is None
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("checking your browser now", "checking your browser"),
+            (
+                "Checking if the site connection is secure",
+                "Checking if the site connection is secure",
+            ),
+            ("Browser Verification Required", "Browser Verification"),
+            ("Verify you are human by ticking the box", "Verify you are human"),
+            ("Verifying you are a human. This may take a second.", "Verifying you are a human"),
+            ("Please verify that you are human", "verify that you are human"),
+            ("Are you a robot?", "Are you a robot"),
+            ("Just a moment...", "Just a moment..."),
+            ("Attention Required! | Cloudflare", "Attention Required!"),
+            (
+                "Enable JavaScript and cookies to continue",
+                "Enable JavaScript and cookies to continue",
+            ),
+            ("Please complete the security check to access", "complete the security check"),
+            (
+                "You don't have permission to access this page on this server.",
+                "You don't have permission to access",
+            ),
+        ],
+    )
+    def test_interstitial_phrases_are_detected(self, text: str, expected: str) -> None:
+        assert find_bot_check("", text) == expected
+
+    def test_just_a_moment_needs_the_ellipsis(self) -> None:
+        assert find_bot_check("Just a moment", "Wait for it.") is None
+
+
+class TestBotCheckPages:
+    """Bot-check pages fail loudly instead of becoming notes (#147)."""
+
+    def test_saved_pmc_interstitial_raises_with_exact_message_and_log(
+        self, provider: WebProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Real trafilatura on the saved PMC interstitial raises instead of returning it."""
+        caplog.set_level(logging.WARNING, logger=WEB_LOGGER)
+        with patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url") as mock_fetch:
+            mock_fetch.return_value = BOT_CHECK_HTML
+            with pytest.raises(BotCheckPageError) as exc_info:
+                provider._fetch_direct(SRC)
+
+        mock_fetch.assert_called_once_with(SRC)
+        assert str(exc_info.value) == (
+            "The site showed a bot check instead of the article. "
+            "Open it in your browser and use the Chrome extension to capture it."
+        )
+        assert str(exc_info.value) == BOT_CHECK_MESSAGE
+        assert caplog.messages == [
+            f"Bot-check page detected for {SRC}: phrase 'Checking your browser'"
+        ]
+
+    def test_supadata_interstitial_raises_with_log(
+        self, provider: WebProvider, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The Supadata reCAPTCHA page seen for PMC raises; its title alone is enough."""
+        provider.supadata_key = "test-key"
+        caplog.set_level(logging.WARNING, logger=WEB_LOGGER)
+        with patch(
+            "obsidian_ai_tools.providers.web.requests.get",
+            return_value=_json_response(BOT_CHECK_SUPADATA),
+        ) as mock_get:
+            with pytest.raises(BotCheckPageError) as exc_info:
+                provider._fetch_supadata(SRC)
+
+        mock_get.assert_called_once_with(
+            "https://api.supadata.ai/v1/web/scrape",
+            headers={"x-api-key": "test-key"},
+            params={"url": SRC},
+            timeout=30,
+        )
+        assert str(exc_info.value) == BOT_CHECK_MESSAGE
+        assert caplog.messages == [
+            f"Bot-check page detected for {SRC}: phrase 'Checking your browser'"
+        ]
+
+    def test_ingest_interstitial_without_fallback_raises_bot_check_error(
+        self, provider: WebProvider, fake_clock: None
+    ) -> None:
+        """With no Supadata key the bot-check error surfaces, not the generic one."""
+        provider.supadata_key = None
+        db = _mock_db()
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.web._limiter"),
+            patch(
+                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                return_value=BOT_CHECK_HTML,
+            ),
+        ):
+            with pytest.raises(BotCheckPageError) as exc_info:
+                provider._ingest(SRC)
+
+        assert str(exc_info.value) == BOT_CHECK_MESSAGE
+        db.record_provider_attempt.assert_called_once_with(
+            "web", "primary", "failure", 1.0, "BotCheckPageError", SRC
+        )
+
+    def test_ingest_interstitial_falls_back_to_supadata(
+        self, provider: WebProvider, fake_clock: None
+    ) -> None:
+        """A bot check on the direct fetch still tries Supadata, which may get the article."""
+        provider.supadata_key = "test-key"
+        db = _mock_db()
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.web._limiter"),
+            patch(
+                "obsidian_ai_tools.providers.web.trafilatura.fetch_url",
+                return_value=BOT_CHECK_HTML,
+            ),
+            patch(
+                "obsidian_ai_tools.providers.web.requests.get",
+                return_value=_json_response({"content": "Full study", "name": "Study"}),
+            ),
+        ):
+            result = provider._ingest(SRC)
+
+        assert result.content == "Full study"
+        assert result.title == "Study"
+        db.record_provider_attempt.assert_has_calls(
+            [
+                call("web", "primary", "failure", 1.0, "BotCheckPageError", SRC),
+                call("web", "fallback", "success", 1.0, None, SRC),
+            ]
+        )
+        assert db.record_provider_attempt.call_count == 2
+
+    def test_ingest_supadata_interstitial_raises_bot_check_error(
+        self, provider: WebProvider, fake_clock: None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A Supadata bot check keeps its own message instead of the generic wrapper."""
+        provider.supadata_key = "test-key"
+        caplog.set_level(logging.ERROR, logger=WEB_LOGGER)
+        db = _mock_db()
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=db),
+            patch("obsidian_ai_tools.providers.web._limiter"),
+            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=None),
+            patch(
+                "obsidian_ai_tools.providers.web.requests.get",
+                return_value=_json_response(BOT_CHECK_SUPADATA),
+            ),
+        ):
+            with pytest.raises(BotCheckPageError) as exc_info:
+                provider._ingest(SRC)
+
+        assert str(exc_info.value) == BOT_CHECK_MESSAGE
+        db.record_provider_attempt.assert_has_calls(
+            [
+                call("web", "primary", "failure", 1.0, None, SRC),
+                call("web", "fallback", "failure", 1.0, "BotCheckPageError", SRC),
+            ]
+        )
+        assert db.record_provider_attempt.call_count == 2
+        assert caplog.messages == []
+
+    def test_short_real_article_still_ingests(
+        self, provider: WebProvider, fake_clock: None
+    ) -> None:
+        """A short page with no interstitial phrase is not mistaken for a bot check."""
+        payload = {"text": "A brief note on sleep and memory.", "title": "Sleep"}
+        with (
+            patch("obsidian_ai_tools.providers.get_db", return_value=_mock_db()),
+            patch("obsidian_ai_tools.providers.web._limiter"),
+            patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value="<html>"),
+            patch(
+                "obsidian_ai_tools.providers.web.trafilatura.extract",
+                return_value=json.dumps(payload),
+            ),
+        ):
+            result = provider._ingest(SRC)
+
+        assert result.content == "A brief note on sleep and memory."
+        assert result.title == "Sleep"

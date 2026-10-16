@@ -118,6 +118,19 @@ def test_ingest_of_a_source_already_in_the_vault(tmp_path: Path) -> None:
             "kai could not ingest it: Page not found",
         ),
         (
+            lambda r: httpx.Response(
+                422,
+                json={
+                    "detail": "Content fetch failed: The site showed a bot check instead of "
+                    "the article. Open it in your browser and use the Chrome extension to "
+                    "capture it."
+                },
+            ),
+            "kai could not ingest it: Content fetch failed: The site showed a bot check "
+            "instead of the article. Open it in your browser and use the Chrome extension "
+            "to capture it.",
+        ),
+        (
             lambda r: httpx.Response(500, json={"detail": {"message": "LLM down"}}),
             "kai could not ingest it: LLM down",
         ),

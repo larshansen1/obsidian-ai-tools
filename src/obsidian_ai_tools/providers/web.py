@@ -31,6 +31,27 @@ _LOADING_PLACEHOLDER_RE = re.compile(
 # Below this the extracted text is too short to be the article a placeholder stands in for.
 _THIN_TEXT_CHARS = 1500
 
+BOT_CHECK_MESSAGE = (
+    "The site showed a bot check instead of the article. "
+    "Open it in your browser and use the Chrome extension to capture it."
+)
+
+# Phrases that bot-check, browser-verification and access-denied stubs show instead of
+# the article (Cloudflare, reCAPTCHA, Akamai, PMC). Only checked on thin pages, so a
+# real article that mentions one of them is not rejected.
+_BOT_CHECK_RE = re.compile(
+    r"checking (?:your browser|if the site connection is secure)"
+    r"|browser verification"
+    r"|verify(?:ing)? (?:that )?you are (?:a )?human"
+    r"|are you a robot"
+    r"|just a moment\.\.\."
+    r"|attention required!"
+    r"|enable javascript and cookies to continue"
+    r"|complete the security check"
+    r"|you don't have permission to access",
+    re.IGNORECASE,
+)
+
 
 class JavaScriptRenderedPageError(ValueError):
     """The fetched HTML is an empty shell whose article loads with JavaScript.
@@ -48,6 +69,32 @@ def find_js_placeholder(html: str, text: str) -> str | None:
         return None
     match = _LOADING_PLACEHOLDER_RE.search(html)
     return match.group(1) if match else None
+
+
+class BotCheckPageError(ValueError):
+    """The fetched page is a bot check or verification stub, not the article.
+
+    A ValueError so BaseProvider.ingest does not retry: refetching hits the same check.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(BOT_CHECK_MESSAGE)
+
+
+def find_bot_check(title: str, text: str) -> str | None:
+    """Return the bot-check phrase if the page is an interstitial instead of an article."""
+    if len(text) >= _THIN_TEXT_CHARS:
+        return None
+    match = _BOT_CHECK_RE.search(f"{title}\n{text}")
+    return match.group(0) if match else None
+
+
+def _reject_bot_check(url: str, title: str, text: str) -> None:
+    """Raise BotCheckPageError, logging the URL and matched phrase, for an interstitial."""
+    phrase = find_bot_check(title, text)
+    if phrase:
+        logger.warning(f"Bot-check page detected for {url}: phrase {phrase!r}")
+        raise BotCheckPageError()
 
 
 class WebProvider(BaseProvider):
@@ -123,7 +170,7 @@ class WebProvider(BaseProvider):
         # 2. Try direct extraction (Trafilatura), on the browser-rendered HTML when the
         # extension sent it, so pages that load their article with JavaScript still work.
         captured_html = kwargs.get("captured_html")
-        js_error: JavaScriptRenderedPageError | None = None
+        page_error: JavaScriptRenderedPageError | BotCheckPageError | None = None
         _t0 = time.monotonic()
         try:
             result = self._fetch_direct(
@@ -134,8 +181,8 @@ class WebProvider(BaseProvider):
                 _record_attempt("web", "primary", "success", time.monotonic() - _t0, url=source)
                 return ArticleMetadata(**result)
             _record_attempt("web", "primary", "failure", time.monotonic() - _t0, url=source)
-        except JavaScriptRenderedPageError as e:
-            js_error = e
+        except (JavaScriptRenderedPageError, BotCheckPageError) as e:
+            page_error = e
             _record_attempt(
                 "web", "primary", "failure", time.monotonic() - _t0, type(e).__name__, source
             )
@@ -157,6 +204,11 @@ class WebProvider(BaseProvider):
                         "web", "fallback", "success", time.monotonic() - _t1, url=source
                     )
                     return ArticleMetadata(**result)
+            except BotCheckPageError as e:
+                _record_attempt(
+                    "web", "fallback", "failure", time.monotonic() - _t1, type(e).__name__, source
+                )
+                raise
             except Exception as e:
                 logger.error(f"Supadata extraction failed: {e}")
                 _record_attempt(
@@ -164,8 +216,8 @@ class WebProvider(BaseProvider):
                 )
                 raise RuntimeError(f"Failed to fetch article from {source}: {e}") from e
 
-        if js_error is not None:
-            raise js_error
+        if page_error is not None:
+            raise page_error
         raise RuntimeError(f"Failed to fetch content from {source} and no fallback configured")
 
     def _check_raw_content(self, url: str) -> dict[str, Any] | None:
@@ -251,6 +303,7 @@ class WebProvider(BaseProvider):
                 f"JavaScript-rendered page detected for {url}: placeholder {placeholder!r}"
             )
             raise JavaScriptRenderedPageError()
+        _reject_bot_check(url, data.get("title") or "", data["text"])
 
         return {
             "content": data.get("text"),
@@ -279,6 +332,7 @@ class WebProvider(BaseProvider):
 
         if not content:
             raise ValueError("Supadata returned no content")
+        _reject_bot_check(url, data.get("name") or "", content)
 
         return {
             "content": content,
