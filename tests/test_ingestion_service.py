@@ -634,6 +634,64 @@ def test_http_ingest_js_rendered_shell_returns_422(tmp_path: Path) -> None:
     assert not (tmp_path / "inbox").exists()
 
 
+BOT_CHECK_URL = "https://pmc.ncbi.nlm.nih.gov/articles/PMC5509825/"
+BOT_CHECK_HTML = (Path(__file__).parent / "fixtures" / "web" / "pmc_bot_check.html").read_text(
+    encoding="utf-8"
+)
+BOT_CHECK_DETAIL = (
+    "Content fetch failed: The site showed a bot check instead of the article. "
+    "Open it in your browser and use the Chrome extension to capture it."
+)
+
+
+def test_ingest_content_bot_check_fails_before_note_generation(tmp_path: Path) -> None:
+    """A bot-check page raises ContentFetchError; no LLM call and no note (#147)."""
+    with (
+        patch(
+            "obsidian_ai_tools.ingestion.ProviderFactory.get_provider",
+            return_value=_js_shell_web_provider(),
+        ),
+        patch("obsidian_ai_tools.providers.get_db"),
+        patch("obsidian_ai_tools.providers.web._limiter"),
+        patch(
+            "obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=BOT_CHECK_HTML
+        ) as mock_fetch,
+        patch("obsidian_ai_tools.ingestion.generate_note") as mock_generate,
+        patch("obsidian_ai_tools.ingestion.write_note") as mock_write,
+    ):
+        with pytest.raises(ContentFetchError) as exc_info:
+            ingest_content(IngestionRequest(url=BOT_CHECK_URL), _settings(tmp_path))  # type: ignore[arg-type]
+
+    assert str(exc_info.value) == BOT_CHECK_DETAIL
+    mock_fetch.assert_called_once_with(BOT_CHECK_URL)
+    mock_generate.assert_not_called()
+    mock_write.assert_not_called()
+    assert not (tmp_path / "inbox").exists()
+
+
+def test_http_ingest_bot_check_returns_422(tmp_path: Path) -> None:
+    """/ingest answers 422 with the bot-check detail and writes no note (#147)."""
+    with (
+        patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
+        patch(
+            "obsidian_ai_tools.ingestion.ProviderFactory.get_provider",
+            return_value=_js_shell_web_provider(),
+        ),
+        patch("obsidian_ai_tools.providers.get_db"),
+        patch("obsidian_ai_tools.providers.web._limiter"),
+        patch("obsidian_ai_tools.providers.web.trafilatura.fetch_url", return_value=BOT_CHECK_HTML),
+        patch("obsidian_ai_tools.ingestion.generate_note") as mock_generate,
+    ):
+        response = TestClient(create_app()).post(
+            "/ingest", json={"url": BOT_CHECK_URL, "vault_path": str(tmp_path)}
+        )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": BOT_CHECK_DETAIL}
+    mock_generate.assert_not_called()
+    assert not (tmp_path / "inbox").exists()
+
+
 def test_http_ingest_forwards_captured_html(tmp_path: Path) -> None:
     """The webhook adapter forwards the extension's rendered page HTML."""
     metadata = _metadata()
