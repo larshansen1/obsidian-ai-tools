@@ -105,7 +105,6 @@ export function ClaimsSection({
 
   useEffect(() => {
     if (started === null) return;
-    setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [started]);
@@ -136,7 +135,9 @@ export function ClaimsSection({
 
   async function run(approved: boolean) {
     setBusy(true);
-    setStarted(Date.now());
+    const start = Date.now();
+    setStarted(start);
+    setNow(start);
     setNotice(null);
     try {
       const result = await runClaims(topic, approved);
