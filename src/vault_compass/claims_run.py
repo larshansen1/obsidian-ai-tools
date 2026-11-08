@@ -50,10 +50,6 @@ BATCH_CHARS = 12000
 MAX_NOTES_PER_BATCH = 4
 MAX_CLAIMS_PER_NOTE = 4
 MAX_CLAIM_CHARS = 300
-# The questions step sees every claim of the topic, grouped by note, so it can find two specific
-# notes that disagree. A sample hid most of them (#166). Over this size the claims are thinned
-# evenly; chunking would not help, since a tension between two notes can span any two chunks.
-MAX_QUESTION_PROMPT_CHARS = 240_000
 CHUNK_CLAIMS = 150
 # Sorting needs more care per claim than matching, so it takes smaller chunks.
 STANCE_CHUNK_CLAIMS = 75
@@ -523,10 +519,15 @@ def _by_note(claims: list[ClaimItem]) -> str:
     return "\n".join(lines)
 
 
-def _fit(claims: list[ClaimItem]) -> list[ClaimItem]:
-    """All claims, or every k-th one for the smallest k whose prompt fits the size cap."""
+def _fit(claims: list[ClaimItem], cap: int) -> list[ClaimItem]:
+    """All claims, or every k-th one for the smallest k whose prompt fits `cap` characters.
+
+    The questions step sees every claim of the topic, grouped by note, so it can find two
+    specific notes that disagree; a sample hid most of them (#166). Chunking would not help,
+    since a tension between two notes can span any two chunks.
+    """
     step = 1
-    while len(_by_note(claims[::step])) > MAX_QUESTION_PROMPT_CHARS:
+    while len(_by_note(claims[::step])) > cap:
         step += 1
     if step > 1:
         logger.warning("questions prompt too long: every %dth of %d claims", step, len(claims))
@@ -551,7 +552,7 @@ def _progress(run: _Run, kind: str, key: str, sig: str) -> Any | None:
 async def _propose(run: _Run, snap: _Snapshot) -> None:
     if snap.proposals_sig == snap.sig:
         return
-    claims = _fit(snap.claims)
+    claims = _fit(snap.claims, run.settings.compass_ai_questions_max_prompt_chars)
     data = await run.ask(QUESTIONS_SYSTEM, _by_note(claims), think=True)
     await asyncio.to_thread(_save_proposals, run, parse_questions(data, claims), snap.sig)
 

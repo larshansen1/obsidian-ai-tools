@@ -163,8 +163,8 @@ optional except the key, read from the same `.env`:
   output budget thinking and return an empty answer. The view's `next_step` (read, analyse, sort,
   done) drives the four-step screen.
 - Suggested questions (#166) are anchored in specific notes, not topic-wide. The questions step
-  sends every claim of the topic grouped by note (thinned evenly only past 240,000 characters) and
-  is the one claims call that thinks first, with `COMPASS_AI_QUESTIONS_MAX_OUTPUT_TOKENS` (default
+  sends every claim of the topic grouped by note (thinned evenly only past
+  `COMPASS_AI_QUESTIONS_MAX_PROMPT_CHARS`, default 600,000 characters, #177) and is the one claims call that thinks first, with `COMPASS_AI_QUESTIONS_MAX_OUTPUT_TOKENS` (default
   16000): without thinking, the questions came back as textbook debates. Each question has a kind
   (`tension`: notes disagree, a yes/no question the sort step can use; `recurring`: an idea many
   notes repeat; `carry_over`: does a principle hold in another kind of system, at most one), a
