@@ -26,8 +26,10 @@ from vault_compass.claims import (
 from vault_compass.claims_run import (
     AGREEMENT_SYSTEM,
     CHUNK_CLAIMS,
+    CONFIRM_SYSTEM,
     EXTRACT_SYSTEM,
     MAX_EVERGREENS,
+    MAX_MATCHES_PER_CHUNK,
     MAX_QUESTION_PROMPT_CHARS,
     NO_CLAIMS_SUMMARY,
     QUESTIONS_SYSTEM,
@@ -68,11 +70,12 @@ EVERGREEN = "notes/evergreen/ev.md"
 DIARY = "notes/reflections/diary.md"
 
 
-Kind = Literal["extract", "questions", "agree", "stances", "summary"]
+Kind = Literal["extract", "questions", "agree", "confirm", "stances", "summary"]
 _KIND_OF = {
     EXTRACT_SYSTEM: "extract",
     QUESTIONS_SYSTEM: "questions",
     AGREEMENT_SYSTEM: "agree",
+    CONFIRM_SYSTEM: "confirm",
     STANCE_SYSTEM: "stances",
     SUMMARY_SYSTEM: "summary",
 }
@@ -150,16 +153,14 @@ class AutoModel:
                     {"text": "Q two?", "kind": "recurring", "why": "It recurs.", "claims": ends},
                 ]
             }
-        if kind == "agree":
-            lines = user.split("\n\nEVERGREENS\n")[0].split("\n")[1:]
+        if kind in ("agree", "confirm"):
+            # Every claim matches; the parsers keep 6 per chunk and 10 after confirming.
+            lines = user.split("\n\nCLAIMS\n")[1].split("\n")
+            label = "Shared point" if kind == "agree" else "Confirmed point"
             return {
-                "matches": [
-                    {
-                        "e": 1,
-                        "text": f"Shared point {len(lines)}",
-                        "c": list(range(1, len(lines) + 1)),
-                    }
-                ]
+                "point": "P",
+                "text": f"{label} {len(lines)}",
+                "c": list(range(1, len(lines) + 1)),
             }
         if kind == "summary":
             numbers = [int(line.split(" | ", 1)[0]) for line in user.split("\n") if " | " in line]
@@ -210,6 +211,11 @@ def vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # The default 16000-token questions budget alone nearly reaches the default $0.25 action
     # limit at the default prices; the tests that are about cost limits set their own values.
     monkeypatch.setenv("COMPASS_AI_QUESTIONS_MAX_OUTPUT_TOKENS", "4000")
+    # The end-to-end tests follow every claim through agreement; the caps on matches per chunk
+    # and per evergreen have their own tests (test_parse_matches_keeps_at_most_six_claims_...,
+    # test_the_confirm_pass_keeps_at_most_ten_claims_closest_first).
+    monkeypatch.setattr("vault_compass.claims_run.MAX_MATCHES_PER_CHUNK", 10_000)
+    monkeypatch.setattr("vault_compass.claims_run.MAX_SHARED_CLAIMS", 10_000)
     _rescan(root)
     return root
 
@@ -374,42 +380,43 @@ def _evergreens(n: int) -> list[NoteRef]:
     return [NoteRef(path=f"e{i}.md", title=f"E{i}", created=None) for i in range(1, n + 1)]
 
 
-def test_parse_matches_maps_numbers_to_evergreen_paths_and_claim_ids() -> None:
+EV = NoteRef(path="e1.md", title="E1", created=None)
+
+
+def test_parse_matches_maps_numbers_to_claim_ids_for_the_one_evergreen() -> None:
     chunk = [_item(i) for i in range(1, 5)]
-    data = {"matches": [{"e": 2, "text": " Shared. ", "c": [1, 3, 3]}]}
-    assert parse_matches(data, chunk, _evergreens(3)) == [("e2.md", "Shared.", ["id1", "id3"])]
-
-
-@pytest.mark.parametrize("e", [0, 4, -1, True, "1", 1.5, None])
-def test_parse_matches_drops_evergreen_numbers_outside_the_list(e: Any) -> None:
-    data = {"matches": [{"e": e, "text": "t", "c": [1]}]}
-    assert parse_matches(data, [_item(1)], _evergreens(3)) == []
+    data = {"point": "P", "text": " Shared. ", "c": [3, 1, 3]}
+    assert parse_matches(data, chunk, EV) == [("e1.md", "Shared.", ["id3", "id1"])]
 
 
 def test_parse_matches_keeps_only_claim_numbers_in_range() -> None:
     chunk = [_item(1), _item(2)]
-    data = {"matches": [{"e": 1, "text": "t", "c": [0, 1, 2, 3, True, "2", 2.0]}]}
-    assert parse_matches(data, chunk, _evergreens(1)) == [("e1.md", "t", ["id1", "id2"])]
+    data = {"text": "t", "c": [0, 1, 2, 3, True, "2", 2.0]}
+    assert parse_matches(data, chunk, EV) == [("e1.md", "t", ["id1", "id2"])]
+
+
+def test_parse_matches_keeps_at_most_six_claims_per_chunk() -> None:
+    chunk = [_item(i) for i in range(1, 10)]
+    data = {"text": "t", "c": list(range(1, 10))}
+    assert parse_matches(data, chunk, EV) == [
+        ("e1.md", "t", ["id1", "id2", "id3", "id4", "id5", "id6"])
+    ]
+    assert MAX_MATCHES_PER_CHUNK == 6
 
 
 @pytest.mark.parametrize(
-    "item",
+    "data",
     [
-        {"e": 1, "text": "", "c": [1]},
-        {"e": 1, "text": "t", "c": []},
-        {"e": 1, "text": 3, "c": [1]},
-        {"e": 1, "text": "t"},
-        "junk",
-        None,
+        {"text": "", "c": [1]},
+        {"text": "t", "c": []},
+        {"text": 3, "c": [1]},
+        {"text": "t"},
+        {},
+        {"text": "t", "c": None},
     ],
 )
-def test_parse_matches_skips_incomplete_items(item: Any) -> None:
-    assert parse_matches({"matches": [item]}, [_item(1)], _evergreens(1)) == []
-
-
-@pytest.mark.parametrize("data", [{}, {"matches": None}, {"matches": []}])
-def test_parse_matches_handles_a_missing_list(data: dict[str, Any]) -> None:
-    assert parse_matches(data, [_item(1)], _evergreens(1)) == []
+def test_parse_matches_returns_nothing_for_an_incomplete_answer(data: dict[str, Any]) -> None:
+    assert parse_matches(data, [_item(1)], EV) == []
 
 
 def test_merge_matches_unions_ids_and_keeps_the_wording_of_the_biggest_match() -> None:
@@ -554,14 +561,14 @@ def test_first_run_reads_proposes_and_finds_shared_claims(vault: Path) -> None:
     model = AutoModel()
     body = _run(_client(model))
     assert (body["status"], body["message"], body["estimate_usd"]) == ("done", None, None)
-    assert model.kinds() == ["extract", "questions", "agree"]
+    assert model.kinds() == ["extract", "questions", "agree", "confirm"]
     view = body["view"]
     assert (view["read_notes"], view["pending_notes"], view["claim_count"]) == (3, 0, 10)
     assert _texts(view) == ["Q one?", "Q two?"]
     assert (view["question"], view["stale"]) == (None, False)
     assert len(view["shared"]) == 1
     shared = view["shared"][0]
-    assert shared["text"] == "Shared point 10"
+    assert shared["text"] == "Confirmed point 10"
     assert shared["evergreen"] == {"path": EVERGREEN, "title": "ev", "created": "2026-09-01"}
     assert len(shared["claims"]) == 10
 
@@ -732,7 +739,7 @@ def test_changed_note_is_read_again_and_the_analysis_follows(vault: Path) -> Non
     assert stale["shared"] == []  # its claims no longer match what was analysed
     model.calls.clear()
     fresh = _run(client)["view"]
-    assert model.kinds() == ["extract", "questions", "agree"]
+    assert model.kinds() == ["extract", "questions", "agree", "confirm"]
     assert re.findall(r"^### NOTE (\S+)", model.users("extract")[0], re.MULTILINE) == [A]
     assert (fresh["claim_count"], fresh["stale"], fresh["pending_notes"]) == (10, False, 0)
     assert _texts(fresh) == ["Q one?", "Q two?"]
@@ -961,28 +968,34 @@ def test_evergreens_in_an_excluded_folder_are_not_sent(vault: Path) -> None:
     assert view["shared"] == []
 
 
-def test_at_most_forty_evergreens_are_offered(vault: Path) -> None:
+def test_at_most_forty_evergreens_are_offered(vault: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # 40 calls at the default prices pass the $0.25 action limit; this test is about the cap.
+    monkeypatch.setenv("COMPASS_AI_ACTION_LIMIT_USD", "100")
     assert MAX_EVERGREENS == 40
     for i in range(45):
         _write(vault, f"notes/evergreen/z{i:02}.md", f"Idea {i}.")
     _rescan(vault)
     model = AutoModel()
-    _run(_client(model))
-    block = model.users("agree")[0].split("EVERGREENS\n")[1].split("\n")
-    assert len(block) == 40
-    assert block[0].startswith("1. ev | Agents need plans and tools.")
-    assert block[-1].startswith("40. z38 | Idea 38.")
+    body = _run(_client(model))
+    assert (body["status"], body["message"]) == ("done", None)
+    # One evergreen per call: the small topic is one chunk, so one call per evergreen offered.
+    offered = [u.split("EVERGREEN\n")[1].split("\n\nCLAIMS\n")[0] for u in model.users("agree")]
+    assert len(offered) == 40
+    assert offered[0] == "ev | Agents need plans and tools."
+    assert offered[-1] == "z38 | Idea 38."
 
 
-def test_an_evergreen_number_outside_the_list_is_ignored(vault: Path) -> None:
-    model = AutoModel(raw={("agree", 0): {"matches": [{"e": 2, "text": "t", "c": [1, 2]}]}})
+def test_an_evergreen_no_claim_matches_is_not_confirmed_or_shared(vault: Path) -> None:
+    model = AutoModel(raw={("agree", 0): {"point": "P", "text": "t", "c": []}})
     view = _run(_client(model))["view"]
     assert (view["shared"], view["stale"]) == ([], False)
+    assert model.kinds() == ["extract", "questions", "agree"]
 
 
 def test_a_match_backed_by_one_note_is_not_shared(vault: Path) -> None:
-    model = AutoModel(raw={("agree", 0): {"matches": [{"e": 1, "text": "t", "c": [1]}]}})
+    model = AutoModel(raw={("agree", 0): {"point": "P", "text": "t", "c": [1]}})
     assert _run(_client(model))["view"]["shared"] == []
+    assert model.kinds() == ["extract", "questions", "agree", "confirm"]
 
 
 # --- limits and failures ------------------------------------------------------------
@@ -1000,7 +1013,7 @@ def test_run_stops_for_approval_when_over_the_cost_limit(
     assert body["estimate_usd"] > 0
     assert model.calls == []
     assert _run(client, approved=True)["status"] == "done"
-    assert model.kinds() == ["extract", "questions", "agree"]
+    assert model.kinds() == ["extract", "questions", "agree", "confirm"]
 
 
 def test_run_stops_when_the_month_limit_is_reached(
@@ -1042,7 +1055,7 @@ def test_claims_calls_turn_thinking_off_but_the_questions_step_thinks(
     model = AutoModel()
     _run(_client(model))
     # One model for reading and agreement, one for the questions step.
-    assert model.kinds() == ["extract", "questions", "agree"]
+    assert model.kinds() == ["extract", "questions", "agree", "confirm"]
     plain, thinking = model.settings
     assert (plain.compass_ai_reasoning, plain.compass_ai_max_output_tokens) == (False, 4000)
     assert (thinking.compass_ai_reasoning, thinking.compass_ai_max_output_tokens) == (True, 16000)
@@ -1154,7 +1167,7 @@ def test_run_fails_cleanly_when_even_single_notes_are_unreadable(vault: Path) ->
 def test_unreadable_batch_is_retried_one_note_at_a_time(vault: Path) -> None:
     model = AutoModel(raw={("extract", 0): '{"claims": [{"note": "notes/a.md", "text": "cut off'})
     view = _run(_client(model))["view"]
-    assert model.kinds() == ["extract", "extract", "extract", "questions", "agree"]
+    assert model.kinds() == ["extract", "extract", "extract", "questions", "agree", "confirm"]
     assert [u.count("### NOTE") for u in model.users("extract")] == [2, 1, 1]
     assert (view["claim_count"], view["pending_notes"]) == (10, 0)
 
@@ -1193,10 +1206,9 @@ def test_parsers_ignore_values_of_the_wrong_type(bad: Any) -> None:
         parse_questions({"questions": [{"text": "q", "kind": "tension", "claims": bad}]}, chunk)
         == []
     )
-    assert parse_matches({"matches": bad}, chunk, _evergreens(1)) == []
-    assert (
-        parse_matches({"matches": [{"e": 1, "text": "t", "c": bad}]}, chunk, _evergreens(1)) == []
-    )
+    if not isinstance(bad, str):  # any string is a valid shared-point line
+        assert parse_matches({"text": bad, "c": [1]}, chunk, EV) == []
+    assert parse_matches({"text": "t", "c": bad}, chunk, EV) == []
     assert parse_extracted({"claims": [{"note": bad, "text": "t"}]}, {A}) == {}
 
 
@@ -1241,7 +1253,7 @@ def test_run_reads_at_most_30_notes_then_continues(vault: Path) -> None:
     second = _run(client)["view"]
     assert (second["read_notes"], second["pending_notes"], second["stale"]) == (35, 0, False)
     assert _texts(second) == ["Q one?", "Q two?"]
-    assert model.kinds()[-2:] == ["questions", "agree"]
+    assert model.kinds()[-3:] == ["questions", "agree", "confirm"]
 
 
 # --- a topic big enough to need chunks -----------------------------------------------
@@ -1262,11 +1274,14 @@ def test_a_big_topic_is_analysed_in_chunks_of_150_claims(big_vault: Path) -> Non
     # 42 notes for the model in batches of 4: 29 in the first run (8 calls), 13 in the second (4).
     assert model.kinds().count("extract") == 12
     assert model.kinds().count("questions") == 1
-    sizes = [len(u.split("\n\nEVERGREENS\n")[0].split("\n")) - 1 for u in model.users("agree")]
+    sizes = [len(u.split("\n\nCLAIMS\n")[1].split("\n")) for u in model.users("agree")]
     assert sizes == [150, 20]
+    # The confirm pass sees all of the evergreen's candidates at once.
+    (confirm,) = model.users("confirm")
+    assert len(confirm.split("\n\nCLAIMS\n")[1].split("\n")) == TOTAL_BIG
     shared = view["shared"]
     assert len(shared) == 1
-    assert shared[0]["text"] == "Shared point 150"
+    assert shared[0]["text"] == f"Confirmed point {TOTAL_BIG}"
     assert len(shared[0]["claims"]) == TOTAL_BIG
     assert len({c["id"] for c in shared[0]["claims"]}) == TOTAL_BIG
     client.put("/topics/big/claims/question", json={"question": "Q?"})
@@ -1344,11 +1359,64 @@ def test_a_stopped_agreement_resumes_at_the_chunk_it_stopped_on(big_vault: Path)
     assert failing.kinds().count("agree") == 2
     healthy = AutoModel()
     final = _run(_client(healthy))["view"]
-    assert healthy.kinds() == ["agree"]
-    assert healthy.users("agree")[0].split("\n\nEVERGREENS\n")[0].count("\n") == 20
+    assert healthy.kinds() == ["agree", "confirm"]
+    assert len(healthy.users("agree")[0].split("\n\nCLAIMS\n")[1].split("\n")) == 20
     assert final["stale"] is False
     assert len(final["shared"][0]["claims"]) == TOTAL_BIG
-    assert final["shared"][0]["text"] == "Shared point 150"
+    assert final["shared"][0]["text"] == f"Confirmed point {TOTAL_BIG}"
+
+
+def test_the_confirm_pass_keeps_at_most_ten_claims_closest_first(
+    big_vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("vault_compass.claims_run.MAX_MATCHES_PER_CHUNK", 6)
+    monkeypatch.setattr("vault_compass.claims_run.MAX_SHARED_CLAIMS", 10)
+    reverse = {"point": "P", "text": "Kept.", "c": list(range(12, 0, -1))}
+    model = AutoModel(raw={("confirm", 0): reverse})
+    view = _finish_reading(_client(model))
+    (user,) = model.users("confirm")
+    head, claims = user.split("\n\nCLAIMS\n")
+    assert head == "EVERGREEN\nev | Agents need plans and tools."
+    lines = claims.split("\n")
+    # Six candidates from each of the two chunks, numbered from 1 in the order they were found.
+    assert [line.split(" | ", 1)[0] for line in lines] == [str(n) for n in range(1, 13)]
+    texts = [line.split(" | ", 2)[2] for line in lines]
+    (shared,) = view["shared"]
+    assert (shared["text"], [c["text"] for c in shared["claims"]]) == ("Kept.", texts[::-1][:10])
+
+
+def test_the_confirm_pass_can_keep_nothing(vault: Path) -> None:
+    model = AutoModel(raw={("confirm", 0): {"point": "P", "text": "None.", "c": []}})
+    view = _run(_client(model))["view"]
+    assert (view["shared"], view["stale"]) == ([], False)
+
+
+def test_a_stopped_confirm_pass_resumes_without_matching_again(vault: Path) -> None:
+    failing = AutoModel(fail_when=lambda kind, _n: kind == "confirm")
+    client = _client(failing)
+    assert _run(client)["status"] == "failed"
+    assert failing.kinds() == ["extract", "questions", "agree", "confirm"]
+    healthy = AutoModel()
+    view = _run(_client(healthy))["view"]
+    assert healthy.kinds() == ["confirm"]
+    assert view["shared"][0]["text"] == "Confirmed point 10"
+
+
+def test_matches_saved_before_the_strict_prompt_are_redone(vault: Path) -> None:
+    client = _client(AutoModel())
+    view = _run(client)["view"]
+    ids = [c["id"] for c in view["shared"][0]["claims"]]
+    sig = signature(c for c in ids)
+    with duckdb.connect(str(_db(vault))) as con:
+        con.execute("DELETE FROM claim_analysis WHERE kind LIKE 'agreement%'")
+        for kind in ("agreement", "agreement_progress"):
+            loose = [{"text": "Loose.", "claim_ids": ids, "evergreen": EVERGREEN}]
+            save_analysis(con, "big", kind, "", sig, loose)
+    assert (_view(client)["shared"], _view(client)["next_step"]) == ([], "analyse")
+    model = AutoModel()
+    redone = _run(_client(model))["view"]
+    assert model.kinds() == ["agree", "confirm"]
+    assert redone["shared"][0]["text"] == "Confirmed point 10"
 
 
 def test_changed_notes_restart_the_analysis_not_the_reading(big_vault: Path) -> None:
@@ -1366,6 +1434,7 @@ def test_changed_notes_restart_the_analysis_not_the_reading(big_vault: Path) -> 
         "questions",
         "agree",
         "agree",
+        "confirm",
         "stances",
         "stances",
         "stances",
@@ -1376,7 +1445,7 @@ def test_changed_notes_restart_the_analysis_not_the_reading(big_vault: Path) -> 
 
 
 def test_unreadable_agreement_answer_fails_and_keeps_earlier_chunks(big_vault: Path) -> None:
-    model = AutoModel(raw={("agree", 1): '{"matches": [{"e": 1, "text": "cut'})
+    model = AutoModel(raw={("agree", 1): '{"point": "P", "text": "cut'})
     client = _client(model)
     body = _run(client)
     while body["view"]["pending_notes"]:
@@ -1389,7 +1458,7 @@ def test_unreadable_agreement_answer_fails_and_keeps_earlier_chunks(big_vault: P
     healthy = AutoModel()
     final = _run(_client(healthy))
     assert final["status"] == "done"
-    assert healthy.kinds() == ["agree"]
+    assert healthy.kinds() == ["agree", "confirm"]
     assert len(final["view"]["shared"][0]["claims"]) == TOTAL_BIG
 
 
@@ -1398,8 +1467,8 @@ def test_an_evergreen_is_cut_to_300_characters_in_the_prompt(vault: Path) -> Non
     _rescan(vault)
     model = AutoModel()
     _run(_client(model))
-    line = model.users("agree")[0].split("EVERGREENS\n")[1]
-    assert line == "1. ev | " + "e" * 300
+    line = model.users("agree")[0].split("EVERGREEN\n")[1].split("\n\nCLAIMS\n")[0]
+    assert line == "ev | " + "e" * 300
 
 
 def test_a_duplicate_claim_in_one_note_is_stored_once(vault: Path) -> None:

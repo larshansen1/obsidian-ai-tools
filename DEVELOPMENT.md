@@ -180,6 +180,15 @@ optional except the key, read from the same `.env`:
   and why, what is missing, and 3 to 5 notes to read. A question no claim bears on gets a fixed
   summary with no model call. "Use this question" saves the question and runs sort and summary in
   one click; the claim lists sit folded under the summary.
+- Agreement (#173): claims are matched to one evergreen per call (150 claims per chunk), because
+  matching a chunk against all evergreens at once made the model misread claim numbers. Each call
+  keeps at most 6 claims that make the evergreen's specific point. A second call per evergreen
+  sees all its candidates together and keeps at most 10, closest first (`CONFIRM_SYSTEM`). On a
+  2,406-claim topic with 5 evergreens that is about 90 calls, 4 to 5 minutes, and a few cents,
+  run only when the claims change; matches went from 324 claims to 43. With the default prices
+  the cost check asks for approval on topics with many evergreens. Older matches (`agreement`)
+  are redone (`agreement_v2`). The list shows the 3 closest notes per shared point; the rest and
+  the link button sit under "Show all".
 - Before calling a claims change done, run it on real data: `uv run python scripts/replay_claims.py
   <topic>` copies your `compass.duckdb`, runs the whole flow with the real model and runs it again to
   check nothing repeats (`--dry` shows the cached state for free). Mocked tests cannot show how a

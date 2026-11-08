@@ -26,12 +26,14 @@ Stance = Literal["supporting", "pushing_back", "unrelated"]
 # What the user should do next: read notes, make questions and agreement, or sort by the question.
 NextStep = Literal["read", "analyse", "sort", "done"]
 
-AGREEMENT_KIND = "agreement"
+# "_v2": a claim matches only if it makes the evergreen's specific point (#173); "agreement"
+# matched anything on the same theme and is redone.
+AGREEMENT_KIND = "agreement_v2"
 # "_v3": the sort counts only claims about the question's own subject (#169); "_v2" sorts were
 # loose (background claims landed on a side) and are redone.
 STANCES_KIND = "stances_v3"
 # Work saved part-way through a long step, so a stopped run resumes instead of starting over.
-AGREEMENT_PROGRESS_KIND = "agreement_progress"
+AGREEMENT_PROGRESS_KIND = "agreement_progress_v2"
 STANCES_PROGRESS_KIND = "stances_progress_v3"
 # A plain-language summary of how the sorted claims split on the chosen question (#169).
 SUMMARY_KIND = "split_summary_v1"

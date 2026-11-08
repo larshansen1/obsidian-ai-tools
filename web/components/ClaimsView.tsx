@@ -102,6 +102,9 @@ export function ClaimsTable({
 // Renders an action for a shared claim's unlinked notes (the topic page's Link button).
 export type LinkAction = (evergreen: string, notes: string[]) => ReactNode;
 
+// Closest notes shown up front; the rest open on click (#173). Claims come closest first.
+const CLOSEST_NOTES = 3;
+
 function Shared({
   item,
   vault,
@@ -113,12 +116,24 @@ function Shared({
   linkAction?: LinkAction;
   selection?: ClaimSelection;
 }) {
+  const notes = [...new Map(item.claims.map((c) => [c.path, c.title])).entries()].map(([path, title]) => ({
+    path,
+    title,
+  }));
+  const unlinked = new Set(item.unlinked_notes.map((n) => n.path));
+  const links = (list: { path: string; title: string }[]) =>
+    list.map((n, i) => (
+      <span key={n.path}>
+        {i > 0 ? ", " : ""}
+        <SourceLink vault={vault} path={n.path} title={n.title} />
+      </span>
+    ));
   return (
     <li>
       <Pick ids={item.claims.map((c) => c.id)} label={`Pick claim: ${item.text}`} selection={selection} />
       <strong>{item.text}</strong>
       <div className="muted">
-        In {item.claims.length} claims from {new Set(item.claims.map((c) => c.path)).size} notes
+        In {item.claims.length} claims from {notes.length} notes
         {item.evergreen ? (
           <>
             {" "}
@@ -128,23 +143,27 @@ function Shared({
           " · no evergreen matches yet"
         )}
       </div>
-      {item.unlinked_notes.length > 0 ? (
-        <div>
-          Support it but do not link to it:{" "}
-          {item.unlinked_notes.map((n, i) => (
-            <span key={n.path}>
-              {i > 0 ? ", " : ""}
+      <div data-testid="closest-notes">Closest: {links(notes.slice(0, CLOSEST_NOTES))}</div>
+      <details>
+        <summary>
+          Show all {notes.length} notes
+          {unlinked.size > 0 ? ` (${unlinked.size} not linked to the evergreen)` : ""}
+        </summary>
+        <ul className="list" aria-label={`Notes behind: ${item.text}`}>
+          {notes.map((n) => (
+            <li key={n.path}>
               <SourceLink vault={vault} path={n.path} title={n.title} />
-            </span>
+              {unlinked.has(n.path) ? <span className="muted"> · not linked</span> : null}
+            </li>
           ))}
-          {linkAction && item.evergreen
-            ? linkAction(
-                item.evergreen.path,
-                item.unlinked_notes.map((n) => n.path),
-              )
-            : null}
-        </div>
-      ) : null}
+        </ul>
+        {linkAction && item.evergreen && unlinked.size > 0
+          ? linkAction(
+              item.evergreen.path,
+              item.unlinked_notes.map((n) => n.path),
+            )
+          : null}
+      </details>
     </li>
   );
 }

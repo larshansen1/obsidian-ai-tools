@@ -58,6 +58,10 @@ CHUNK_CLAIMS = 150
 # Sorting needs more care per claim than matching, so it takes smaller chunks.
 STANCE_CHUNK_CLAIMS = 75
 MAX_EVERGREENS = 40
+# Per evergreen and chunk: the closest matches only, which keeps the thinking answer short (#173).
+MAX_MATCHES_PER_CHUNK = 6
+# After all chunks, one call per evergreen keeps only the candidates that really make its point.
+MAX_SHARED_CLAIMS = 10
 EVERGREEN_CHARS = 300
 MAX_QUESTIONS = 6
 MAX_WHY_CHARS = 300
@@ -100,14 +104,25 @@ were given.
 Reply with JSON only: {{"questions": [{{"text": "...", "kind": "tension|recurring|carry_over", \
 "why": "...", "claims": [<numbers>]}}]}}"""
 
-AGREEMENT_SYSTEM = """\
-You are given numbered claims from notes (number | note | text) and the user's numbered \
-evergreen notes (number. title | start). A claim matches an evergreen when it restates, supports \
-or gives an example of the evergreen's point. Include every claim that matches, not only the \
-closest ones. For each evergreen that claims match, give one line stating the shared point and \
-the numbers of the matching claims. Use only numbers you were given and skip evergreens nothing \
-matches. Reply with JSON only: {"matches": [{"e": <evergreen number>, "text": "...", \
-"c": [<claim numbers>]}]}"""
+AGREEMENT_SYSTEM = f"""\
+You are given one of the user's evergreen notes (title | start) and numbered claims from their \
+notes (number | note | text). First name the evergreen's specific point in a few words. A claim \
+matches only if it makes that point: it restates it, or gives direct evidence or an example of \
+that point itself. A claim that is only on the same subject, or supports a different point \
+about it, does not match. Most claims do not match. Give one short line stating what the \
+matching claims share, and the numbers of at most {MAX_MATCHES_PER_CHUNK} matching claims, \
+closest first; an empty list when none match. Use only numbers you were given. Reply with JSON \
+only: {{"point": "...", "text": "...", "c": [<claim numbers>]}}"""
+
+CONFIRM_SYSTEM = f"""\
+You are given one of the user's evergreen notes (title | start) and numbered candidate claims \
+from their notes (number | note | text) that may make its point. First name the evergreen's \
+specific point in a few words. Keep only the claims that make that point: they restate it, or \
+give direct evidence or an example of that point itself. Drop claims that are only on the same \
+subject, or that make a different point. It is fine to keep none. Give one short line stating \
+what the kept claims share, and the numbers of at most {MAX_SHARED_CLAIMS} kept claims, closest \
+first. Use only numbers you were given. Reply with JSON only: \
+{{"point": "...", "text": "...", "c": [<claim numbers>]}}"""
 
 STANCE_SYSTEM = """\
 You are given a question and numbered claims. First name the question's subject: the specific \
@@ -251,19 +266,15 @@ def _numbers(value: Any, limit: int) -> list[int]:
 
 
 def parse_matches(
-    data: dict[str, Any], chunk: list[ClaimItem], evergreens: list[NoteRef]
+    data: dict[str, Any], chunk: list[ClaimItem], evergreen: NoteRef
 ) -> list[tuple[str, str, list[str]]]:
-    """(evergreen path, shared point, claim ids) per match; out-of-range numbers dropped."""
-    out = []
-    for item in _items(data.get("matches")):
-        if not isinstance(item, dict):
-            continue
-        nums = _numbers([item.get("e")], len(evergreens))
-        ids = [chunk[n - 1].id for n in _numbers(item.get("c"), len(chunk))]
-        text = _text(item.get("text"))
-        if nums and ids and text:
-            out.append((evergreens[nums[0] - 1].path, text, ids))
-    return out
+    """The one evergreen's match as [(path, shared point, claim ids)], or [] when none match.
+
+    Out-of-range numbers are dropped and at most MAX_MATCHES_PER_CHUNK claims are kept.
+    """
+    ids = [chunk[n - 1].id for n in _numbers(data.get("c"), len(chunk))][:MAX_MATCHES_PER_CHUNK]
+    text = _text(data.get("text"))
+    return [(evergreen.path, text, ids)] if ids and text else []
 
 
 def merge_matches(
@@ -545,16 +556,17 @@ async def _propose(run: _Run, snap: _Snapshot) -> None:
     await asyncio.to_thread(_save_proposals, run, parse_questions(data, claims), snap.sig)
 
 
-def _evergreen_block(run: _Run, evergreens: list[NoteRef]) -> str:
-    lines = []
-    for n, e in enumerate(evergreens, start=1):
-        start = (run.vault.body(e.path) or "")[:EVERGREEN_CHARS]
-        lines.append(f"{n}. {e.title} | {' '.join(start.split())}")
-    return "\n".join(lines)
+def _evergreen_line(run: _Run, evergreen: NoteRef) -> str:
+    start = (run.vault.body(evergreen.path) or "")[:EVERGREEN_CHARS]
+    return f"{evergreen.title} | {' '.join(start.split())}"
 
 
 async def _agree(run: _Run, snap: _Snapshot) -> None:
-    """Match claims to evergreens chunk by chunk; progress is saved after each chunk."""
+    """Match claims to evergreens, one evergreen and one chunk per call (#173).
+
+    Matching a chunk against all evergreens at once made the model misread claim numbers.
+    `state["chunks"]` counts finished (evergreen, chunk) pairs, so a stopped run resumes.
+    """
     if snap.has_agreement:
         return
     evergreens = snap.evergreens[:MAX_EVERGREENS]
@@ -562,18 +574,46 @@ async def _agree(run: _Run, snap: _Snapshot) -> None:
     if evergreens:
         saved = await asyncio.to_thread(_progress, run, AGREEMENT_PROGRESS_KIND, "", snap.sig)
         state = saved or state
-        block = _evergreen_block(run, evergreens)
         chunks = _chunks(snap.claims)
-        for index in range(state["chunks"], len(chunks)):
-            user = f"CLAIMS\n{_numbered(chunks[index], titles=True)}\n\nEVERGREENS\n{block}"
+        pairs = [(e, chunk) for e in evergreens for chunk in chunks]
+        lines = {e.path: _evergreen_line(run, e) for e in evergreens}
+        for index in range(state["chunks"], len(pairs)):
+            evergreen, chunk = pairs[index]
+            user = f"EVERGREEN\n{lines[evergreen.path]}\n\nCLAIMS\n{_numbered(chunk, titles=True)}"
             data = await run.ask(AGREEMENT_SYSTEM, user)
-            merge_matches(state["found"], parse_matches(data, chunks[index], evergreens))
+            merge_matches(state["found"], parse_matches(data, chunk, evergreen))
             state["chunks"] = index + 1
             await asyncio.to_thread(
                 _save_analysis, run, AGREEMENT_PROGRESS_KIND, "", snap.sig, state
             )
+    await _confirm(run, snap, state)
     shared = finalize_shared(state["found"], snap.claims)
     await asyncio.to_thread(_save_analysis, run, AGREEMENT_KIND, "", snap.sig, shared)
+
+
+async def _confirm(run: _Run, snap: _Snapshot, state: dict[str, Any]) -> None:
+    """Second pass per evergreen: keep the candidates that make its point, closest first.
+
+    Chunk by chunk the model always finds a few matches, so candidates pile up across chunks.
+    Seeing them together, it keeps at most MAX_SHARED_CLAIMS. Progress is saved per evergreen.
+    """
+    by_id = {c.id: c for c in snap.claims}
+    by_path = {e.path: e for e in snap.evergreens}
+    done: list[str] = state.setdefault("confirmed", [])
+    for path, entry in state["found"].items():
+        if path in done or path not in by_path:
+            continue
+        candidates = [by_id[i] for i in entry["claim_ids"] if i in by_id]
+        user = (
+            f"EVERGREEN\n{_evergreen_line(run, by_path[path])}\n\n"
+            f"CLAIMS\n{_numbered(candidates, titles=True)}"
+        )
+        data = await run.ask(CONFIRM_SYSTEM, user)
+        kept = [candidates[n - 1].id for n in _numbers(data.get("c"), len(candidates))]
+        entry["claim_ids"] = kept[:MAX_SHARED_CLAIMS]
+        entry["text"] = _text(data.get("text")) or entry["text"]
+        done.append(path)
+        await asyncio.to_thread(_save_analysis, run, AGREEMENT_PROGRESS_KIND, "", snap.sig, state)
 
 
 async def _sort(run: _Run, snap: _Snapshot) -> None:
