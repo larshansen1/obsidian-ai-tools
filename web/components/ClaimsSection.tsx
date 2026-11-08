@@ -15,7 +15,8 @@ import {
 } from "../lib/claims";
 import { logUsage } from "../lib/topicMap";
 import { Agreement, ClaimsTable, SplitSummaryView, SuggestedQuestions, type ClaimSelection } from "./ClaimsView";
-import { DraftEvergreen, LinkNotes } from "./WriteActions";
+import { DraftEvergreen } from "./DraftEvergreen";
+import { LinkNotes } from "./WriteActions";
 
 type Notice = { kind: "approval" | "error"; message: string };
 

@@ -75,6 +75,8 @@ class CompassSettings(BaseSettings):
     # it sends every k-th claim instead. 600,000 is about 150,000 tokens, which still fits a
     # 200,000-token model with room for the answer; a long-context model can take more (#177).
     compass_ai_questions_max_prompt_chars: int = Field(default=600_000, gt=0)
+    # Writing or revising an evergreen draft returns the whole note: more room than a chat reply.
+    compass_ai_draft_max_output_tokens: int = Field(default=6000, gt=0)
     compass_ai_max_steps: int = Field(default=5, gt=0, description="Model calls per chat message")
 
     @field_validator("obsidian_vault_path")

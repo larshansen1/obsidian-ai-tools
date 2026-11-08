@@ -242,6 +242,10 @@ def test_cancelling_a_new_note_leaves_no_file_and_nothing_pending(db: Path, tmp_
         ("Æble på brød, øl & Straße", "aeble-pa-brod-ol-strasse"),
         ("Œuvre đ ł", "oeuvre-d-l"),
         ("--x--", "x"),
+        # Dashes and quotes the model likes are word breaks, not dropped letters.
+        ("Clean code—and destroy it", "clean-code-and-destroy-it"),
+        ("Plans – not “hope”", "plans-not-hope"),
+        ("café", "cafe"),
         ("?!", ""),
         ("a" * 79 + " b", "a" * 79),
         ("a" * 81, "a" * 80),

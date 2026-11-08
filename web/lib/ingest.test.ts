@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchIngests, monthCount, planEvergreen, sendToKai, startDraft, thisMonth } from "./ingest";
+import { fetchIngests, monthCount, planEvergreen, sendToKai, startDraft, thisMonth, writeDraft } from "./ingest";
 
 const fetchMock = vi.fn();
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -65,5 +65,16 @@ describe("thisMonth", () => {
   it("is the UTC month with two digits", () => {
     expect(thisMonth(new Date("2026-02-01T00:30:00Z"))).toBe("2026-02");
     expect(thisMonth(new Date("2026-11-30T23:59:00Z"))).toBe("2026-11");
+  });
+
+  it("asks the model for a draft on the topic's draft path", async () => {
+    const result = { status: "done", message: null, estimate_usd: null, title: "T", body: "B" };
+    respond(result);
+    const request = { claim_ids: ["c1"], title: "", body: "## C", instruction: "Shorter", approved: true };
+
+    expect(await writeDraft("a b", request)).toEqual(result);
+    expect(fetchMock.mock.calls).toEqual([
+      ["/api/topics/a%20b/evergreen-draft/write", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(request) }],
+    ]);
   });
 });

@@ -617,6 +617,12 @@ a {
   box-sizing: border-box;
   font: inherit;
 }
+.draft-turns {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 2px;
+}
 .ingest {
   margin-top: 6px;
 }

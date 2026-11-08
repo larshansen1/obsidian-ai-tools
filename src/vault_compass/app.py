@@ -22,7 +22,8 @@ from .claims import ClaimsView, build_claims_view, save_chosen_question
 from .claims_run import RunStatus, run_topic_claims
 from .config import CompassSettings, get_compass_settings
 from .db import DB_LOCK, writable
-from .evergreen_draft import MAX_CLAIMS, MAX_TITLE, draft_body, plan_evergreen
+from .evergreen_ai import write_draft
+from .evergreen_draft import MAX_CLAIMS, MAX_TITLE, claim_texts, draft_body, plan_evergreen
 from .kai_ingest import (
     MAX_URL,
     IngestError,
@@ -146,6 +147,34 @@ class DraftRequest(BaseModel):
 
 
 class Draft(BaseModel):
+    body: str
+
+
+class DraftWriteRequest(BaseModel):
+    claim_ids: list[str] = Field(min_length=1, max_length=MAX_CLAIMS)
+    title: str = Field(default="", max_length=MAX_TITLE)
+    body: str = Field(default="", max_length=100_000)
+    # None asks for a first draft from the claims; text asks for a revision of title and body.
+    instruction: str | None = Field(default=None, max_length=2000)
+    # True after the user agreed to go over a cost limit (N3).
+    approved: bool = False
+
+    @field_validator("instruction")
+    @classmethod
+    def _trim_instruction(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("instruction must not be blank")
+        return trimmed
+
+
+class DraftWriteResponse(BaseModel):
+    status: RunStatus
+    message: str | None
+    estimate_usd: float | None
+    title: str
     body: str
 
 
@@ -492,6 +521,41 @@ def create_app(
             return Draft(body=draft_body(cfg.compass_db_path, request.claim_ids))
         except WriteError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
+
+    @app.post("/topics/{topic_id}/evergreen-draft/write")
+    async def write_evergreen_draft(
+        topic_id: str, request: DraftWriteRequest
+    ) -> DraftWriteResponse:
+        """A first draft or one revision. Nothing is written to the vault: saving is a write."""
+        cfg = current()
+        vault = _vault(cfg)
+        definition = vault.definitions.topics.get(topic_id)
+        if definition is None:
+            raise HTTPException(status_code=404, detail=f"Unknown topic: {topic_id}")
+        try:
+            claims = await asyncio.to_thread(
+                claim_texts, cfg.compass_db_path, request.claim_ids, vault.excluded
+            )
+        except WriteError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        outcome = await write_draft(
+            cfg,
+            model_factory,
+            topic=topic_id,
+            topic_name=definition.name,
+            claims=claims,
+            title=request.title,
+            body=request.body,
+            instruction=request.instruction,
+            approved=request.approved,
+        )
+        return DraftWriteResponse(
+            status=outcome.status,
+            message=outcome.message,
+            estimate_usd=outcome.estimate_usd,
+            title=outcome.title,
+            body=outcome.body,
+        )
 
     @app.post("/writes/evergreen")
     def plan_evergreen_write(request: EvergreenRequest) -> PendingWrite:

@@ -6,12 +6,14 @@ until the planned file is approved through the write layer (vault_writes).
 
 import re
 import unicodedata
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
 import duckdb
 import yaml
 
+from .ai_policy import is_excluded
 from .db import readonly
 from .note_links import link_text
 from .notes import EVERGREEN_FOLDER
@@ -31,6 +33,9 @@ _CLAIMS_SQL = "SELECT claim_id, path, text FROM note_claims WHERE list_contains(
 def slugify(title: str) -> str:
     """'Masking is a defense!' -> 'masking-is-a-defense', the vault's evergreen file names."""
     text = unicodedata.normalize("NFKD", title.lower().translate(_LETTERS))
+    # Punctuation outside ASCII (an em dash, curly quotes) separates words; dropping it with the
+    # accents would glue "code—and" into "codeand". Combining marks (accents) are still dropped.
+    text = "".join(c if c.isalnum() or unicodedata.combining(c) else " " for c in text)
     ascii_text = text.encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", "-", ascii_text).strip("-")[:80].rstrip("-")
 
@@ -39,8 +44,8 @@ def _one_line(text: str) -> str:
     return " ".join(text.split())
 
 
-def draft_body(db_path: Path, claim_ids: list[str]) -> str:
-    """The draft's starting text: the chosen claims, each linked to the note it came from."""
+def _load_claims(db_path: Path, claim_ids: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
+    """(path, text) of each chosen claim in the order picked, and every note path."""
     ids = list(dict.fromkeys(claim_ids))
     if not ids:
         raise WriteError("Pick at least one claim.")
@@ -58,8 +63,21 @@ def draft_body(db_path: Path, claim_ids: list[str]) -> str:
     missing = [cid for cid in ids if cid not in found]
     if missing:
         raise WriteError(f"Unknown claim: {missing[0]}. Read the notes again.")
-    bullets = [f"- {_one_line(found[c][1])} ([[{link_text(found[c][0], paths)}]])" for c in ids]
+    return [found[c] for c in ids], paths
+
+
+def draft_body(db_path: Path, claim_ids: list[str]) -> str:
+    """The draft's starting text: the chosen claims, each linked to the note it came from."""
+    claims, paths = _load_claims(db_path, claim_ids)
+    bullets = [f"- {_one_line(text)} ([[{link_text(path, paths)}]])" for path, text in claims]
     return "\n".join([SOURCES_HEADING, "", *bullets]) + "\n"
+
+
+def claim_texts(db_path: Path, claim_ids: list[str], excluded: Iterable[str]) -> list[str]:
+    """The chosen claims as plain text for the model, without any from an excluded folder (N4)."""
+    claims, _ = _load_claims(db_path, claim_ids)
+    folders = list(excluded)
+    return [_one_line(text) for path, text in claims if not is_excluded(path, folders)]
 
 
 def evergreen_text(title: str, tag: str, body: str, today: date) -> str:
