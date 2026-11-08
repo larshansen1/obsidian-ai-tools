@@ -24,6 +24,7 @@ from vault_compass.ai_client import ModelEvent, TextDelta, Usage
 from vault_compass.app import create_app
 from vault_compass.claims_run import (
     AGREEMENT_SYSTEM,
+    CONFIRM_SYSTEM,
     EXTRACT_SYSTEM,
     QUESTIONS_SYSTEM,
     STANCE_SYSTEM,
@@ -39,6 +40,7 @@ KIND = {
     EXTRACT_SYSTEM: "extract",
     QUESTIONS_SYSTEM: "questions",
     AGREEMENT_SYSTEM: "agree",
+    CONFIRM_SYSTEM: "confirm",
     STANCE_SYSTEM: "stances",
     SUMMARY_SYSTEM: "summary",
 }
@@ -95,13 +97,12 @@ def shaped(kind: str, rng: random.Random) -> Any:
             "claims": number_list(rng),
         }
         return {"questions": rng.choice([[item() for _ in range(rng.randint(0, 8))], junk(rng)])}
-    if kind == "agree":
-        item = lambda: {  # noqa: E731
-            "e": rng.choice([1, 2, 3, junk(rng)]),
-            "text": rng.choice(["Shared.", junk(rng)]),
+    if kind in ("agree", "confirm"):
+        return {
+            "point": rng.choice(["P", junk(rng)]),
+            "text": rng.choice(["Shared.", "", junk(rng)]),
             "c": number_list(rng),
         }
-        return {"matches": rng.choice([[item() for _ in range(rng.randint(0, 4))], junk(rng)])}
     if kind == "summary":
         points = lambda: rng.choice([["A point.", junk(rng)], junk(rng)])  # noqa: E731
         return {
@@ -207,7 +208,8 @@ def _check_db(db: Path) -> None:
             assert isinstance(
                 data,
                 dict
-                if kind.startswith(("stances", "split_summary")) or kind.endswith("progress")
+                if kind.startswith(("stances", "split_summary"))
+                or re.sub(r"_v\d+$", "", kind).endswith("progress")
                 else list,
             )
 

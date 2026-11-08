@@ -68,7 +68,13 @@ export function splitCounts(view: ClaimsView): string {
 
 /** The page leads with the answer once a question is chosen and the notes are read (#171). */
 export function answerFirst(view: ClaimsView): boolean {
-  return view.question !== null && view.next_step !== "read" && view.next_step !== "analyse";
+  return view.question !== null && view.next_step !== "read";
+}
+
+/** "1:05" for a run that has been working for 65 seconds. */
+export function elapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 // `onWrite` hears about a saved or undone evergreen, so the page can re-read its evergreens.
@@ -93,6 +99,15 @@ export function ClaimsSection({
   const [picked, setPicked] = useState<string[]>([]);
   // The question picker under "Change question" on the answer card.
   const [switching, setSwitching] = useState(false);
+  // When the current run started, for the "Working… 1:05" line on the answer card.
+  const [started, setStarted] = useState<number | null>(null);
+  const [now, setNow] = useState(0);
+
+  useEffect(() => {
+    if (started === null) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [started]);
   const leading = view !== null && answerFirst(view);
 
   useEffect(() => {
@@ -120,6 +135,9 @@ export function ClaimsSection({
 
   async function run(approved: boolean) {
     setBusy(true);
+    const start = Date.now();
+    setStarted(start);
+    setNow(start);
     setNotice(null);
     try {
       const result = await runClaims(topic, approved);
@@ -128,6 +146,7 @@ export function ClaimsSection({
     } catch (e) {
       setNotice({ kind: "error", message: (e as Error).message });
     } finally {
+      setStarted(null);
       setBusy(false);
     }
   }
@@ -147,7 +166,9 @@ export function ClaimsSection({
     setSwitching(false);
     setCustom("");
     // One click: a question that is not sorted and summarised yet is done right away (#169).
-    if (saved.next_step === "sort") await run(false);
+    // The run does every step still open (#173 follow-up): after notes changed that is the
+    // questions and agreement too, not only the sort.
+    if (saved.next_step === "sort" || saved.next_step === "analyse") await run(false);
   }
 
   if (!view) {
@@ -207,7 +228,11 @@ export function ClaimsSection({
   const agreeStep = (
     <Step number={4} title="Where they agree" state={states.agree}>
       {states.agree === "waiting" ? (
-        <p className="hint">Needs step 2 first. It finds claims several notes make that match your evergreens.</p>
+        <p className="hint">
+          {leading
+            ? "Runs with Sort and summarise. It finds claims several notes make that match your evergreens."
+            : "Needs step 2 first. It finds claims several notes make that match your evergreens."}
+        </p>
       ) : (
         <>
           <p className="muted">
@@ -279,7 +304,11 @@ export function ClaimsSection({
           <p className="muted answer-kicker">Your question</p>
           <h2 className="answer-question">{question}</h2>
           <p className="muted" data-testid="answer-counts">
-            {view.summary ? splitCounts(view) : `Not sorted yet: ${plural(view.claim_count, "claim")} to place.`}{" "}
+            {view.summary
+              ? splitCounts(view)
+              : view.next_step === "analyse"
+                ? "Your notes changed since the last analysis."
+                : `Not sorted yet: ${plural(view.claim_count, "claim")} to place.`}{" "}
             <button type="button" aria-expanded={switching} disabled={busy} onClick={() => setSwitching((v) => !v)}>
               Change question
             </button>
@@ -298,7 +327,29 @@ export function ClaimsSection({
               </details>
             </>
           ) : null}
-          {action("sort")}
+          {view.next_step === "sort" || view.next_step === "analyse" ? (
+            <div className="step-action" data-testid="answer-work">
+              <button type="button" className="primary" disabled={busy} onClick={() => void run(false)}>
+                {busy ? "Working…" : "Sort and summarise"}
+              </button>
+              {busy && started !== null ? (
+                <span className="muted" role="status">
+                  {" "}
+                  Working on your question: {elapsed(now - started)}. A big topic can take a few minutes.
+                </span>
+              ) : null}
+              {notice ? (
+                <div role={notice.kind === "error" ? "alert" : "status"} className="warn">
+                  {notice.message}
+                  {notice.kind === "approval" ? (
+                    <button type="button" disabled={busy} onClick={() => void run(true)}>
+                      Run anyway
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {view.next_step === "done" && notice ? (
             <div role={notice.kind === "error" ? "alert" : "status"} className="warn">
               {notice.message}

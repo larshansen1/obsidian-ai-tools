@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CLAIMS, suggested } from "../lib/claimsFixture";
 import type { ClaimsRun, ClaimsView } from "../lib/claims";
-import { ClaimsSection, splitCounts } from "./ClaimsSection";
+import { ClaimsSection, elapsed, splitCounts } from "./ClaimsSection";
 
 const fetchMock = vi.fn();
 
@@ -182,6 +182,71 @@ describe("ClaimsSection steps", () => {
     expect(screen.getByTestId("agreement")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Read|Suggest|Sort/ })).toBeNull();
     expect(screen.queryByTestId("questions")).toBeNull();
+  });
+
+  it("leads with the question when notes changed and the analysis must run again", async () => {
+    api({ ...CHOSEN, next_step: "analyse" });
+    render(<ClaimsSection topic="big" />);
+
+    const answer = within(await screen.findByTestId("answer"));
+    expect(answer.getByRole("heading", { level: 2 }).textContent).toBe("Do agents need plans?");
+    expect(answer.getByTestId("answer-counts").textContent).toBe(
+      "Your notes changed since the last analysis. Change question",
+    );
+    expect(answer.getByRole("button", { name: "Sort and summarise" })).toBeEnabled();
+  });
+
+  it("runs the open steps when a question is chosen while the analysis is out of date", async () => {
+    api({ ...ASKED, next_step: "analyse" }, { view: CLAIMS });
+    render(<ClaimsSection topic="big" />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Use this question" }))[0]);
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith("/api/topics/big/claims/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved: false }),
+      }),
+    );
+    expect(await screen.findByTestId("split-summary")).toBeInTheDocument();
+  });
+
+  it("asks for approval right under the question, not in the step list", async () => {
+    api({ ...CHOSEN, next_step: "analyse" }, {
+      status: "needs_approval",
+      message: "Over the limit.",
+      estimate_usd: 0.01,
+      view: { ...CHOSEN, next_step: "analyse" },
+    });
+    render(<ClaimsSection topic="big" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Sort and summarise" }));
+
+    const work = within(await screen.findByTestId("answer-work"));
+    expect((await work.findByRole("status")).textContent).toBe("Over the limit. Estimated next call: $0.0100.Run anyway");
+    expect(work.getByRole("button", { name: "Run anyway" })).toBeEnabled();
+  });
+
+  it("shows how long the run has been working", async () => {
+    let finish: (value: unknown) => void = () => {};
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/ai/status") return { ok: true, json: async () => ({ vault_name: "v" }) };
+      if (url === "/api/topics/big/claims/run") {
+        await new Promise((resolve) => (finish = resolve));
+        return { ok: true, json: async () => ({ status: "done", message: null, estimate_usd: null, view: CLAIMS }) };
+      }
+      return { ok: true, json: async () => CHOSEN };
+    });
+    render(<ClaimsSection topic="big" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Sort and summarise" }));
+
+    expect(await screen.findByText(/^ ?Working on your question: 0:0\d\. A big topic can take a few minutes\.$/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Working…" })).toBeDisabled();
+    finish(null);
+    expect(await screen.findByTestId("split-summary")).toBeInTheDocument();
+    expect(screen.queryByText(/Working on your question/)).toBeNull();
   });
 
   it("opens and closes the question picker from the answer", async () => {
@@ -606,5 +671,15 @@ describe("splitCounts", () => {
     expect(splitCounts({ ...CLAIMS, supporting: [], pushing_back: [] })).toBe(
       "0 claims for (from 0 notes), 0 against (from 0 notes)",
     );
+  });
+});
+
+describe("elapsed", () => {
+  it("formats minutes and zero-padded seconds", () => {
+    expect(elapsed(0)).toBe("0:00");
+    expect(elapsed(9_999)).toBe("0:09");
+    expect(elapsed(65_000)).toBe("1:05");
+    expect(elapsed(600_000)).toBe("10:00");
+    expect(elapsed(-5)).toBe("0:00");
   });
 });
