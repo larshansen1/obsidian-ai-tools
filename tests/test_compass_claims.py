@@ -1,6 +1,7 @@
 """Tests for claims across sources and where they agree (T3, T4, Q6, Q7, N4)."""
 
 import json
+import os
 import re
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
@@ -15,9 +16,16 @@ from vault_compass.ai_client import AiNotConfiguredError, ModelEvent, TextDelta,
 from vault_compass.app import create_app
 from vault_compass.claims import (
     AGREEMENT_KIND,
+    AGREEMENT_PROGRESS_KIND,
+    AGREEMENT_STATE_KIND,
+    MAX_EVERGREENS,
+    QUESTIONS_BASE_KIND,
+    QUESTIONS_REDO_PERCENT,
+    SUMMARY_KIND,
     ClaimItem,
     claim_id,
     question_views,
+    questions_kept,
     save_analysis,
     signature,
     summary_view,
@@ -28,7 +36,6 @@ from vault_compass.claims_run import (
     CHUNK_CLAIMS,
     CONFIRM_SYSTEM,
     EXTRACT_SYSTEM,
-    MAX_EVERGREENS,
     MAX_MATCHES_PER_CHUNK,
     MAX_QUESTION_PROMPT_CHARS,
     NO_CLAIMS_SUMMARY,
@@ -1419,29 +1426,321 @@ def test_matches_saved_before_the_strict_prompt_are_redone(vault: Path) -> None:
     assert redone["shared"][0]["text"] == "Confirmed point 10"
 
 
-def test_changed_notes_restart_the_analysis_not_the_reading(big_vault: Path) -> None:
-    model = AutoModel()
-    client = _client(model)
+def _claims_sent(user: str) -> list[str]:
+    """The claim texts of an agree, confirm or stances prompt, in their numbered order."""
+    lines = user.split("\n\nCLAIMS\n")[1].split("\n")
+    return [line.split(" | ", 2)[2] if " | " in line else line.split(". ", 1)[1] for line in lines]
+
+
+def _sorted_big(client: TestClient) -> dict[str, Any]:
+    """The big topic read, analysed and sorted by "Q?"."""
     _finish_reading(client)
     client.put("/topics/big/claims/question", json={"question": "Q?"})
-    _run(client)
+    return _run(client)["view"]
+
+
+N000_V2 = [f"notes/n000.md v2 claim {k}" for k in range(1, 5)]
+
+
+def test_one_changed_note_sends_only_its_new_claims(big_vault: Path) -> None:
+    model = AutoModel()
+    client = _client(model)
+    _sorted_big(client)
     _write(big_vault, "notes/n000.md", "Changed body.")
     _rescan(big_vault)
     model.calls.clear()
     view = _run(client)["view"]
-    assert model.kinds() == [
-        "extract",
-        "questions",
-        "agree",
-        "agree",
-        "confirm",
-        "stances",
-        "stances",
-        "stances",
-        "summary",
+    # 8 of 170 claims changed: under 10%, so no questions call.
+    assert model.kinds() == ["extract", "agree", "confirm", "stances", "summary"]
+    assert re.findall(r"^### NOTE (\S+)", model.users("extract")[0], re.MULTILINE) == [
+        "notes/n000.md"
     ]
-    assert view["claim_count"] == TOTAL_BIG
+    assert sorted(_claims_sent(model.users("agree")[0])) == N000_V2
+    assert sorted(_claims_sent(model.users("stances")[0])) == N000_V2
+    # The confirm call sees every candidate of the evergreen, old and new.
+    assert len(_claims_sent(model.users("confirm")[0])) == TOTAL_BIG
+    assert (view["claim_count"], view["stale"], view["next_step"]) == (TOTAL_BIG, False, "done")
+    assert _texts(view) == ["Q one?", "Q two?"]
+    supporting = {c["text"] for c in view["supporting"]}
+    assert ("notes/n000.md v2 claim 1" in supporting, "notes/n000.md claim 1" in supporting) == (
+        True,
+        False,
+    )
+    assert len(view["supporting"]) == 43
+
+
+def test_an_incremental_run_matches_a_full_run_for_every_claim(big_vault: Path) -> None:
+    client = _client(AutoModel())
+    _sorted_big(client)
+    _write(big_vault, "notes/n000.md", "Changed body.")
+    _write(big_vault, "notes/n100.md", "Body 100.")
+    (big_vault / "notes/n039.md").unlink()
+    _rescan(big_vault)
+    incremental = _run(client)["view"]
+    with duckdb.connect(str(_db(big_vault))) as con:
+        con.execute("DELETE FROM claim_analysis")
+    model = AutoModel()
+    full = _run(_client(model))["view"]
+    assert model.kinds() == ["questions", "agree", "agree", "confirm"] + ["stances"] * 3 + [
+        "summary"
+    ]
+    for key in ("supporting", "pushing_back", "unrelated", "claim_count"):
+        assert incremental[key] == full[key]
+
+    # Kept claims come in the model's order (closest first), so compare them as sets.
+    def kept(view: dict[str, Any]) -> list[tuple[str, str, list[str]]]:
+        return [
+            (s["text"], s["evergreen"]["path"], sorted(c["id"] for c in s["claims"]))
+            for s in view["shared"]
+        ]
+
+    assert kept(incremental) == kept(full)
+    assert len(kept(full)[0][2]) == TOTAL_BIG
+
+
+def test_removing_a_note_drops_its_claims_without_a_full_run(big_vault: Path) -> None:
+    # Anchor both questions in notes a, b and the last note, n039.
+    questions = {
+        "questions": [
+            {"text": "Q one?", "kind": "tension", "why": "W.", "claims": [1, 5, TOTAL_BIG]},
+        ]
+    }
+    model = AutoModel(raw={("questions", 0): questions})
+    client = _client(model)
+    before = _sorted_big(client)
+    assert [a["path"] for a in before["questions"][0]["anchors"]] == [A, B, "notes/n039.md"]
+    (big_vault / "notes/n039.md").unlink()
+    _rescan(big_vault)
+    model.calls.clear()
+    view = _run(client)["view"]
+    # The evergreen lost kept claims, so it is confirmed again; the sides changed, so the
+    # summary is redone. Nothing is matched, sorted or suggested again.
+    assert model.kinds() == ["confirm", "summary"]
+    assert len(_claims_sent(model.users("confirm")[0])) == TOTAL_BIG - 4
+    assert view["claim_count"] == TOTAL_BIG - 4
+    assert [a["path"] for a in view["questions"][0]["anchors"]] == [A, B]
+    gone = "notes/n039.md"
+    assert [c for c in view["supporting"] + view["pushing_back"] if c["path"] == gone] == []
+    assert [c for c in view["shared"][0]["claims"] if c["path"] == gone] == []
+    assert (len(view["supporting"]), len(view["pushing_back"]), view["unrelated"]) == (42, 42, 82)
+
+
+def test_questions_are_kept_under_ten_percent_of_changed_claims() -> None:
+    base = [f"c{i}" for i in range(100)]
+    nine = base[4:] + ["new1", "new2", "new3", "new4", "new5"]  # 4 removed + 5 added
+    ten = base[5:] + ["new1", "new2", "new3", "new4", "new5"]  # 5 removed + 5 added
+    assert questions_kept(base, base) is True
+    assert questions_kept(base, nine) is True
+    assert questions_kept(base, ten) is False
+    assert questions_kept([], []) is False
+    assert QUESTIONS_REDO_PERCENT == 10
+
+
+def test_questions_are_suggested_again_at_exactly_ten_percent(big_vault: Path) -> None:
+    model = AutoModel()
+    client = _client(model)
+    _finish_reading(client)
+    # Two changed notes: 8 removed + 8 added = 16 of 170 claims, under 17 (10%).
+    _write(big_vault, "notes/n000.md", "Changed body.")
+    _write(big_vault, "notes/n001.md", "Changed body.")
+    _rescan(big_vault)
+    model.calls.clear()
+    kept = _run(client)["view"]
+    assert model.kinds().count("questions") == 0
+    assert (_texts(kept), kept["next_step"]) == (["Q one?", "Q two?"], "done")
+    # One more claim, free from a Key Claims note: 17 changed since the questions were made.
+    _write(big_vault, "notes/one.md", "## Key Claims\n- One more.")
+    _rescan(big_vault)
+    model.calls.clear()
+    redone = _run(client)["view"]
+    assert model.kinds() == ["questions", "agree", "confirm"]
+    assert redone["claim_count"] == TOTAL_BIG + 1
+    assert len(_prompt_claims(model.users("questions")[0])) == TOTAL_BIG + 1
+
+
+def test_new_proposals_measure_change_from_their_own_claims(big_vault: Path) -> None:
+    model = AutoModel()
+    client = _client(model)
+    _finish_reading(client)
+    for i in range(5):  # 40 of 170 changed: suggested again from the 170 current claims
+        _write(big_vault, f"notes/n{i:03}.md", "Changed body.")
+    _rescan(big_vault)
+    _run(client)
+    model.calls.clear()
+    _write(big_vault, "notes/n010.md", "Changed body.")  # 8 more: under 10% of the new set
+    _rescan(big_vault)
+    _run(client)
+    assert model.kinds() == ["extract", "agree", "confirm"]
+
+
+def test_a_stopped_incremental_run_resumes_without_redoing_work(big_vault: Path) -> None:
+    client = _client(AutoModel())
+    _sorted_big(client)
+    _write(big_vault, "notes/n000.md", "Changed body.")
+    _write(big_vault, "notes/evergreen/ev2.md", "Agents need memory.")
+    _rescan(big_vault)
+    # ev gets one call for the 4 new claims; the new ev2 is matched against all 170 claims.
+    failing = AutoModel(fail_when=lambda kind, n: kind == "agree" and n == 2)
+    assert _run(_client(failing))["status"] == "failed"
+    assert failing.kinds() == ["extract", "agree", "agree", "agree"]
+    assert sorted(_claims_sent(failing.users("agree")[0])) == N000_V2
+    assert len(_claims_sent(failing.users("agree")[1])) == 150
+    healthy = AutoModel()
+    view = _run(_client(healthy))["view"]
+    assert healthy.kinds() == ["agree", "confirm", "confirm", "stances", "summary"]
+    assert len(_claims_sent(healthy.users("agree")[0])) == 20
+    assert healthy.users("agree")[0].startswith("EVERGREEN\nev2 | Agents need memory.\n")
+    assert [s["evergreen"]["path"] for s in view["shared"]] == [EVERGREEN, "notes/evergreen/ev2.md"]
+    assert [len(s["claims"]) for s in view["shared"]] == [TOTAL_BIG, TOTAL_BIG]
     assert view["stale"] is False
+
+
+def test_an_edited_evergreen_is_matched_again_alone(big_vault: Path) -> None:
+    _write(big_vault, "notes/evergreen/ev2.md", "Agents need memory.")
+    _rescan(big_vault)
+    model = AutoModel()
+    client = _client(model)
+    _sorted_big(client)
+    _write(big_vault, EVERGREEN, "Agents need plans.")
+    _rescan(big_vault)
+    assert _view(client)["next_step"] == "analyse"
+    model.calls.clear()
+    view = _run(client)["view"]
+    assert model.kinds() == ["agree", "agree", "confirm"]
+    assert [u.split("\n\nCLAIMS\n")[0] for u in model.users("agree")] == [
+        "EVERGREEN\nev | Agents need plans."
+    ] * 2
+    assert (view["stale"], len(view["shared"])) == (False, 2)
+
+
+def test_a_touched_evergreen_with_the_same_text_costs_no_call(big_vault: Path) -> None:
+    model = AutoModel()
+    client = _client(model)
+    before = _sorted_big(client)
+    stat = (big_vault / EVERGREEN).stat()
+    os.utime(big_vault / EVERGREEN, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+    _rescan(big_vault)
+    assert _view(client)["next_step"] == "analyse"
+    model.calls.clear()
+    assert _run(client)["view"] == before
+    assert model.calls == []
+
+
+def test_a_removed_evergreen_drops_its_shared_point_without_a_call(big_vault: Path) -> None:
+    _write(big_vault, "notes/evergreen/ev2.md", "Agents need memory.")
+    _rescan(big_vault)
+    model = AutoModel()
+    client = _client(model)
+    assert len(_sorted_big(client)["shared"]) == 2
+    (big_vault / "notes/evergreen/ev2.md").unlink()
+    _rescan(big_vault)
+    model.calls.clear()
+    view = _run(client)["view"]
+    assert model.calls == []
+    assert [s["evergreen"]["path"] for s in view["shared"]] == [EVERGREEN]
+
+
+def test_the_summary_is_kept_while_the_sides_stay_the_same(big_vault: Path) -> None:
+    model = AutoModel()
+    client = _client(model)
+    before = _sorted_big(client)
+    _write(big_vault, "notes/neutral.md", "## Key Claims\n- Weather is mild.")
+    _rescan(big_vault)
+    model.calls.clear()
+    view = _run(client)["view"]
+    assert model.kinds() == ["agree", "confirm", "stances"]
+    assert _claims_sent(model.users("stances")[0]) == ["Weather is mild."]
+    assert (view["summary"], view["unrelated"]) == (before["summary"], before["unrelated"] + 1)
+    assert view["next_step"] == "done"
+
+
+def test_a_summary_saved_without_its_sides_is_redone(big_vault: Path) -> None:
+    client = _client(AutoModel())
+    _sorted_big(client)
+    with duckdb.connect(str(_db(big_vault))) as con:
+        sig, payload = con.execute(
+            "SELECT signature, payload FROM claim_analysis WHERE kind = ?", [SUMMARY_KIND]
+        ).fetchone()
+        old = json.loads(payload)
+        del old["sides"]
+        save_analysis(con, "big", SUMMARY_KIND, "Q?", "older", old)
+    model = AutoModel()
+    _run(_client(model))
+    assert model.kinds() == ["summary"]
+    assert sig != "older"
+
+
+def _agreement_rows(db: Path) -> dict[str, tuple[str, Any]]:
+    with duckdb.connect(str(db), read_only=True) as con:
+        rows = con.execute(
+            "SELECT kind, signature, payload FROM claim_analysis WHERE kind LIKE 'agreement%'"
+        ).fetchall()
+    return {kind: (sig, json.loads(payload)) for kind, sig, payload in rows}
+
+
+def _as_legacy(db: Path, chunks: int) -> list[str]:
+    """Rewrite the saved agreement the way a finished run before #175 left it."""
+    rows = _agreement_rows(db)
+    shared = rows[AGREEMENT_KIND][1]
+    kept = shared[0]["claim_ids"]
+    with duckdb.connect(str(db)) as con:
+        ids = [cid for (cid,) in con.execute("SELECT claim_id FROM note_claims").fetchall()]
+        con.execute("DELETE FROM claim_analysis WHERE kind LIKE 'agreement%'")
+        sig = signature(ids)
+        save_analysis(con, "big", AGREEMENT_KIND, "", sig, shared)
+        state = {
+            "chunks": chunks,
+            "found": {EVERGREEN: {"text": "Old point.", "best": len(kept), "claim_ids": kept}},
+            "confirmed": [EVERGREEN],
+        }
+        save_analysis(con, "big", AGREEMENT_PROGRESS_KIND, "", sig, state)
+    return list(kept)
+
+
+def test_a_finished_agreement_from_before_is_carried_over(big_vault: Path) -> None:
+    client = _client(AutoModel())
+    _finish_reading(client)
+    kept = _as_legacy(_db(big_vault), chunks=2)
+    assert _view(client)["next_step"] == "analyse"
+    model = AutoModel()
+    view = _run(_client(model))["view"]
+    assert model.calls == []
+    entry = _agreement_rows(_db(big_vault))[AGREEMENT_STATE_KIND][1]["evergreens"][EVERGREEN]
+    assert (entry["kept"], entry["claim_ids"], entry["confirmed"]) == (kept, kept, True)
+    assert view["shared"][0]["text"] == "Old point."
+    _write(big_vault, "notes/n000.md", "Changed body.")
+    _rescan(big_vault)
+    _run(_client(model))
+    assert model.kinds() == ["extract", "agree", "confirm"]
+
+
+def test_an_unfinished_agreement_from_before_is_matched_again(big_vault: Path) -> None:
+    client = _client(AutoModel())
+    _finish_reading(client)
+    _as_legacy(_db(big_vault), chunks=1)
+    model = AutoModel()
+    _run(_client(model))
+    assert model.kinds() == ["agree", "agree", "confirm"]
+
+
+def test_proposals_from_before_get_their_claim_ids_stored(big_vault: Path) -> None:
+    client = _client(AutoModel())
+    _finish_reading(client)
+    with duckdb.connect(str(_db(big_vault))) as con:
+        con.execute("DELETE FROM claim_analysis WHERE kind = ?", [QUESTIONS_BASE_KIND])
+        ids = sorted(cid for (cid,) in con.execute("SELECT claim_id FROM note_claims").fetchall())
+    model = AutoModel()
+    _run(_client(model))
+    assert model.calls == []
+    with duckdb.connect(str(_db(big_vault)), read_only=True) as con:
+        row = con.execute(
+            "SELECT signature, payload FROM claim_analysis WHERE kind = ?", [QUESTIONS_BASE_KIND]
+        ).fetchone()
+    assert row == (signature(ids), json.dumps(ids))
+    _write(big_vault, "notes/n000.md", "Changed body.")
+    _rescan(big_vault)
+    _run(_client(model))
+    assert model.kinds() == ["extract", "agree", "confirm"]
 
 
 def test_unreadable_agreement_answer_fails_and_keeps_earlier_chunks(big_vault: Path) -> None:
@@ -1503,8 +1802,10 @@ def test_a_cached_shared_claim_backed_by_one_note_is_not_shown(vault: Path) -> N
     claims = view["shared"][0]["claims"]
     one_note = [c["id"] for c in claims if c["path"] == A][:2]
     assert len(one_note) == 2
-    sig = signature(c["id"] for c in claims)
     with duckdb.connect(str(_db(vault))) as con:
+        (sig,) = con.execute(
+            "SELECT signature FROM claim_analysis WHERE kind = ?", [AGREEMENT_KIND]
+        ).fetchone()
         payload = [{"text": "one note", "claim_ids": one_note, "evergreen": EVERGREEN}]
         save_analysis(con, "big", AGREEMENT_KIND, "", sig, payload)
     assert _view(client)["shared"] == []

@@ -2,6 +2,8 @@
 
 One run reads the topic's unread notes, then asks for question proposals, shared
 claims and stances, skipping every step whose cached result is still current.
+When only a few notes changed, earlier per-claim results are carried over and
+only the new claims go to the model (#175).
 Each model call is checked against the cost limits first (N3): over the limit
 and not approved, the run stops and reports it; what was done stays cached.
 Note text reaches the model only through `AiVault.body` (N4).
@@ -15,22 +17,29 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import duckdb
+
 from .ai_client import AiNotConfiguredError, ChatModel, TextDelta, Usage
 from .ai_cost import check_limits, estimate_cost, month_spend, record_call
 from .claims import (
     AGREEMENT_KIND,
     AGREEMENT_PROGRESS_KIND,
+    AGREEMENT_STATE_KIND,
     QUESTION_KINDS,
+    QUESTIONS_BASE_KIND,
     STANCES_KIND,
     STANCES_PROGRESS_KIND,
     SUMMARY_KIND,
     ClaimItem,
     EligibleNote,
+    agreement_signature,
     cached_for,
     eligible_notes,
-    evergreen_notes,
+    load_analysis,
     load_questions,
+    offered_evergreens,
     pending_notes,
+    questions_current,
     save_analysis,
     save_claims,
     save_proposals,
@@ -57,7 +66,6 @@ MAX_QUESTION_PROMPT_CHARS = 240_000
 CHUNK_CLAIMS = 150
 # Sorting needs more care per claim than matching, so it takes smaller chunks.
 STANCE_CHUNK_CLAIMS = 75
-MAX_EVERGREENS = 40
 # Per evergreen and chunk: the closest matches only, which keeps the thinking answer short (#173).
 MAX_MATCHES_PER_CHUNK = 6
 # After all chunks, one call per evergreen keeps only the candidates that really make its point.
@@ -347,9 +355,14 @@ def parse_stances(data: dict[str, Any], chunk: list[ClaimItem]) -> dict[str, str
 class _Snapshot:
     pending: list[EligibleNote]
     claims: list[ClaimItem]
+    # The evergreens claims are matched against (at most MAX_EVERGREENS).
     evergreens: list[NoteRef]
     sig: str
-    proposals_sig: str
+    # The claim set plus the evergreens' mtimes: agreement is current only for both.
+    agreement_sig: str
+    has_questions: bool
+    # Proposals made from exactly this claim set before their claim ids were stored.
+    needs_questions_base: bool
     chosen: str | None
     has_agreement: bool
     has_stances: bool
@@ -428,14 +441,19 @@ def _snapshot(run: _Run) -> _Snapshot:
         claims = valid_claims(con, notes)
         sig = signature(c.id for c in claims)
         _proposals, proposals_sig, chosen = load_questions(con, run.topic)
+        evergreens = offered_evergreens(con, run.topic, run.vault.definitions)
+        agreement_sig = agreement_signature(con, claims, evergreens)
+        base = load_analysis(con, run.topic, QUESTIONS_BASE_KIND, "")
         return _Snapshot(
             pending=pending_notes(con, notes),
             claims=claims,
-            evergreens=evergreen_notes(con, run.topic, run.vault.definitions),
+            evergreens=evergreens,
             sig=sig,
-            proposals_sig=proposals_sig,
+            agreement_sig=agreement_sig,
+            has_questions=questions_current(con, run.topic, proposals_sig, claims),
+            needs_questions_base=proposals_sig == sig and (base is None or base[0] != sig),
             chosen=chosen,
-            has_agreement=cached_for(con, run.topic, AGREEMENT_KIND, "", sig) is not None,
+            has_agreement=cached_for(con, run.topic, AGREEMENT_KIND, "", agreement_sig) is not None,
             has_stances=chosen is not None
             and cached_for(con, run.topic, STANCES_KIND, chosen, sig) is not None,
             has_summary=chosen is not None
@@ -533,9 +551,9 @@ def _fit(claims: list[ClaimItem]) -> list[ClaimItem]:
     return claims[::step]
 
 
-def _save_proposals(run: _Run, questions: list[dict[str, Any]], sig: str) -> None:
+def _save_proposals(run: _Run, questions: list[dict[str, Any]], claim_ids: list[str]) -> None:
     with writable(run.settings.compass_db_path) as con:
-        save_proposals(con, run.topic, questions, sig)
+        save_proposals(con, run.topic, questions, claim_ids)
 
 
 def _save_analysis(run: _Run, kind: str, key: str, sig: str, payload: Any) -> None:
@@ -548,12 +566,23 @@ def _progress(run: _Run, kind: str, key: str, sig: str) -> Any | None:
         return cached_for(con, run.topic, kind, key, sig)
 
 
+def _latest(run: _Run, kind: str, key: str) -> tuple[str, Any] | None:
+    """The last saved (signature, payload), whatever claim set it was made from."""
+    with readonly(run.settings.compass_db_path) as con:
+        return load_analysis(con, run.topic, kind, key)
+
+
 async def _propose(run: _Run, snap: _Snapshot) -> None:
-    if snap.proposals_sig == snap.sig:
+    """Suggest questions, unless the saved ones still stand for these claims (#175)."""
+    ids = [c.id for c in snap.claims]
+    if snap.has_questions:
+        if snap.needs_questions_base:
+            base = sorted(ids)
+            await asyncio.to_thread(_save_analysis, run, QUESTIONS_BASE_KIND, "", snap.sig, base)
         return
     claims = _fit(snap.claims)
     data = await run.ask(QUESTIONS_SYSTEM, _by_note(claims), think=True)
-    await asyncio.to_thread(_save_proposals, run, parse_questions(data, claims), snap.sig)
+    await asyncio.to_thread(_save_proposals, run, parse_questions(data, claims), ids)
 
 
 def _evergreen_line(run: _Run, evergreen: NoteRef) -> str:
@@ -561,68 +590,167 @@ def _evergreen_line(run: _Run, evergreen: NoteRef) -> str:
     return f"{evergreen.title} | {' '.join(start.split())}"
 
 
+def _fresh_entry(line: str) -> dict[str, Any]:
+    """An evergreen no claim has been matched against yet."""
+    return {
+        "line": line,
+        "scanned": [],
+        "claim_ids": [],
+        "text": "",
+        "best": 0,
+        "kept": [],
+        "shared_text": "",
+        "confirmed": True,
+    }
+
+
+def _pruned_entry(entry: dict[str, Any], ids: set[str]) -> dict[str, Any]:
+    """An evergreen's state without the claims that are gone; losing a kept claim reconfirms."""
+    kept = [i for i in entry["kept"] if i in ids]
+    return {
+        **entry,
+        "scanned": [i for i in entry["scanned"] if i in ids],
+        "claim_ids": [i for i in entry["claim_ids"] if i in ids],
+        "kept": kept,
+        "confirmed": entry["confirmed"] and len(kept) == len(entry["kept"]),
+    }
+
+
+def _legacy_entries(
+    con: duckdb.DuckDBPyConnection, topic: str, snap: _Snapshot, lines: dict[str, str]
+) -> dict[str, dict[str, Any]]:
+    """State from a finished run saved before #175, when it covers exactly these claims.
+
+    That format kept only the confirmed claims, so they stand in for the candidates. Anything
+    less than a finished run on the same claims and evergreens is matched again.
+    """
+    final = load_analysis(con, topic, AGREEMENT_KIND, "")
+    progress = load_analysis(con, topic, AGREEMENT_PROGRESS_KIND, "")
+    if final is None or progress is None or final[0] != snap.sig or progress[0] != snap.sig:
+        return {}
+    state = progress[1]
+    found: dict[str, Any] = state.get("found", {})
+    pairs = len(lines) * len(_chunks(snap.claims))
+    if state.get("chunks") != pairs or not set(found) <= set(state.get("confirmed", [])):
+        return {}
+    if not set(found) <= set(lines):
+        return {}
+    ids = [c.id for c in snap.claims]
+    out = {}
+    for path, line in lines.items():
+        entry = _fresh_entry(line)
+        old = found.get(path)
+        if old is not None:
+            kept = list(old["claim_ids"])
+            entry.update(claim_ids=kept, kept=kept, text=old["text"], shared_text=old["text"])
+            entry["best"] = len(kept)
+        entry["scanned"] = ids
+        out[path] = entry
+    return out
+
+
+def _agreement_start(run: _Run, snap: _Snapshot) -> dict[str, Any]:
+    """The saved matching state, fitted to the current claims and evergreens (#175).
+
+    Claims that are gone are dropped; an evergreen that is new or whose text changed starts
+    over. Saved after every call, so a stopped run also resumes from here.
+    """
+    lines = {e.path: _evergreen_line(run, e) for e in snap.evergreens}
+    with readonly(run.settings.compass_db_path) as con:
+        saved = load_analysis(con, run.topic, AGREEMENT_STATE_KIND, "")
+        previous = saved[1]["evergreens"] if saved else _legacy_entries(con, run.topic, snap, lines)
+    ids = {c.id for c in snap.claims}
+    entries = {}
+    for path, line in lines.items():
+        old = previous.get(path)
+        if old is not None and old["line"] == line:
+            entries[path] = _pruned_entry(old, ids)
+        else:
+            entries[path] = _fresh_entry(line)
+    return {"evergreens": entries}
+
+
 async def _agree(run: _Run, snap: _Snapshot) -> None:
     """Match claims to evergreens, one evergreen and one chunk per call (#173).
 
     Matching a chunk against all evergreens at once made the model misread claim numbers.
-    `state["chunks"]` counts finished (evergreen, chunk) pairs, so a stopped run resumes.
+    Only claims an evergreen was not matched against yet are sent (#175), so after a small
+    change a run costs a call or two per evergreen, and a stopped run resumes.
     """
     if snap.has_agreement:
         return
-    evergreens = snap.evergreens[:MAX_EVERGREENS]
-    state: dict[str, Any] = {"chunks": 0, "found": {}}
-    if evergreens:
-        saved = await asyncio.to_thread(_progress, run, AGREEMENT_PROGRESS_KIND, "", snap.sig)
-        state = saved or state
-        chunks = _chunks(snap.claims)
-        pairs = [(e, chunk) for e in evergreens for chunk in chunks]
-        lines = {e.path: _evergreen_line(run, e) for e in evergreens}
-        for index in range(state["chunks"], len(pairs)):
-            evergreen, chunk = pairs[index]
-            user = f"EVERGREEN\n{lines[evergreen.path]}\n\nCLAIMS\n{_numbered(chunk, titles=True)}"
-            data = await run.ask(AGREEMENT_SYSTEM, user)
-            merge_matches(state["found"], parse_matches(data, chunk, evergreen))
-            state["chunks"] = index + 1
-            await asyncio.to_thread(
-                _save_analysis, run, AGREEMENT_PROGRESS_KIND, "", snap.sig, state
-            )
+    state = await asyncio.to_thread(_agreement_start, run, snap)
+    entries: dict[str, dict[str, Any]] = state["evergreens"]
+    for evergreen in snap.evergreens:
+        entry = entries[evergreen.path]
+        scanned = set(entry["scanned"])
+        todo = [c for c in snap.claims if c.id not in scanned]
+        for chunk in _chunks(todo):
+            user = f"EVERGREEN\n{entry['line']}\n\nCLAIMS\n{_numbered(chunk, titles=True)}"
+            matches = parse_matches(await run.ask(AGREEMENT_SYSTEM, user), chunk, evergreen)
+            if matches:
+                merge_matches(entries, matches)
+                entry["confirmed"] = False
+            entry["scanned"] += [c.id for c in chunk]
+            await _save_state(run, snap, state)
     await _confirm(run, snap, state)
-    shared = finalize_shared(state["found"], snap.claims)
-    await asyncio.to_thread(_save_analysis, run, AGREEMENT_KIND, "", snap.sig, shared)
+    # Also when no call was needed: dropped claims and evergreens are saved with the new sig.
+    await _save_state(run, snap, state)
+    found = {
+        path: {"text": e["shared_text"], "claim_ids": e["kept"]}
+        for path, e in entries.items()
+        if e["kept"]
+    }
+    shared = finalize_shared(found, snap.claims)
+    await asyncio.to_thread(_save_analysis, run, AGREEMENT_KIND, "", snap.agreement_sig, shared)
+
+
+async def _save_state(run: _Run, snap: _Snapshot, state: dict[str, Any]) -> None:
+    await asyncio.to_thread(
+        _save_analysis, run, AGREEMENT_STATE_KIND, "", snap.agreement_sig, state
+    )
 
 
 async def _confirm(run: _Run, snap: _Snapshot, state: dict[str, Any]) -> None:
     """Second pass per evergreen: keep the candidates that make its point, closest first.
 
     Chunk by chunk the model always finds a few matches, so candidates pile up across chunks.
-    Seeing them together, it keeps at most MAX_SHARED_CLAIMS. Progress is saved per evergreen.
+    Seeing them together, it keeps at most MAX_SHARED_CLAIMS. Only evergreens whose
+    candidates changed are confirmed again: new candidates, or a kept claim gone (#175).
     """
     by_id = {c.id: c for c in snap.claims}
-    by_path = {e.path: e for e in snap.evergreens}
-    done: list[str] = state.setdefault("confirmed", [])
-    for path, entry in state["found"].items():
-        if path in done or path not in by_path:
+    for entry in state["evergreens"].values():
+        if entry["confirmed"]:
             continue
         candidates = [by_id[i] for i in entry["claim_ids"] if i in by_id]
-        user = (
-            f"EVERGREEN\n{_evergreen_line(run, by_path[path])}\n\n"
-            f"CLAIMS\n{_numbered(candidates, titles=True)}"
-        )
-        data = await run.ask(CONFIRM_SYSTEM, user)
-        kept = [candidates[n - 1].id for n in _numbers(data.get("c"), len(candidates))]
-        entry["claim_ids"] = kept[:MAX_SHARED_CLAIMS]
-        entry["text"] = _text(data.get("text")) or entry["text"]
-        done.append(path)
-        await asyncio.to_thread(_save_analysis, run, AGREEMENT_PROGRESS_KIND, "", snap.sig, state)
+        if candidates:
+            user = f"EVERGREEN\n{entry['line']}\n\nCLAIMS\n{_numbered(candidates, titles=True)}"
+            data = await run.ask(CONFIRM_SYSTEM, user)
+            kept = [candidates[n - 1].id for n in _numbers(data.get("c"), len(candidates))]
+            entry["kept"] = kept[:MAX_SHARED_CLAIMS]
+            entry["shared_text"] = _text(data.get("text")) or entry["text"]
+        # With no candidates left, `kept` is already empty: nothing to ask.
+        entry["confirmed"] = True
+        await _save_state(run, snap, state)
+
+
+def _carried_stances(run: _Run, question: str, ids: set[str]) -> dict[str, str]:
+    """Stances saved for the question from any claim set, for the claims that still exist."""
+    done: dict[str, str] = {}
+    for kind in (STANCES_KIND, STANCES_PROGRESS_KIND):
+        saved = _latest(run, kind, question)
+        if saved is not None:
+            done.update(saved[1])
+    return {cid: stance for cid, stance in done.items() if cid in ids}
 
 
 async def _sort(run: _Run, snap: _Snapshot) -> None:
-    """Sort claims by the chosen question, chunk by chunk; progress is saved after each."""
+    """Sort the claims without a stance yet, chunk by chunk; progress is saved after each."""
     question = snap.chosen
     if question is None or snap.has_stances:
         return
-    saved = await asyncio.to_thread(_progress, run, STANCES_PROGRESS_KIND, question, snap.sig)
-    done: dict[str, str] = saved or {}
+    ids = {c.id for c in snap.claims}
+    done = await asyncio.to_thread(_carried_stances, run, question, ids)
     todo = [c for c in snap.claims if c.id not in done]
     for chunk in _chunks(todo, STANCE_CHUNK_CLAIMS):
         data = await run.ask(
@@ -639,7 +767,7 @@ NO_CLAIMS_SUMMARY = "No claims in these notes are about this question."
 
 
 async def _summarize(run: _Run, snap: _Snapshot) -> None:
-    """Summarise the split on the chosen question; one call, cached with the sort."""
+    """Summarise the split on the chosen question; one call, redone only when a side changed."""
     question = snap.chosen
     if question is None or snap.has_summary:
         return
@@ -648,9 +776,14 @@ async def _summarize(run: _Run, snap: _Snapshot) -> None:
         side: [c for c in snap.claims if stances.get(c.id) == side]
         for side in ("supporting", "pushing_back")
     }
+    side_ids = {side: sorted(c.id for c in claims) for side, claims in sides.items()}
+    previous = await asyncio.to_thread(_latest, run, SUMMARY_KIND, question)
+    if previous is not None and previous[1].get("sides") == side_ids:
+        await asyncio.to_thread(_save_analysis, run, SUMMARY_KIND, question, snap.sig, previous[1])
+        return
     claims = sides["supporting"] + sides["pushing_back"]
     if not claims:
-        summary: dict[str, Any] | None = {
+        summary: dict[str, Any] = {
             "bottom_line": NO_CLAIMS_SUMMARY,
             "agree": [],
             "split": [],
@@ -667,9 +800,12 @@ async def _summarize(run: _Run, snap: _Snapshot) -> None:
                 for i, c in enumerate(sides["pushing_back"], start=1)
             )
         )
-        summary = parse_summary(await run.ask(SUMMARY_SYSTEM, user), claims)
-        if summary is None:
+        parsed = parse_summary(await run.ask(SUMMARY_SYSTEM, user), claims)
+        if parsed is None:
             raise _Unreadable(RunOutcome("failed", UNREADABLE))
+        summary = parsed
+    # The claims on each side, so a later run can tell whether the summary still holds.
+    summary["sides"] = side_ids
     await asyncio.to_thread(_save_analysis, run, SUMMARY_KIND, question, snap.sig, summary)
 
 

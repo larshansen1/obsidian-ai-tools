@@ -3,8 +3,9 @@
 Claims are pulled from a topic's notes on demand and cached; notes are never
 rewritten. A note's claims stay valid while its file mtime (from `note_files`)
 is the one they were read at. Questions, stances and shared claims are cached
-against a signature of the topic's claim ids, so they refresh only when the
-claims change. Reading the cache never calls a model.
+against a signature of the topic's claim ids. When a few notes change, a run
+carries the per-claim results over and asks the model only about what is new
+(#175). Reading the cache never calls a model.
 
 Nothing here is refreshed by a notes scan: these tables are only created with
 IF NOT EXISTS and written by the claims run.
@@ -35,6 +36,15 @@ STANCES_KIND = "stances_v3"
 # Work saved part-way through a long step, so a stopped run resumes instead of starting over.
 AGREEMENT_PROGRESS_KIND = "agreement_progress_v2"
 STANCES_PROGRESS_KIND = "stances_progress_v3"
+# Per-evergreen matching state, kept across claim sets so a run matches only new claims (#175):
+# {"evergreens": {path: {"line", "scanned", "claim_ids", "text", "best", "kept", "shared_text",
+# "confirmed"}}}. "claim_ids" are the candidates the chunk pass found; "kept" the confirmed ones.
+AGREEMENT_STATE_KIND = "agreement_state_v1"
+# The claim ids the saved question proposals were made from, so the change since can be measured.
+QUESTIONS_BASE_KIND = "questions_base_v1"
+# Questions are suggested again once the claims added plus removed since reach this share.
+QUESTIONS_REDO_PERCENT = 10
+MAX_EVERGREENS = 40
 # A plain-language summary of how the sorted claims split on the chosen question (#169).
 SUMMARY_KIND = "split_summary_v1"
 
@@ -95,6 +105,7 @@ _CLAIMS_SQL = "SELECT claim_id, path, text FROM note_claims ORDER BY path, claim
 _QUESTIONS_SQL = "SELECT proposals, signature, chosen FROM topic_questions WHERE topic = ?"
 _ANALYSIS_SQL = "SELECT key, signature, payload FROM claim_analysis WHERE topic = ? AND kind = ?"
 _LINKERS_SQL = "SELECT DISTINCT source_path FROM links WHERE target_path = ?"
+_MTIMES_SQL = "SELECT path, mtime_ns FROM note_files"
 
 
 class ClaimItem(BaseModel):
@@ -176,6 +187,43 @@ def claim_id(path: str, text: str) -> str:
 def signature(claim_ids: Iterable[str]) -> str:
     joined = "\n".join(sorted(claim_ids))
     return hashlib.sha1(joined.encode(), usedforsecurity=False).hexdigest()
+
+
+def offered_evergreens(
+    con: duckdb.DuckDBPyConnection, topic: str, definitions: TopicsFile
+) -> list[NoteRef]:
+    """The evergreens claims are matched against: the first MAX_EVERGREENS by path."""
+    return evergreen_notes(con, topic, definitions)[:MAX_EVERGREENS]
+
+
+def agreement_signature(
+    con: duckdb.DuckDBPyConnection, claims: list[ClaimItem], evergreens: list[NoteRef]
+) -> str:
+    """The claim set plus each offered evergreen's file mtime: an edited evergreen is redone."""
+    mtimes = dict(con.execute(_MTIMES_SQL).fetchall())
+    marks = (f"evergreen\x00{e.path}\x00{mtimes.get(e.path, 0)}" for e in evergreens)
+    return signature([*(c.id for c in claims), *marks])
+
+
+def questions_kept(base_ids: Iterable[str], claim_ids: Iterable[str]) -> bool:
+    """Whether proposals made from `base_ids` still serve the claim set `claim_ids`.
+
+    They do while the claims added plus removed since are under QUESTIONS_REDO_PERCENT of the
+    claims they were made from; anchors already resolve against the current claims.
+    """
+    base, current = set(base_ids), set(claim_ids)
+    return len(base ^ current) * 100 < QUESTIONS_REDO_PERCENT * len(base)
+
+
+def questions_current(
+    con: duckdb.DuckDBPyConnection, topic: str, proposals_sig: str, claims: list[ClaimItem]
+) -> bool:
+    """Whether the saved proposals stand for `claims`: made from them, or from a set close by."""
+    ids = [c.id for c in claims]
+    if proposals_sig == signature(ids):
+        return True
+    base = load_analysis(con, topic, QUESTIONS_BASE_KIND, "")
+    return base is not None and base[0] == proposals_sig and questions_kept(base[1], ids)
 
 
 def ensure_tables(con: duckdb.DuckDBPyConnection) -> None:
@@ -305,14 +353,20 @@ def save_claims(
 
 
 def save_proposals(
-    con: duckdb.DuckDBPyConnection, topic: str, questions: list[dict[str, Any]], sig: str
+    con: duckdb.DuckDBPyConnection,
+    topic: str,
+    questions: list[dict[str, Any]],
+    claim_ids: list[str],
 ) -> None:
+    """Save proposals with the claim set they were made from (its signature and its ids)."""
     ensure_tables(con)
     _, _, chosen = load_questions(con, topic)
+    sig = signature(claim_ids)
     con.execute(
         "INSERT OR REPLACE INTO topic_questions VALUES (?, ?, ?, ?)",
         [topic, json.dumps(questions), sig, chosen],
     )
+    save_analysis(con, topic, QUESTIONS_BASE_KIND, "", sig, sorted(claim_ids))
 
 
 def save_chosen_question(con: duckdb.DuckDBPyConnection, topic: str, question: str) -> None:
@@ -422,15 +476,18 @@ def build_claims_view(
     sig = signature(c.id for c in claims)
     unread = pending_notes(con, notes)
     proposals, proposals_sig, chosen = load_questions(con, topic)
-    shared_raw = cached_for(con, topic, AGREEMENT_KIND, "", sig)
+    has_questions = questions_current(con, topic, proposals_sig, claims)
+    evergreens = evergreen_notes(con, topic, definitions)
+    agreement_sig = agreement_signature(con, claims, evergreens[:MAX_EVERGREENS])
+    shared_raw = cached_for(con, topic, AGREEMENT_KIND, "", agreement_sig)
     stances = cached_for(con, topic, STANCES_KIND, chosen, sig) if chosen else None
     summary = cached_for(con, topic, SUMMARY_KIND, chosen, sig) if chosen else None
     supporting, pushing, unrelated = _split_stances(claims, stances or {})
-    shared = _shared_view(con, shared_raw or [], claims, evergreen_notes(con, topic, definitions))
+    shared = _shared_view(con, shared_raw or [], claims, evergreens)
     next_step = _next_step(
         pending=len(unread),
         has_claims=bool(claims),
-        analysed=proposals_sig == sig and shared_raw is not None,
+        analysed=has_questions and shared_raw is not None,
         sorted_=chosen is None or (stances is not None and summary is not None),
     )
     return ClaimsView(
@@ -438,7 +495,7 @@ def build_claims_view(
         read_notes=len(notes) - len(unread),
         pending_notes=len(unread),
         claim_count=len(claims),
-        questions=question_views(proposals, claims) if proposals_sig == sig else [],
+        questions=question_views(proposals, claims) if has_questions else [],
         question=chosen,
         supporting=supporting,
         pushing_back=pushing,

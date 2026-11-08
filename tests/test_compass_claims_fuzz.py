@@ -208,7 +208,7 @@ def _check_db(db: Path) -> None:
             assert isinstance(
                 data,
                 dict
-                if kind.startswith(("stances", "split_summary"))
+                if kind.startswith(("stances", "split_summary", "agreement_state"))
                 or re.sub(r"_v\d+$", "", kind).endswith("progress")
                 else list,
             )
