@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { fetchAiStatus } from "../lib/chat";
 import {
   answerClaimIds,
@@ -16,7 +16,7 @@ import {
 } from "../lib/claims";
 import { logUsage } from "../lib/topicMap";
 import { Agreement, ClaimsTable, SplitSummaryView, SuggestedQuestions, type ClaimSelection } from "./ClaimsView";
-import { DraftEvergreen } from "./DraftEvergreen";
+import { DraftEvergreen, type DraftHandle } from "./DraftEvergreen";
 import { LinkNotes } from "./WriteActions";
 
 type Notice = { kind: "approval" | "error"; message: string };
@@ -102,6 +102,7 @@ export function ClaimsSection({
   // Under an answer the one-click draft leads; the ticked-claims draft shows once a claim is
   // ticked and then stays, so unticking or a save does not throw away an open draft.
   const [ticked, setTicked] = useState(false);
+  const draftRef = useRef<DraftHandle>(null);
   // The question picker under "Change question" on the answer card.
   const [switching, setSwitching] = useState(false);
   // When the current run started, for the "Working… 1:05" line on the answer card.
@@ -262,8 +263,24 @@ export function ClaimsSection({
   const draftStep = draftReady && (!leading || ticked) ? (
       <section className="step" aria-label="Draft new evergreen">
         <h3 className="step-title">Draft new evergreen</h3>
-        <DraftEvergreen topic={topic} claimIds={live} onChange={afterDraft} />
+        <DraftEvergreen topic={topic} claimIds={live} onChange={afterDraft} ref={draftRef} />
       </section>
+    ) : null;
+
+  // #148: while claims are ticked, the count and the draft button stay on screen however far
+  // down the claims go. It sits last in the card, so at the end it rests below the draft form
+  // instead of covering Approve or Cancel.
+  const pickBar =
+    draftStep !== null && live.length > 0 ? (
+      <div className="pick-bar" role="region" aria-label="Picked claims">
+        <span>{plural(live.length, "claim")} picked</span>
+        <button type="button" className="primary" onClick={() => draftRef.current?.start()}>
+          Draft new evergreen
+        </button>
+        <button type="button" onClick={() => setPicked([])}>
+          Clear
+        </button>
+      </div>
     ) : null;
 
   // The suggested questions and the own-question box: step 2, or "Change question" on the answer.
@@ -329,8 +346,15 @@ export function ClaimsSection({
           {view.summary ? (
             <>
               <SplitSummaryView summary={view.summary} vault={vault} />
-              <DraftEvergreen topic={topic} claimIds={answerClaimIds(view)} onChange={afterDraft} fromAnswer />
-              <details>
+              {/* Keyed by the question: a new question starts folded, with no draft of the old answer. */}
+              <DraftEvergreen
+                key={`draft:${view.question}`}
+                topic={topic}
+                claimIds={answerClaimIds(view)}
+                onChange={afterDraft}
+                fromAnswer
+              />
+              <details key={`claims:${view.question}`}>
                 <summary>All claims for and against ({view.supporting.length + view.pushing_back.length})</summary>
                 <ClaimsTable view={view} vault={vault} selection={selection} />
               </details>
@@ -374,6 +398,7 @@ export function ClaimsSection({
 
         {agreeStep}
         {draftStep}
+        {pickBar}
       </section>
     );
   }
@@ -422,7 +447,7 @@ export function ClaimsSection({
         ) : (
           <>
             {view.summary ? <SplitSummaryView summary={view.summary} vault={vault} /> : null}
-            <details>
+            <details key={`claims:${view.question}`}>
               <summary>
                 All claims for and against ({view.supporting.length + view.pushing_back.length})
               </summary>
@@ -435,6 +460,7 @@ export function ClaimsSection({
 
       {agreeStep}
       {draftStep}
+      {pickBar}
     </section>
   );
 }
