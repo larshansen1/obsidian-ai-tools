@@ -2,10 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { fetchAiStatus, noteUrl } from "../lib/chat";
 import { fetchIngests, monthCount, thisMonth, type IngestLog } from "../lib/ingest";
 import { fetchWrites, formatWhen, undoWrite, type LoggedWrite } from "../lib/writes";
 
 const STATUS = { queued: "Queued", done: "Done", failed: "Failed" } as const;
+
+// A changed note opens in Obsidian; other files (.kai/topics.yaml) and notes an undo removed
+// stay plain text.
+function ChangedFile({ file, vault, undone }: { file: string; vault: string; undone: boolean }) {
+  return vault && !undone && file.endsWith(".md") ? <a href={noteUrl(vault, file)}>{file}</a> : <>{file}</>;
+}
 
 // Sources sent to kai (W3), with the "ingested from app suggestions per month" measure.
 function SentToKai({ log }: { log: IngestLog }) {
@@ -47,6 +54,7 @@ export function ChangesScreen() {
   // Bumped after an undo so the list is read again.
   const [version, setVersion] = useState(0);
   const [ingests, setIngests] = useState<IngestLog | null>(null);
+  const [vault, setVault] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +69,18 @@ export function ChangesScreen() {
       cancelled = true;
     };
   }, [version]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAiStatus()
+      .then((status) => {
+        if (!cancelled) setVault(status.vault_name);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,7 +123,13 @@ export function ChangesScreen() {
             <li key={w.id} className="change">
               <strong>{w.summary}</strong>{" "}
               <span className="muted">
-                {formatWhen(w.written_at)} · {w.files.join(", ")}
+                {formatWhen(w.written_at)} ·{" "}
+                {w.files.map((f, i) => (
+                  <span key={f}>
+                    {i > 0 ? ", " : null}
+                    <ChangedFile file={f} vault={vault} undone={w.undone} />
+                  </span>
+                ))}
               </span>{" "}
               {w.undone ? (
                 <span className="muted">(undone)</span>

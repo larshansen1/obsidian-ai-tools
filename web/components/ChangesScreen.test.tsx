@@ -34,6 +34,8 @@ function reply(body: unknown, ok = true, status = 200): Reply {
 // Answers in order, except the kai log, which has its own answer.
 let queue: Reply[] = [];
 let ingests: Reply = reply({ jobs: [], per_month: [] });
+// The vault name for Obsidian links; by default the AI status is not available.
+let aiStatus: Reply = reply({ detail: "down" }, false, 503);
 
 function respond(body: unknown, ok = true, status = 200) {
   queue.push(reply(body, ok, status));
@@ -42,12 +44,46 @@ function respond(body: unknown, ok = true, status = 200) {
 beforeEach(() => {
   queue = [];
   ingests = reply({ jobs: [], per_month: [] });
+  aiStatus = reply({ detail: "down" }, false, 503);
   fetchMock.mockReset();
-  fetchMock.mockImplementation((url: string) => Promise.resolve(url === "/api/ingests" ? ingests : queue.shift()));
+  fetchMock.mockImplementation((url: string) =>
+    Promise.resolve(url === "/api/ingests" ? ingests : url === "/api/ai/status" ? aiStatus : queue.shift()),
+  );
   vi.stubGlobal("fetch", fetchMock);
 });
 
 describe("ChangesScreen", () => {
+  it("links changed notes to Obsidian, except undone ones and other files", async () => {
+    aiStatus = reply({ vault_name: "My Vault" });
+    respond([
+      ...WRITES,
+      {
+        id: "l0",
+        kind: "evergreen",
+        summary: "New evergreen: Plans help",
+        written_at: "2026-10-08T11:00:00",
+        files: ["notes/evergreen/plans-help.md"],
+        undone: false,
+      },
+    ]);
+    render(<ChangesScreen />);
+
+    const list = within(await screen.findByTestId("changes"));
+    await waitFor(() => expect(list.getAllByRole("link").length).toBe(1));
+    expect(list.getAllByRole("link").map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+      ["notes/evergreen/plans-help.md", "obsidian://open?vault=My%20Vault&file=notes%2Fevergreen%2Fplans-help"],
+    ]);
+  });
+
+  it("shows plain file names when the vault name is unknown", async () => {
+    respond(WRITES);
+    render(<ChangesScreen />);
+
+    const list = within(await screen.findByTestId("changes"));
+
+    expect(list.queryAllByRole("link")).toEqual([]);
+  });
+
   it("lists the logged writes with Undo for the ones not undone", async () => {
     respond(WRITES);
     render(<ChangesScreen />);
