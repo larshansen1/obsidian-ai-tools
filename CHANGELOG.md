@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Chrome extension "already in vault" badge (#159): the toolbar icon shows a green ✓ on pages
+  already ingested and an amber … while an ingest runs, updated on tab switch and navigation and
+  right after an ingest. Answers are cached for 60 s, and a stopped server is not asked again for
+  30 s. `/lookup` now keeps an index of note sources and re-reads only changed notes, so a miss on
+  a 1,369-note vault takes about 30 ms instead of 335 ms. The extension now asks for the `tabs`
+  permission.
 - Vault Compass sends sources to kai and drafts evergreens (#138). Ingest on a suggested
   source asks first, then sends it to `kai serve`'s `/ingest` in the background and shows
   queued, done or failed, with a clear message (and nothing queued) when kai is not running.

@@ -22,6 +22,13 @@ let updateMode = false;
 let pollTimer = null;
 let polling = false;
 
+// Ask the service worker to re-check this tab's "already in vault" badge.
+function refreshBadge() {
+  chrome.runtime
+    .sendMessage({ type: "kai-refresh-badge", tabId: currentTabId, url: currentUrl })
+    .catch(() => {});
+}
+
 async function checkServer() {
   try {
     const r = await fetch(`${SERVER}/status`, {
@@ -76,6 +83,7 @@ async function pollInProgress() {
       return;
     }
     stopPolling();
+    refreshBadge();
     if (data.exists) {
       updateMode = true;
       btnLabel.textContent = "Update existing note";
@@ -207,6 +215,7 @@ btn.addEventListener("click", async () => {
     }
 
     const data = await r.json();
+    if (r.ok) refreshBadge();
 
     if (r.ok && data.status === "exists") {
       updateMode = true;

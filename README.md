@@ -228,6 +228,9 @@ Reload the unpacked extension after updating it. When ingesting an open ChatGPT 
 the extension captures the rendered chat text from the authenticated browser tab before sending it to the
 local service. On open, the popup checks `/lookup` and — if the page is already in the vault — shows the
 existing note, its tags, and an "Open in Obsidian" link, with the button switched to "Update existing note".
+The toolbar icon also shows a badge for the current tab: a green ✓ when the page is already in the vault and
+an amber … while an ingest runs. The badge needs the `tabs` permission to read each tab's URL; the URL is
+sent only to the local service.
 
 ## Command Reference
 

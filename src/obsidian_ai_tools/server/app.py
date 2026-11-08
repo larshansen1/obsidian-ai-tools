@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 
 from ..config import get_settings
-from ..dedup import ExistingNote, find_note_by_source, normalize_source_url
+from ..dedup import ExistingNote, SourceIndex, normalize_source_url
 from ..ingestion import (
     ContentFetchError,
     IngestionResult,
@@ -204,10 +204,13 @@ def create_app() -> FastAPI:
     def status() -> StatusResponse:
         return StatusResponse()
 
-    # Read-only duplicate check for the extension popup: it runs on popup open,
-    # so it must stay a frontmatter scan — no fetch, no LLM, no vault write.
-    # Declared sync so FastAPI runs the filesystem walk in the threadpool
-    # instead of blocking the event loop.
+    # Read-only duplicate check for the extension popup and toolbar badge: the
+    # badge asks on every tab switch, so it must stay a frontmatter scan — no
+    # fetch, no LLM, no vault write — and the index re-reads only notes that
+    # changed since the last call. Declared sync so FastAPI runs the
+    # filesystem walk in the threadpool instead of blocking the event loop.
+    source_index = SourceIndex()
+
     @app.get("/lookup", response_model=LookupResponse)
     def lookup(url: str, vault_path: str | None = None) -> LookupResponse:
         settings = get_settings()
@@ -222,7 +225,7 @@ def create_app() -> FastAPI:
                 elapsed_seconds=(_utcnow() - started_at).total_seconds(),
             )
         vault = Path(vault_path) if vault_path else settings.obsidian_vault_path
-        existing = find_note_by_source(vault, url)
+        existing = source_index.find(vault, url)
         if existing is None:
             return LookupResponse(exists=False)
 

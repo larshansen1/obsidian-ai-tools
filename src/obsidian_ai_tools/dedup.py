@@ -9,6 +9,7 @@ normalized before comparison so trivially different forms of the same source
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 from urllib.parse import parse_qsl, urlencode, urlparse
 
 # Query parameters that identify a marketing campaign or share event, not the
@@ -112,6 +113,62 @@ def _existing_note(md_file: Path, metadata: dict) -> ExistingNote | None:
         tags=[str(tag) for tag in raw_tags] if isinstance(raw_tags, list) else [],
         source_type=str(source_type) if source_type is not None else None,
     )
+
+
+@dataclass(frozen=True)
+class _IndexEntry:
+    mtime_ns: int
+    source_key: str | None
+    note: ExistingNote | None
+
+
+class SourceIndex:
+    """Remembers each note's normalized source_url between lookups.
+
+    The extension asks on every tab switch, and most pages are not in the
+    vault, so a plain scan would re-read every note's frontmatter each time.
+    This index re-reads a note only when its modification time changes, and
+    forgets notes that were deleted. Same answer as find_note_by_source.
+    """
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._vaults: dict[Path, dict[Path, _IndexEntry]] = {}
+
+    def find(self, vault_path: Path, url: str) -> ExistingNote | None:
+        target = normalize_source_url(url)
+        with self._lock:
+            old = self._vaults.get(vault_path, {})
+            fresh: dict[Path, _IndexEntry] = {}
+            match: ExistingNote | None = None
+            for md_file in _iter_note_files(vault_path):
+                entry = self._entry(md_file, old.get(md_file))
+                if entry is None:
+                    continue
+                fresh[md_file] = entry
+                if match is None and entry.source_key == target:
+                    match = entry.note
+            self._vaults[vault_path] = fresh
+            return match
+
+    @staticmethod
+    def _entry(md_file: Path, cached: _IndexEntry | None) -> _IndexEntry | None:
+        try:
+            mtime_ns = md_file.stat().st_mtime_ns
+        except OSError:
+            # Deleted between the directory walk and the stat.
+            return None
+        if cached is not None and cached.mtime_ns == mtime_ns:
+            return cached
+        metadata = _parse_frontmatter(md_file)
+        candidate = metadata.get("source_url")
+        if candidate is None:
+            return _IndexEntry(mtime_ns, None, None)
+        return _IndexEntry(
+            mtime_ns,
+            normalize_source_url(str(candidate)),
+            _existing_note(md_file, metadata),
+        )
 
 
 def find_note_by_source(vault_path: Path, url: str) -> ExistingNote | None:

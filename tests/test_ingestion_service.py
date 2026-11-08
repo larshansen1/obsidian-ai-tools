@@ -516,11 +516,10 @@ def test_http_lookup_reports_existing_note(tmp_path: Path) -> None:
 
     with (
         patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
-        patch(
-            "obsidian_ai_tools.server.app.find_note_by_source", return_value=existing
-        ) as mock_find,
+        patch("obsidian_ai_tools.server.app.SourceIndex") as mock_index_cls,
         patch("obsidian_ai_tools.server.app.ingest_content") as mock_ingest,
     ):
+        mock_index_cls.return_value.find.return_value = existing
         response = TestClient(create_app()).get(
             "/lookup", params={"url": "https://example.com/article"}
         )
@@ -534,7 +533,10 @@ def test_http_lookup_reports_existing_note(tmp_path: Path) -> None:
     assert body["obsidian_url"] == (
         f"obsidian://open?vault={tmp_path.name}&file=inbox%2Fweb-existing-note.md"
     )
-    mock_find.assert_called_once_with(tmp_path, "https://example.com/article")
+    mock_index_cls.assert_called_once_with()
+    mock_index_cls.return_value.find.assert_called_once_with(
+        tmp_path, "https://example.com/article"
+    )
     mock_ingest.assert_not_called()
 
 
@@ -542,8 +544,9 @@ def test_http_lookup_reports_missing_note(tmp_path: Path) -> None:
     """Test /lookup returns exists=false when no note matches the source."""
     with (
         patch("obsidian_ai_tools.server.app.get_settings", return_value=_settings(tmp_path)),
-        patch("obsidian_ai_tools.server.app.find_note_by_source", return_value=None),
+        patch("obsidian_ai_tools.server.app.SourceIndex") as mock_index_cls,
     ):
+        mock_index_cls.return_value.find.return_value = None
         response = TestClient(create_app()).get(
             "/lookup", params={"url": "https://example.com/unknown"}
         )
@@ -560,6 +563,9 @@ def test_http_lookup_reports_missing_note(tmp_path: Path) -> None:
         "source_type": None,
         "obsidian_url": None,
     }
+    mock_index_cls.return_value.find.assert_called_once_with(
+        tmp_path, "https://example.com/unknown"
+    )
 
 
 def test_http_lookup_requires_url(tmp_path: Path) -> None:
