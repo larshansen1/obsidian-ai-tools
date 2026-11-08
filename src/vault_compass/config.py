@@ -71,6 +71,10 @@ class CompassSettings(BaseSettings):
     # The questions step is the exception: finding notes that really disagree needs thinking,
     # and without it the questions turn generic (#166). Room for the thinking plus the answer.
     compass_ai_questions_max_output_tokens: int = Field(default=16000, gt=0)
+    # The questions step sends every claim of the topic in one prompt; past this many characters
+    # it sends every k-th claim instead. 600,000 is about 150,000 tokens, which still fits a
+    # 200,000-token model with room for the answer; a long-context model can take more (#177).
+    compass_ai_questions_max_prompt_chars: int = Field(default=600_000, gt=0)
     compass_ai_max_steps: int = Field(default=5, gt=0, description="Model calls per chat message")
 
     @field_validator("obsidian_vault_path")

@@ -37,7 +37,6 @@ from vault_compass.claims_run import (
     CONFIRM_SYSTEM,
     EXTRACT_SYSTEM,
     MAX_MATCHES_PER_CHUNK,
-    MAX_QUESTION_PROMPT_CHARS,
     NO_CLAIMS_SUMMARY,
     QUESTIONS_SYSTEM,
     STANCE_SYSTEM,
@@ -522,25 +521,37 @@ def test_by_note_groups_claims_under_their_note_and_numbers_them_throughout() ->
 
 
 def test_fit_keeps_every_claim_while_the_prompt_fits(caplog: pytest.LogCaptureFixture) -> None:
-    claims = [_item(i, f"notes/n{i}.md") for i in range(200)]
-    assert _fit(claims) == claims
+    claims = [ClaimItem(id=str(i), text="t", path=A, title="x") for i in range(10)]
+    # "N1 x" plus "<n>. t" lines: all 10 claims make exactly 55 characters.
+    assert len(_by_note(claims)) == 55
+    assert _fit(claims, 55) == claims
     assert caplog.records == []
 
 
 def test_fit_thins_claims_evenly_over_the_cap_and_says_so(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     claims = [ClaimItem(id=str(i), text="t", path=A, title="x") for i in range(10)]
-    # "N1 x" plus "<n>. t" lines: all 10 claims make 52 characters, every second one 26.
-    monkeypatch.setattr("vault_compass.claims_run.MAX_QUESTION_PROMPT_CHARS", 30)
-    assert [c.id for c in _fit(claims)] == ["0", "2", "4", "6", "8"]
+    # One character under the 55 of all claims: every second claim (29 characters) fits.
+    assert len(_by_note(claims[::2])) == 29
+    assert [c.id for c in _fit(claims, 54)] == ["0", "2", "4", "6", "8"]
     assert [r.getMessage() for r in caplog.records] == [
         "questions prompt too long: every 2th of 10 claims"
     ]
 
 
-def test_the_question_prompt_cap_is_240000_characters() -> None:
-    assert MAX_QUESTION_PROMPT_CHARS == 240_000
+def test_the_question_prompt_cap_defaults_to_600000_characters(vault: Path) -> None:
+    assert CompassSettings().compass_ai_questions_max_prompt_chars == 600_000
+
+
+def test_the_question_prompt_cap_can_be_set(vault: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The small topic's questions prompt is 3 note lines and 10 claims; 200 fits only half.
+    monkeypatch.setenv("COMPASS_AI_QUESTIONS_MAX_PROMPT_CHARS", "200")
+    model = AutoModel()
+    _run(_client(model))
+    (user,) = model.users("questions")
+    assert len(_prompt_claims(user)) == 5
+    assert len(user) <= 200
 
 
 # --- a small topic, end to end ----------------------------------------------------
