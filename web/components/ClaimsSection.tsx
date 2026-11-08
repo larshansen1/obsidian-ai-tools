@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { fetchAiStatus } from "../lib/chat";
 import {
+  answerClaimIds,
   fetchClaims,
   progressText,
   runClaims,
@@ -15,7 +16,8 @@ import {
 } from "../lib/claims";
 import { logUsage } from "../lib/topicMap";
 import { Agreement, ClaimsTable, SplitSummaryView, SuggestedQuestions, type ClaimSelection } from "./ClaimsView";
-import { DraftEvergreen, LinkNotes } from "./WriteActions";
+import { DraftEvergreen } from "./DraftEvergreen";
+import { LinkNotes } from "./WriteActions";
 
 type Notice = { kind: "approval" | "error"; message: string };
 
@@ -97,6 +99,9 @@ export function ClaimsSection({
   const [version, setVersion] = useState(0);
   // Claims ticked for "Draft new evergreen", in the order they were ticked.
   const [picked, setPicked] = useState<string[]>([]);
+  // Under an answer the one-click draft leads; the ticked-claims draft shows once a claim is
+  // ticked and then stays, so unticking or a save does not throw away an open draft.
+  const [ticked, setTicked] = useState(false);
   // The question picker under "Change question" on the answer card.
   const [switching, setSwitching] = useState(false);
   // When the current run started, for the "Working… 1:05" line on the answer card.
@@ -187,12 +192,14 @@ export function ClaimsSection({
   const live = picked.filter((id) => shown.has(id));
   const selection: ClaimSelection = {
     selected: new Set(live),
-    toggle: (ids) =>
+    toggle: (ids) => {
+      setTicked(true);
       setPicked((current) =>
         ids.every((id) => current.includes(id))
           ? current.filter((id) => !ids.includes(id))
           : [...current, ...ids.filter((id) => !current.includes(id))],
-      ),
+      );
+    },
   };
   const afterDraft = () => {
     setPicked([]);
@@ -251,7 +258,8 @@ export function ClaimsSection({
       )}
     </Step>
   );
-  const draftStep = states.sides === "done" || states.agree === "done" ? (
+  const draftReady = states.sides === "done" || states.agree === "done";
+  const draftStep = draftReady && (!leading || ticked) ? (
       <section className="step" aria-label="Draft new evergreen">
         <h3 className="step-title">Draft new evergreen</h3>
         <DraftEvergreen topic={topic} claimIds={live} onChange={afterDraft} />
@@ -321,6 +329,7 @@ export function ClaimsSection({
           {view.summary ? (
             <>
               <SplitSummaryView summary={view.summary} vault={vault} />
+              <DraftEvergreen topic={topic} claimIds={answerClaimIds(view)} onChange={afterDraft} fromAnswer />
               <details>
                 <summary>All claims for and against ({view.supporting.length + view.pushing_back.length})</summary>
                 <ClaimsTable view={view} vault={vault} selection={selection} />

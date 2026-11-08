@@ -124,3 +124,16 @@ export function progressText(view: ClaimsView): string {
   const base = `Read ${view.read_notes} of ${total} notes, ${view.claim_count} claims.`;
   return view.pending_notes > 0 && view.read_notes > 0 ? `${base} Run again to read the rest.` : base;
 }
+
+// Claims a draft from the answer starts from: for and against in turn, up to `perSide` each, so
+// both sides reach the note. The summary carries the rest of the picture.
+export const ANSWER_CLAIMS_PER_SIDE = 15;
+
+export function answerClaimIds(view: ClaimsView, perSide: number = ANSWER_CLAIMS_PER_SIDE): string[] {
+  const ids: string[] = [];
+  for (let i = 0; i < perSide; i++) {
+    if (i < view.supporting.length) ids.push(view.supporting[i].id);
+    if (i < view.pushing_back.length) ids.push(view.pushing_back[i].id);
+  }
+  return ids;
+}

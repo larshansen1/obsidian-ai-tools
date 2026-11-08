@@ -50,6 +50,33 @@ export function startDraft(topic: string, claimIds: string[]): Promise<{ body: s
   return send(`/api/topics/${encodeURIComponent(topic)}/evergreen-draft`, "POST", { claim_ids: claimIds });
 }
 
+export type DraftStatus = "done" | "needs_approval" | "not_configured" | "failed";
+
+export type DraftRequest = {
+  claim_ids: string[];
+  title: string;
+  body: string;
+  // null asks for a first draft from the claims; text asks for a revision.
+  instruction: string | null;
+  // true writes the note that answers the topic's chosen question, from its summary.
+  answer: boolean;
+  approved: boolean;
+};
+
+export type DraftResult = {
+  status: DraftStatus;
+  message: string | null;
+  estimate_usd: number | null;
+  title: string;
+  body: string;
+};
+
+// One model call on the draft. Nothing is written to the vault; the draft comes back unchanged
+// when the call did not run.
+export function writeDraft(topic: string, request: DraftRequest): Promise<DraftResult> {
+  return send(`/api/topics/${encodeURIComponent(topic)}/evergreen-draft/write`, "POST", request);
+}
+
 export function planEvergreen(topic: string, title: string, body: string): Promise<PendingWrite> {
   return send("/api/writes/evergreen", "POST", { topic, title, body });
 }
