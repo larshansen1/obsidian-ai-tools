@@ -31,16 +31,23 @@ function Diff({ file }: { file: FilePreview }) {
 // The exact change, then Approve or Cancel. Nothing is written before the click (C8).
 // After a write it offers Undo. `onResult` gets the answer to the card (a chat card hands
 // it back to the model); `onUndo` hears about an undo so a screen can reload its data.
+// `compact`: for a new note the user just read in full (an evergreen draft): Approve comes
+// first and the file is folded, so a long note does not push the buttons off screen.
+// `openUrl`: after a write, a link that opens the written note.
 export function WriteCard({
   pending,
   result,
   onResult,
   onUndo,
+  compact = false,
+  openUrl,
 }: {
   pending: PendingWrite;
   result?: WriteOutcome;
   onResult: (outcome: WriteOutcome) => void;
   onUndo?: (outcome: WriteOutcome) => void;
+  compact?: boolean;
+  openUrl?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,46 +66,68 @@ export function WriteCard({
   }
 
   const shown = undone ?? result;
+  const files = pending.files.map((f) => <Diff key={f.file} file={f} />);
+  const actions =
+    shown === undefined ? (
+      <div className="chat-actions">
+        <button disabled={busy} onClick={() => act(() => applyWrite(pending.id), onResult)}>
+          Approve
+        </button>
+        <button disabled={busy} onClick={() => act(() => cancelWrite(pending.id), onResult)}>
+          Cancel
+        </button>
+      </div>
+    ) : (
+      <div className="write-outcome">
+        <span className={shown.status === "refused" ? "warn" : "muted"} role="status">
+          {shown.status === "written" ? `Saved: ${shown.message}` : shown.message}
+        </span>
+        {shown.status === "written" && openUrl ? (
+          <a className="button-link" href={openUrl}>
+            Open in Obsidian
+          </a>
+        ) : null}
+        {shown.status === "written" ? (
+          <button
+            disabled={busy}
+            onClick={() =>
+              act(
+                () => undoWrite(shown.id),
+                (o) => {
+                  if (o.status === "undone") {
+                    setUndone(o);
+                    onUndo?.(o);
+                  } else setError(o.message);
+                },
+              )
+            }
+          >
+            Undo
+          </button>
+        ) : null}
+      </div>
+    );
+  if (compact) {
+    // After the click the outcome line already names the note.
+    return (
+      <div className="chat-tool write-card" data-testid="write-card">
+        {shown === undefined ? <strong>{pending.summary}</strong> : null}
+        {actions}
+        {shown === undefined ? (
+          <details className="write-files">
+            <summary>Show the file ({pending.files.map((f) => f.file).join(", ")})</summary>
+            {files}
+          </details>
+        ) : null}
+        {error ? <p role="alert">{error}</p> : null}
+      </div>
+    );
+  }
   return (
     <div className="chat-tool write-card" data-testid="write-card">
       <strong>{pending.summary}</strong>
-      {pending.files.map((f) => (
-        <Diff key={f.file} file={f} />
-      ))}
-      {shown === undefined ? (
-        <div className="chat-actions">
-          <button disabled={busy} onClick={() => act(() => applyWrite(pending.id), onResult)}>
-            Approve
-          </button>
-          <button disabled={busy} onClick={() => act(() => cancelWrite(pending.id), onResult)}>
-            Cancel
-          </button>
-        </div>
-      ) : (
-        <div className="write-outcome">
-          <span className={shown.status === "refused" ? "warn" : "muted"} role="status">
-            {shown.status === "written" ? `Saved: ${shown.message}` : shown.message}
-          </span>
-          {shown.status === "written" ? (
-            <button
-              disabled={busy}
-              onClick={() =>
-                act(
-                  () => undoWrite(shown.id),
-                  (o) => {
-                    if (o.status === "undone") {
-                      setUndone(o);
-                      onUndo?.(o);
-                    } else setError(o.message);
-                  },
-                )
-              }
-            >
-              Undo
-            </button>
-          ) : null}
-        </div>
-      )}
+      {files}
+      {actions}
       {error ? <p role="alert">{error}</p> : null}
     </div>
   );

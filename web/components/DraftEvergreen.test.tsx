@@ -376,3 +376,82 @@ describe("DraftEvergreen from the answer", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("DraftEvergreen saving (compact card, then the saved note)", () => {
+  async function openWithVault(vault?: string) {
+    respond({ body: SOURCES });
+    done(FIRST);
+    const onChange = vi.fn();
+    render(<DraftEvergreen topic="big" claimIds={["c1"]} onChange={onChange} vault={vault} />);
+    fireEvent.click(screen.getByRole("button", { name: "Draft new evergreen from 1 claim" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue(FIRST.title));
+    return onChange;
+  }
+
+  it("puts Approve before the file and folds the file", async () => {
+    await openWithVault("v");
+    respond(DRAFT_PREVIEW);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    const approve = await screen.findByRole("button", { name: "Approve" });
+    const files = screen.getByText("Show the file (notes/evergreen/plans-work.md)").closest("details") as HTMLDetailsElement;
+    expect(files.open).toBe(false);
+    expect(approve.compareDocumentPosition(files) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("closes the draft after the save and links the new note", async () => {
+    const onChange = await openWithVault("My Vault");
+    respond(DRAFT_PREVIEW);
+    respond({ id: "l9", status: "written", message: "New evergreen: Plans work" });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved: New evergreen: Plans work");
+    expect(screen.getByTestId("draft-evergreen").textContent).toBe(
+      "Saved: New evergreen: Plans workOpen in ObsidianUndo",
+    );
+    expect(screen.getByRole("link", { name: "Open in Obsidian" })).toHaveAttribute(
+      "href",
+      "obsidian://open?vault=My%20Vault&file=notes%2Fevergreen%2Fplans-work",
+    );
+    expect(screen.queryByRole("textbox", { name: "Title" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Tell the AI what to change" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.queryByText("Show the file (notes/evergreen/plans-work.md)")).toBeNull();
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves without a link when the vault name is unknown", async () => {
+    await openWithVault();
+    respond(DRAFT_PREVIEW);
+    respond({ id: "l9", status: "written", message: "New evergreen: Plans work" });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved: New evergreen: Plans work");
+    expect(screen.queryByRole("link", { name: "Open in Obsidian" })).toBeNull();
+  });
+
+  it("Undo brings the draft back as it was", async () => {
+    const onChange = await openWithVault("v");
+    respond(DRAFT_PREVIEW);
+    respond({ id: "l9", status: "written", message: "New evergreen: Plans work" });
+    respond({ id: "u9", status: "undone", message: "Undone: New evergreen: Plans work" });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue(FIRST.title));
+    expect(screen.getByRole("textbox", { name: "Text" })).toHaveValue(FIRST.body);
+    expect(screen.getByRole("status")).toHaveTextContent("Undone: New evergreen: Plans work");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/writes/l9/undo", NO_BODY);
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+});
