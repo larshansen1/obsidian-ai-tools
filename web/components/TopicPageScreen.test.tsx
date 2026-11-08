@@ -119,6 +119,37 @@ describe("TopicPageScreen", () => {
     ]);
   });
 
+  it("links evergreens and recent notes to Obsidian once the vault is known", async () => {
+    respondWith(PAGE);
+    const base = fetchMock.getMockImplementation() as (url: string) => Promise<unknown>;
+    fetchMock.mockImplementation((url: string) =>
+      url === "/api/ai/status"
+        ? Promise.resolve({ ok: true, json: () => Promise.resolve({ vault_name: "My Vault" }) })
+        : base(url),
+    );
+    render(<TopicPageScreen id="big" window="30" signal={null} />);
+
+    const evergreens = within(await screen.findByTestId("evergreens"));
+    await waitFor(() => expect(evergreens.getAllByRole("link").length).toBe(2));
+    expect(evergreens.getAllByRole("link").map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+      ["Bridge", "obsidian://open?vault=My%20Vault&file=e1"],
+      ["Solo", "obsidian://open?vault=My%20Vault&file=e2"],
+    ]);
+    const recent = within(screen.getByTestId("recent-notes"));
+    expect(recent.getAllByRole("link").map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+      ["A1", "obsidian://open?vault=My%20Vault&file=a1"],
+      ["N1", "obsidian://open?vault=My%20Vault&file=n1"],
+    ]);
+  });
+
+  it("shows plain titles when the vault name is unknown", async () => {
+    render(<TopicPageScreen id="big" window="30" signal={null} />);
+
+    const evergreens = within(await screen.findByTestId("evergreens"));
+
+    expect(evergreens.queryAllByRole("link")).toEqual([]);
+  });
+
   it("marks likely duplicates in recent notes", async () => {
     render(<TopicPageScreen id="big" window="30" signal={null} />);
 

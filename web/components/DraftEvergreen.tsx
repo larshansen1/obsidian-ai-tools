@@ -2,6 +2,7 @@
 
 import { useImperativeHandle, useState, type Ref } from "react";
 import { usePlanned } from "./WriteActions";
+import { noteUrl } from "../lib/chat";
 import { planEvergreen, startDraft, writeDraft } from "../lib/ingest";
 
 // T8: start an evergreen from the picked claims. The AI writes a first draft, then each chat
@@ -27,12 +28,15 @@ export function DraftEvergreen({
   claimIds,
   onChange,
   fromAnswer = false,
+  vault,
   ref,
 }: {
   topic: string;
   claimIds: string[];
   onChange: () => void;
   fromAnswer?: boolean;
+  // The vault's name for Obsidian links; without it the saved note gets no link.
+  vault?: string;
   ref?: Ref<DraftHandle>;
 }) {
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -46,7 +50,10 @@ export function DraftEvergreen({
   const [writing, setWriting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ message: string; retry: Ask | null } | null>(null);
-  const { plan, card, error, open } = usePlanned(onChange);
+  const { plan, card, error, open, result } = usePlanned(onChange, {
+    compact: true,
+    openUrl: (pending) => (vault && pending.files[0] ? noteUrl(vault, pending.files[0].file) : undefined),
+  });
 
   async function ask({ instruction: said, base }: Ask, ids: string[], approved: boolean) {
     setWriting(true);
@@ -143,6 +150,15 @@ export function DraftEvergreen({
         </button>
         {claimIds.length === 0 ? <span className="muted"> Tick claims above to start a draft.</span> : null}
         {startError ? <p role="alert">{startError}</p> : null}
+      </div>
+    );
+  }
+  // Saved: the draft is done, so only the outcome stays: the link to the note and Undo.
+  // Undo brings the draft back as it was, ready to change and save again.
+  if (result?.status === "written") {
+    return (
+      <div className="edit-topic" data-testid="draft-evergreen">
+        {card}
       </div>
     );
   }

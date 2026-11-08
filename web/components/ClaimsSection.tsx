@@ -263,7 +263,13 @@ export function ClaimsSection({
   const draftStep = draftReady && (!leading || ticked) ? (
       <section className="step" aria-label="Draft new evergreen">
         <h3 className="step-title">Draft new evergreen</h3>
-        <DraftEvergreen topic={topic} claimIds={live} onChange={afterDraft} ref={draftRef} />
+        <DraftEvergreen
+          topic={topic}
+          claimIds={live}
+          onChange={afterDraft}
+          vault={vault || undefined}
+          ref={draftRef}
+        />
       </section>
     ) : null;
 
@@ -353,6 +359,7 @@ export function ClaimsSection({
                 claimIds={answerClaimIds(view)}
                 onChange={afterDraft}
                 fromAnswer
+                vault={vault || undefined}
               />
               <details key={`claims:${view.question}`}>
                 <summary>All claims for and against ({view.supporting.length + view.pushing_back.length})</summary>

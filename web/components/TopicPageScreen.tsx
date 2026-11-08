@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { fetchAiStatus, noteUrl } from "../lib/chat";
 import { ClaimsSection } from "./ClaimsSection";
 import { CoverageSection } from "./CoverageSection";
 import { EditTopic } from "./WriteActions";
@@ -14,10 +15,12 @@ import {
   type TopicPage,
 } from "../lib/topicPage";
 
-function NoteLine({ note }: { note: NoteRef }) {
+// The title opens the note in Obsidian once the vault's name is known.
+function NoteLine({ note, vault }: { note: NoteRef; vault: string }) {
   return (
     <>
-      {note.title} <span className="muted">({note.created ?? "no date"})</span>
+      {vault ? <a href={noteUrl(vault, note.path)}>{note.title}</a> : note.title}{" "}
+      <span className="muted">({note.created ?? "no date"})</span>
     </>
   );
 }
@@ -38,6 +41,19 @@ export function TopicPageScreen({
   // True once the claims card leads with an answered question (#171).
   const [leading, setLeading] = useState(false);
   const onWrite = useCallback(() => setVersion((v) => v + 1), []);
+  const [vault, setVault] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAiStatus()
+      .then((status) => {
+        if (!cancelled) setVault(status.vault_name);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     logUsage("screen_view", "topic_page", id);
@@ -95,7 +111,7 @@ export function TopicPageScreen({
             <ul className="list">
               {data.signal.notes.map((n) => (
                 <li key={n.path}>
-                  <NoteLine note={n} />
+                  <NoteLine note={n} vault={vault} />
                 </li>
               ))}
             </ul>
@@ -180,7 +196,7 @@ export function TopicPageScreen({
           <ul data-testid="evergreens" className="list">
             {data.evergreens.map((n) => (
               <li key={n.path}>
-                <NoteLine note={n} />
+                <NoteLine note={n} vault={vault} />
                 {n.bridges.length > 0 ? (
                   <span> bridges to {n.bridges.map((b) => b.name).join(", ")}</span>
                 ) : null}
@@ -195,7 +211,7 @@ export function TopicPageScreen({
         <ul data-testid="recent-notes" className="list">
           {data.recent_notes.map((n) => (
             <li key={n.path}>
-              <NoteLine note={n} />
+              <NoteLine note={n} vault={vault} />
               {n.duplicates.length > 0 ? (
                 <span className="dup">
                   {" "}

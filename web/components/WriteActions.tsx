@@ -5,7 +5,11 @@ import { WriteCard } from "./WriteCard";
 import { planLinks, planTopicTags, splitTags, type PendingWrite, type WriteOutcome } from "../lib/writes";
 
 // Plans a change on demand and shows its card. `onChange` runs after a write or an undo.
-export function usePlanned(onChange: () => void) {
+// `card` options go to WriteCard; `openUrl` gets the planned files so it can link the note.
+export function usePlanned(
+  onChange: () => void,
+  card: { compact?: boolean; openUrl?: (pending: PendingWrite) => string | undefined } = {},
+) {
   const [pending, setPending] = useState<PendingWrite | null>(null);
   const [result, setResult] = useState<WriteOutcome | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -22,19 +26,24 @@ export function usePlanned(onChange: () => void) {
   }
 
   // Keyed by the preview, so a new preview after an undo starts with fresh Approve and Cancel.
-  const card = pending ? (
+  const shown = pending ? (
     <WriteCard
       key={pending.id}
       pending={pending}
       result={result}
+      compact={card.compact}
+      openUrl={card.openUrl?.(pending)}
       onResult={(o) => {
         setResult(o);
         if (o.status === "written") onChange();
       }}
-      onUndo={onChange}
+      onUndo={(o) => {
+        setResult(o);
+        onChange();
+      }}
     />
   ) : null;
-  return { plan, card, error, open: pending !== null && result === undefined };
+  return { plan, card: shown, error, result, open: pending !== null && result === undefined };
 }
 
 // W1: link the notes that back an evergreen but do not link to it.
