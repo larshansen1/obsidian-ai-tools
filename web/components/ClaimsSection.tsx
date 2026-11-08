@@ -14,7 +14,7 @@ import {
   type StepState,
 } from "../lib/claims";
 import { logUsage } from "../lib/topicMap";
-import { Agreement, ClaimsTable, type ClaimSelection } from "./ClaimsView";
+import { Agreement, ClaimsTable, SuggestedQuestions, type ClaimSelection } from "./ClaimsView";
 import { DraftEvergreen, LinkNotes } from "./WriteActions";
 
 type Notice = { kind: "approval" | "error"; message: string };
@@ -183,23 +183,25 @@ export function ClaimsSection({ topic, onWrite }: { topic: string; onWrite?: () 
 
       <Step number={2} title="Choose a question" state={states.question}>
         {states.question === "waiting" ? (
-          <p className="hint">Read your notes first. Then the AI suggests questions your claims bear on.</p>
+          <p className="hint">Read your notes first. Then the AI suggests questions that come from your notes.</p>
         ) : (
           <>
             <p className="step-status">
               {view.question ? "Question chosen. You can switch to another at any time." : "Pick the yes or no question to sort your claims by."}
             </p>
-            {proposals.length === 0 ? <p className="hint">No suggestions yet.</p> : null}
-            <ul className="list" data-testid="questions">
-              {proposals.map((q) => (
-                <li key={q}>
-                  {q}{" "}
-                  <button type="button" disabled={busy} onClick={() => void choose(q)}>
-                    {q === view.question ? "Chosen" : "Use this question"}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {proposals.length > 0 ? (
+              <SuggestedQuestions
+                questions={proposals}
+                chosen={view.question}
+                vault={vault}
+                busy={busy}
+                onChoose={(q) => void choose(q)}
+              />
+            ) : view.next_step === "analyse" ? (
+              <p className="hint">No suggestions yet.</p>
+            ) : (
+              <p className="hint">No question stood out in these notes. You can still write your own.</p>
+            )}
             <form
               onSubmit={(event) => {
                 event.preventDefault();

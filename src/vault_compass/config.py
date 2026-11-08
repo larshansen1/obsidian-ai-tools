@@ -68,6 +68,9 @@ class CompassSettings(BaseSettings):
     # thinking and return nothing, so thinking is switched off for them and the budget is larger.
     compass_ai_reasoning: bool = Field(default=True, description="Let the model think first")
     compass_ai_claims_max_output_tokens: int = Field(default=4000, gt=0)
+    # The questions step is the exception: finding notes that really disagree needs thinking,
+    # and without it the questions turn generic (#166). Room for the thinking plus the answer.
+    compass_ai_questions_max_output_tokens: int = Field(default=16000, gt=0)
     compass_ai_max_steps: int = Field(default=5, gt=0, description="Model calls per chat message")
 
     @field_validator("obsidian_vault_path")

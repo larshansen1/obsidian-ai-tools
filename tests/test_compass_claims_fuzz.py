@@ -86,7 +86,13 @@ def shaped(kind: str, rng: random.Random) -> Any:
         }
         return {"claims": rng.choice([[item() for _ in range(rng.randint(0, 6))], junk(rng)])}
     if kind == "questions":
-        return {"questions": rng.choice([["Q one?", junk(rng), "Q one?"], junk(rng)])}
+        item = lambda: {  # noqa: E731
+            "text": rng.choice(["Q one?", "Q two?", junk(rng)]),
+            "kind": rng.choice(["tension", "recurring", "carry-over", junk(rng)]),
+            "why": rng.choice(["Because.", junk(rng)]),
+            "claims": number_list(rng),
+        }
+        return {"questions": rng.choice([[item() for _ in range(rng.randint(0, 8))], junk(rng)])}
     if kind == "agree":
         item = lambda: {  # noqa: E731
             "e": rng.choice([1, 2, 3, junk(rng)]),
@@ -157,7 +163,10 @@ def _check(view: dict[str, Any]) -> None:
     assert view["read_notes"] + view["pending_notes"] == len(PATHS)
     assert view["next_step"] in {"read", "analyse", "sort", "done"}
     assert (view["next_step"] != "done") == view["stale"]
-    assert len(view["questions"]) <= 3
+    assert len(view["questions"]) <= 6
+    assert sum(q["kind"] == "carry_over" for q in view["questions"]) <= 1
+    for question in view["questions"]:
+        assert len({a["path"] for a in question["anchors"]}) >= 2
     for shared in view["shared"]:
         assert len({c["path"] for c in shared["claims"]}) >= 2
         if shared["evergreen"]:

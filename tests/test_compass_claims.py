@@ -17,6 +17,7 @@ from vault_compass.claims import (
     AGREEMENT_KIND,
     ClaimItem,
     claim_id,
+    question_views,
     save_analysis,
     signature,
     unlinked_supporters,
@@ -26,11 +27,13 @@ from vault_compass.claims_run import (
     CHUNK_CLAIMS,
     EXTRACT_SYSTEM,
     MAX_EVERGREENS,
+    MAX_QUESTION_PROMPT_CHARS,
     QUESTIONS_SYSTEM,
     STANCE_SYSTEM,
+    _by_note,
     _chunks,
+    _fit,
     _numbered,
-    _sample,
     finalize_shared,
     key_claims,
     merge_matches,
@@ -132,7 +135,15 @@ class AutoModel:
                 ]
             return {"claims": claims}
         if kind == "questions":
-            return {"questions": ["Q one?", "Q two?"]}
+            # Anchor both questions in the first and the last claim, which are in different notes.
+            numbers = [int(line.split(".", 1)[0]) for line in user.split("\n") if line[0].isdigit()]
+            ends = [numbers[0], numbers[-1]]
+            return {
+                "questions": [
+                    {"text": "Q one?", "kind": "tension", "why": "Notes differ.", "claims": ends},
+                    {"text": "Q two?", "kind": "recurring", "why": "It recurs.", "claims": ends},
+                ]
+            }
         if kind == "agree":
             lines = user.split("\n\nEVERGREENS\n")[0].split("\n")[1:]
             return {
@@ -181,6 +192,9 @@ def vault(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     for key in ("COMPASS_DB_PATH", "COMPASS_TOPICS_PATH", "LLM_MODEL"):
         monkeypatch.delenv(key, raising=False)
+    # The default 16000-token questions budget alone nearly reaches the default $0.25 action
+    # limit at the default prices; the tests that are about cost limits set their own values.
+    monkeypatch.setenv("COMPASS_AI_QUESTIONS_MAX_OUTPUT_TOKENS", "4000")
     _rescan(root)
     return root
 
@@ -202,6 +216,10 @@ def _run(client: TestClient, **body: Any) -> dict[str, Any]:
     response = client.post("/topics/big/claims/run", json=body)
     assert response.status_code == 200
     return response.json()  # type: ignore[no-any-return]
+
+
+def _texts(view: dict[str, Any]) -> list[str]:
+    return [q["text"] for q in view["questions"]]
 
 
 def _view(client: TestClient) -> dict[str, Any]:
@@ -269,9 +287,68 @@ def test_parse_extracted_drops_other_notes_blanks_and_extra_claims() -> None:
     assert parse_extracted(data, {A, B}) == {A: ["one"], B: ["c0", "c1", "c2", "c3"]}
 
 
-def test_parse_questions_keeps_three_unique_non_blank() -> None:
-    data = {"questions": ["Q1", " Q1 ", "", 3, "Q2", "Q3", "Q4"]}
-    assert parse_questions(data) == ["Q1", "Q2", "Q3"]
+def _q(text: str, kind: str = "tension", claims: Any = (1, 2), why: Any = "W") -> dict[str, Any]:
+    return {"text": text, "kind": kind, "why": why, "claims": list(claims)}
+
+
+def _two_notes() -> list[ClaimItem]:
+    return [_item(1, A), _item(2, B), _item(3, B)]
+
+
+def test_parse_questions_resolves_claim_numbers_to_ids() -> None:
+    data = {"questions": [_q(" Q1 ", why=" Notes differ. ", claims=[3, 1, 3, 9, 0])]}
+    assert parse_questions(data, _two_notes()) == [
+        {"text": "Q1", "kind": "tension", "why": "Notes differ.", "claim_ids": ["id3", "id1"]}
+    ]
+
+
+def test_parse_questions_needs_anchors_in_two_notes() -> None:
+    claims = _two_notes()
+    data = {"questions": [_q("one note", claims=[2, 3]), _q("none", claims=[]), _q("ok")]}
+    assert [q["text"] for q in parse_questions(data, claims)] == ["ok"]
+
+
+def test_parse_questions_accepts_the_three_kinds_and_spelling_variants() -> None:
+    data = {
+        "questions": [
+            _q("a", "Tension"),
+            _q("b", " recurring "),
+            _q("c", "carry-over"),
+            _q("d", "textbook"),
+            _q("e", None),
+        ]
+    }
+    assert [(q["text"], q["kind"]) for q in parse_questions(data, _two_notes())] == [
+        ("a", "tension"),
+        ("b", "recurring"),
+        ("c", "carry_over"),
+    ]
+
+
+def test_parse_questions_keeps_one_carry_over_unique_texts_and_six_at_most() -> None:
+    data = {
+        "questions": [
+            _q("c1", "carry_over"),
+            _q("c2", "carry_over"),
+            _q("Q1"),
+            _q("Q1", "recurring"),
+            *(_q(f"Q{i}") for i in range(2, 9)),
+        ]
+    }
+    assert [q["text"] for q in parse_questions(data, _two_notes())] == [
+        "c1",
+        "Q1",
+        "Q2",
+        "Q3",
+        "Q4",
+        "Q5",
+    ]
+
+
+def test_parse_questions_cuts_long_why_lines_and_drops_odd_ones() -> None:
+    data = {"questions": [_q("a", why="w" * 400), _q("b", why=7), _q("", why="x")]}
+    parsed = parse_questions(data, _two_notes())
+    assert [(q["text"], q["why"]) for q in parsed] == [("a", "w" * 300), ("b", "")]
 
 
 def _item(i: int, path: str = A) -> ClaimItem:
@@ -406,14 +483,35 @@ def test_numbered_lines_start_at_one_with_or_without_titles() -> None:
     assert _numbered(claims, titles=False) == "1. T1\n2. t"
 
 
-@pytest.mark.parametrize(("count", "kept"), [(0, 0), (1, 1), (150, 150), (151, 76), (1138, 143)])
-def test_sample_never_exceeds_150_claims_and_spreads_over_all(count: int, kept: int) -> None:
-    claims = [_item(i) for i in range(count)]
-    sample = _sample(claims)
-    assert len(sample) == kept
-    if count > 150:
-        assert sample[0] is claims[0]
-        assert claims.index(sample[-1]) > count - 2 * (count // kept)
+def test_by_note_groups_claims_under_their_note_and_numbers_them_throughout() -> None:
+    claims = [
+        ClaimItem(id="1", text="T1", path=A, title="Note A"),
+        ClaimItem(id="2", text="T2", path=A, title="Note A"),
+        ClaimItem(id="3", text="T3", path=B, title="Note B"),
+    ]
+    assert _by_note(claims) == "N1 Note A\n1. T1\n2. T2\nN2 Note B\n3. T3"
+
+
+def test_fit_keeps_every_claim_while_the_prompt_fits(caplog: pytest.LogCaptureFixture) -> None:
+    claims = [_item(i, f"notes/n{i}.md") for i in range(200)]
+    assert _fit(claims) == claims
+    assert caplog.records == []
+
+
+def test_fit_thins_claims_evenly_over_the_cap_and_says_so(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    claims = [ClaimItem(id=str(i), text="t", path=A, title="x") for i in range(10)]
+    # "N1 x" plus "<n>. t" lines: all 10 claims make 52 characters, every second one 26.
+    monkeypatch.setattr("vault_compass.claims_run.MAX_QUESTION_PROMPT_CHARS", 30)
+    assert [c.id for c in _fit(claims)] == ["0", "2", "4", "6", "8"]
+    assert [r.getMessage() for r in caplog.records] == [
+        "questions prompt too long: every 2th of 10 claims"
+    ]
+
+
+def test_the_question_prompt_cap_is_240000_characters() -> None:
+    assert MAX_QUESTION_PROMPT_CHARS == 240_000
 
 
 # --- a small topic, end to end ----------------------------------------------------
@@ -443,7 +541,7 @@ def test_first_run_reads_proposes_and_finds_shared_claims(vault: Path) -> None:
     assert model.kinds() == ["extract", "questions", "agree"]
     view = body["view"]
     assert (view["read_notes"], view["pending_notes"], view["claim_count"]) == (3, 0, 10)
-    assert view["questions"] == ["Q one?", "Q two?"]
+    assert _texts(view) == ["Q one?", "Q two?"]
     assert (view["question"], view["stale"]) == (None, False)
     assert len(view["shared"]) == 1
     shared = view["shared"][0]
@@ -509,6 +607,91 @@ def test_a_new_client_reuses_the_cache_without_creating_a_model(vault: Path) -> 
     assert _run(_client(None)) == first
 
 
+def _prompt_claims(user: str) -> list[str]:
+    """The claim texts of a questions prompt, in their numbered order."""
+    return [line.split(". ", 1)[1] for line in user.split("\n") if line[0].isdigit()]
+
+
+def test_suggested_questions_carry_kind_why_and_anchor_claims(vault: Path) -> None:
+    model = AutoModel()
+    view = _run(_client(model))["view"]
+    texts = _prompt_claims(model.users("questions")[0])
+    # The fake anchors both questions in the first claim (note a) and the last (note key).
+    anchors = [
+        {"id": claim_id(A, texts[0]), "text": texts[0], "path": A, "title": "a"},
+        {"id": claim_id(KEY, texts[-1]), "text": texts[-1], "path": KEY, "title": "key"},
+    ]
+    assert texts[0].startswith(f"{A} claim ")
+    assert texts[-1] in ("Tools help.", "Plans fail.")
+    assert view["questions"] == [
+        {"text": "Q one?", "kind": "tension", "why": "Notes differ.", "anchors": anchors},
+        {"text": "Q two?", "kind": "recurring", "why": "It recurs.", "anchors": anchors},
+    ]
+
+
+def test_the_questions_prompt_names_only_the_topic_source_notes(vault: Path) -> None:
+    model = AutoModel()
+    _run(_client(model))
+    (user,) = model.users("questions")
+    assert [line for line in user.split("\n") if line.startswith("N")] == ["N1 a", "N2 b", "N3 key"]
+    assert len(_prompt_claims(user)) == 10
+
+
+def test_a_run_with_no_questions_leaves_the_list_empty_and_finishes(vault: Path) -> None:
+    model = AutoModel(raw={("questions", 0): '{"questions": []}'})
+    body = _run(_client(model))
+    assert (body["status"], body["view"]["questions"]) == ("done", [])
+    assert (body["view"]["next_step"], body["view"]["stale"]) == ("done", False)
+
+
+def test_questions_saved_in_the_old_format_are_suggested_again(vault: Path) -> None:
+    client = _client(AutoModel())
+    _run(client)
+    with duckdb.connect(str(_db(vault))) as con:
+        sig = con.execute("SELECT signature FROM topic_questions").fetchone()[0]
+        con.execute(
+            "UPDATE topic_questions SET proposals = ?, chosen = ?",
+            [json.dumps(["Old question?"]), "Old question?"],
+        )
+    stale = _view(client)
+    assert (stale["questions"], stale["question"], stale["next_step"]) == (
+        [],
+        "Old question?",
+        "analyse",
+    )
+    model = AutoModel()
+    fresh = _run(_client(model))["view"]
+    assert model.kinds() == ["questions", "stances"]
+    assert _texts(fresh) == ["Q one?", "Q two?"]
+    assert fresh["question"] == "Old question?"
+    with duckdb.connect(str(_db(vault))) as con:
+        assert con.execute("SELECT signature FROM topic_questions").fetchone()[0] == sig
+
+
+def test_question_views_drop_stale_anchors_and_questions_left_in_one_note() -> None:
+    claims = _two_notes()
+    proposals = [
+        {"text": "keep", "kind": "tension", "why": "w", "claim_ids": ["id1", "gone", "id2"]},
+        {"text": "one note", "kind": "recurring", "why": "w", "claim_ids": ["id1", "gone"]},
+        {"text": "odd kind", "kind": "textbook", "why": "w", "claim_ids": ["id1", "id2"]},
+        {"text": "no why", "kind": "carry_over", "claim_ids": ["id2", "id1"]},
+    ]
+    assert [q.model_dump() for q in question_views(proposals, claims)] == [
+        {
+            "text": "keep",
+            "kind": "tension",
+            "why": "w",
+            "anchors": [claims[0].model_dump(), claims[1].model_dump()],
+        },
+        {
+            "text": "no why",
+            "kind": "carry_over",
+            "why": "",
+            "anchors": [claims[1].model_dump(), claims[0].model_dump()],
+        },
+    ]
+
+
 def test_only_source_notes_of_the_topic_reach_the_model(vault: Path) -> None:
     model = AutoModel()
     _run(_client(model))
@@ -536,7 +719,7 @@ def test_changed_note_is_read_again_and_the_analysis_follows(vault: Path) -> Non
     assert model.kinds() == ["extract", "questions", "agree"]
     assert re.findall(r"^### NOTE (\S+)", model.users("extract")[0], re.MULTILINE) == [A]
     assert (fresh["claim_count"], fresh["stale"], fresh["pending_notes"]) == (10, False, 0)
-    assert fresh["questions"] == ["Q one?", "Q two?"]
+    assert _texts(fresh) == ["Q one?", "Q two?"]
 
 
 def test_unchanged_notes_are_not_read_again_after_another_changed(vault: Path) -> None:
@@ -575,7 +758,7 @@ def test_saving_a_question_keeps_the_proposals(vault: Path) -> None:
     client = _client(AutoModel())
     _run(client)
     view = client.put("/topics/big/claims/question", json={"question": "Q?"}).json()
-    assert view["questions"] == ["Q one?", "Q two?"]
+    assert _texts(view) == ["Q one?", "Q two?"]
 
 
 def test_choosing_a_question_before_any_run_is_kept(vault: Path) -> None:
@@ -706,12 +889,41 @@ def test_a_run_stopped_by_the_limit_resumes_without_repeating_work(
     assert len(read) == len(set(read)) == 42
 
 
-def test_claims_calls_turn_thinking_off_and_get_a_bigger_output_budget(vault: Path) -> None:
+def test_claims_calls_turn_thinking_off_but_the_questions_step_thinks(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("COMPASS_AI_QUESTIONS_MAX_OUTPUT_TOKENS")
+    monkeypatch.setenv("COMPASS_AI_REASONING", "false")
+    monkeypatch.setenv("COMPASS_AI_ACTION_LIMIT_USD", "100")
     model = AutoModel()
     _run(_client(model))
-    (settings,) = model.settings
-    assert settings.compass_ai_reasoning is False
-    assert settings.compass_ai_max_output_tokens == 4000
+    # One model for reading and agreement, one for the questions step.
+    assert model.kinds() == ["extract", "questions", "agree"]
+    plain, thinking = model.settings
+    assert (plain.compass_ai_reasoning, plain.compass_ai_max_output_tokens) == (False, 4000)
+    assert (thinking.compass_ai_reasoning, thinking.compass_ai_max_output_tokens) == (True, 16000)
+
+
+def test_the_output_budget_for_questions_can_be_set(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("COMPASS_AI_QUESTIONS_MAX_OUTPUT_TOKENS", "9000")
+    model = AutoModel()
+    _run(_client(model))
+    assert [s.compass_ai_max_output_tokens for s in model.settings] == [4000, 9000]
+
+
+def test_with_default_prices_the_questions_step_asks_before_spending(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 16000 output tokens at $15 per million is $0.24; with the input it passes the $0.25 limit.
+    monkeypatch.delenv("COMPASS_AI_QUESTIONS_MAX_OUTPUT_TOKENS")
+    model = AutoModel()
+    body = _run(_client(model))
+    assert (body["status"], body["view"]["next_step"]) == ("needs_approval", "analyse")
+    assert body["message"] == "This action may cost up to $0.25, over the $0.25 per-action limit."
+    assert body["estimate_usd"] == 0.2414  # $0.24 of output plus the input
+    assert model.kinds() == ["extract"]
 
 
 def test_the_output_budget_for_claims_can_be_set(
@@ -828,7 +1040,15 @@ def test_notes_are_sent_in_batches_of_at_most_four(vault: Path) -> None:
 def test_parsers_ignore_values_of_the_wrong_type(bad: Any) -> None:
     chunk = [_item(1)]
     assert parse_extracted({"claims": bad}, {A}) == {}
-    assert parse_questions({"questions": bad}) == []
+    assert parse_questions({"questions": bad}, chunk) == []
+    odd_kind = {"text": "q", "kind": bad, "why": "w", "claims": [1, 2]}
+    assert parse_questions({"questions": [odd_kind]}, _two_notes()) == []
+    stored = {"text": "q", "kind": bad, "why": "w", "claim_ids": ["id1", "id2"]}
+    assert question_views([stored], _two_notes()) == []
+    assert (
+        parse_questions({"questions": [{"text": "q", "kind": "tension", "claims": bad}]}, chunk)
+        == []
+    )
     assert parse_matches({"matches": bad}, chunk, _evergreens(1)) == []
     assert (
         parse_matches({"matches": [{"e": 1, "text": "t", "c": bad}]}, chunk, _evergreens(1)) == []
@@ -876,7 +1096,7 @@ def test_run_reads_at_most_30_notes_then_continues(vault: Path) -> None:
     assert set(model.kinds()) == {"extract"}
     second = _run(client)["view"]
     assert (second["read_notes"], second["pending_notes"], second["stale"]) == (35, 0, False)
-    assert second["questions"] == ["Q one?", "Q two?"]
+    assert _texts(second) == ["Q one?", "Q two?"]
     assert model.kinds()[-2:] == ["questions", "agree"]
 
 
@@ -915,15 +1135,16 @@ def test_a_big_topic_is_analysed_in_chunks_of_150_claims(big_vault: Path) -> Non
     assert sorted_view["unrelated"] == 84  # the "claim 3" and "claim 4" of 42 notes
 
 
-def test_the_questions_prompt_samples_across_all_claims(big_vault: Path) -> None:
+def test_the_questions_prompt_holds_every_claim_grouped_by_note(big_vault: Path) -> None:
     model = AutoModel()
     _finish_reading(_client(model))
     lines = model.users("questions")[0].split("\n")
-    assert len(lines) == 85  # 170 claims, every second one
-    assert lines[0].startswith("1 | ")
-    paths = {line.split(" | ")[2].split(" claim")[0] for line in lines if " claim " in line}
-    assert "notes/a.md" in paths
-    assert "notes/n039.md" in paths
+    headers = [line for line in lines if line.startswith("N")]
+    numbered = [line for line in lines if line[0].isdigit()]
+    assert len(numbered) == TOTAL_BIG
+    assert [int(line.split(".", 1)[0]) for line in numbered] == list(range(1, TOTAL_BIG + 1))
+    assert len(headers) == 43  # key plus the 42 notes with four claims; never the evergreen
+    assert headers[0] == "N1 a"
 
 
 def test_a_stopped_sort_resumes_at_the_chunk_it_stopped_on(big_vault: Path) -> None:
