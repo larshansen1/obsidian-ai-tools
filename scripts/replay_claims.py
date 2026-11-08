@@ -53,6 +53,9 @@ def main() -> int:
                 f"pushing_back={len(view['pushing_back'])} unrelated={view['unrelated']} "
                 f"shared={len(view['shared'])}"
             )
+            for q in view["questions"]:
+                notes = len({a["path"] for a in q["anchors"]})
+                print(f"  [{q['kind']}] {q['text']} ({notes} notes)")  # noqa: T201
             outcomes.append(body["status"])
         return 0 if outcomes == ["done", "done"] else 1
 

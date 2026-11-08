@@ -99,6 +99,22 @@ class ClaimItem(BaseModel):
     title: str
 
 
+# tension: notes that would answer differently (a yes/no question the sort step can use).
+# recurring: an idea many notes repeat but never examine. carry_over: does a principle from one
+# kind of system hold in another? Only tension questions are sorted into sides.
+QuestionKind = Literal["tension", "recurring", "carry_over"]
+QUESTION_KINDS: frozenset[str] = frozenset({"tension", "recurring", "carry_over"})
+
+
+class SuggestedQuestion(BaseModel):
+    text: str
+    kind: QuestionKind
+    # One line on why the question comes from these notes and not from the field in general.
+    why: str
+    # The claims the question is anchored in, from at least two notes of the topic.
+    anchors: list[ClaimItem]
+
+
 class SharedClaim(BaseModel):
     text: str
     claims: list[ClaimItem]
@@ -114,7 +130,7 @@ class ClaimsView(BaseModel):
     read_notes: int
     pending_notes: int
     claim_count: int
-    questions: list[str]
+    questions: list[SuggestedQuestion]
     question: str | None
     supporting: list[ClaimItem]
     pushing_back: list[ClaimItem]
@@ -195,14 +211,48 @@ def valid_claims(con: duckdb.DuckDBPyConnection, notes: list[EligibleNote]) -> l
     ]
 
 
-def load_questions(con: duckdb.DuckDBPyConnection, topic: str) -> tuple[list[str], str, str | None]:
-    """(proposals, signature they were made from, chosen question)."""
+def load_questions(
+    con: duckdb.DuckDBPyConnection, topic: str
+) -> tuple[list[dict[str, Any]], str, str | None]:
+    """(proposals, signature they were made from, chosen question).
+
+    Each proposal is {"text", "kind", "why", "claim_ids"}. Proposals saved in the old format
+    (plain strings) come back as none with an empty signature, so the next run suggests again.
+    """
     if not _has_tables(con):
         return [], "", None
     row = con.execute(_QUESTIONS_SQL, [topic]).fetchone()
     if row is None:
         return [], "", None
-    return list(json.loads(row[0])), row[1], row[2]
+    proposals = json.loads(row[0])
+    if not all(isinstance(p, dict) for p in proposals):
+        return [], "", row[2]
+    return list(proposals), row[1], row[2]
+
+
+def question_views(
+    proposals: list[dict[str, Any]], claims: list[ClaimItem]
+) -> list[SuggestedQuestion]:
+    """Proposals with their anchor ids resolved to the topic's current claims.
+
+    Anchors that are no longer current are dropped; a question left anchored in fewer than two
+    notes is not shown, since it no longer points at notes that bear on it.
+    """
+    by_id = {c.id: c for c in claims}
+    out = []
+    for p in proposals:
+        anchors = [by_id[i] for i in p.get("claim_ids", []) if i in by_id]
+        kind = p.get("kind")
+        if (
+            len({a.path for a in anchors}) < 2
+            or not isinstance(kind, str)
+            or kind not in QUESTION_KINDS
+        ):
+            continue
+        out.append(
+            SuggestedQuestion(text=p["text"], kind=p["kind"], why=p.get("why", ""), anchors=anchors)
+        )
+    return out
 
 
 def load_analysis(
@@ -234,7 +284,7 @@ def save_claims(
 
 
 def save_proposals(
-    con: duckdb.DuckDBPyConnection, topic: str, questions: list[str], sig: str
+    con: duckdb.DuckDBPyConnection, topic: str, questions: list[dict[str, Any]], sig: str
 ) -> None:
     ensure_tables(con)
     _, _, chosen = load_questions(con, topic)
@@ -349,7 +399,7 @@ def build_claims_view(
         read_notes=len(notes) - len(unread),
         pending_notes=len(unread),
         claim_count=len(claims),
-        questions=proposals if proposals_sig == sig else [],
+        questions=question_views(proposals, claims) if proposals_sig == sig else [],
         question=chosen,
         supporting=supporting,
         pushing_back=pushing,

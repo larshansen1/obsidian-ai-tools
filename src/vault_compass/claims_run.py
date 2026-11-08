@@ -20,6 +20,7 @@ from .ai_cost import check_limits, estimate_cost, month_spend, record_call
 from .claims import (
     AGREEMENT_KIND,
     AGREEMENT_PROGRESS_KIND,
+    QUESTION_KINDS,
     STANCES_KIND,
     STANCES_PROGRESS_KIND,
     ClaimItem,
@@ -48,13 +49,17 @@ BATCH_CHARS = 12000
 MAX_NOTES_PER_BATCH = 4
 MAX_CLAIMS_PER_NOTE = 4
 MAX_CLAIM_CHARS = 300
-MAX_PROMPT_CLAIMS = 150
+# The questions step sees every claim of the topic, grouped by note, so it can find two specific
+# notes that disagree. A sample hid most of them (#166). Over this size the claims are thinned
+# evenly; chunking would not help, since a tension between two notes can span any two chunks.
+MAX_QUESTION_PROMPT_CHARS = 240_000
 CHUNK_CLAIMS = 150
 # Sorting needs more care per claim than matching, so it takes smaller chunks.
 STANCE_CHUNK_CLAIMS = 75
 MAX_EVERGREENS = 40
 EVERGREEN_CHARS = 300
-MAX_QUESTIONS = 3
+MAX_QUESTIONS = 6
+MAX_WHY_CHARS = 300
 KEY_CLAIMS_ORIGIN = "key_claims"
 MODEL_ORIGIN = "model"
 
@@ -67,11 +72,32 @@ claims per note, each under 160 characters, in your own words. Reply with JSON o
 {{"claims": [{{"note": "<note path exactly as given>", "text": "<claim>"}}]}}"""
 
 QUESTIONS_SYSTEM = f"""\
-You are given claims from notes on one topic. Propose 2 to {MAX_QUESTIONS} questions the claims \
-bear on. Every question must be answerable with yes or no, so that some claims support a yes and \
-others push back with a no. Good: "Is grind size more important than water temperature?" or \
-"Should beans be used within four weeks?". Bad: questions starting with Which, What, How or Why. \
-Keep each short. Reply with JSON only: {{"questions": ["..."]}}"""
+You help one person think with their own notes. You are given the claims from the notes they \
+saved on one topic, grouped by note: a line "N<i> <title>" and then that note's claims, each \
+with a number.
+
+Find the questions worth thinking about that come from THIS collection, not from the field in \
+general. Return only as many as are really there (0 to {MAX_QUESTIONS}). Fewer strong questions \
+beat a full list. Each question must be anchored in claims from at least two different notes and \
+be one of two kinds:
+- tension: notes make claims about the SAME thing and would answer differently. Phrase it as \
+one yes or no question about one position, so some claims support a yes and others push back \
+with a no. Good: "Should coffee beans be used within four weeks?". Bad: "Is it A, or B?".
+- recurring: one idea keeps coming back across many notes but is never examined head on.
+
+Optionally, at most ONE carry_over question: a principle from one kind of system (for example \
+software) and whether it carries over to a different kind (for example a body or a \
+relationship). Frame it only as "does this carry over, and what changes?", never as a \
+contradiction. Skip it if the link is loose. Most topics should have none.
+
+Rules:
+- Both sides of a tension must be about the same subject. A loose analogy is not a tension.
+- No textbook debates that would appear in any article on the topic.
+- "why" is one plain line on why this question is specific to these notes.
+- "claims" lists the numbers of the claims the question is anchored in. Use only numbers you \
+were given.
+Reply with JSON only: {{"questions": [{{"text": "...", "kind": "tension|recurring|carry_over", \
+"why": "...", "claims": [<numbers>]}}]}}"""
 
 AGREEMENT_SYSTEM = """\
 You are given numbered claims from notes (number | note | text) and the user's numbered \
@@ -166,13 +192,36 @@ def parse_extracted(data: dict[str, Any], paths: set[str]) -> dict[str, list[str
     return out
 
 
-def parse_questions(data: dict[str, Any]) -> list[str]:
-    questions: list[str] = []
+def _parse_question(value: Any, claims: list[ClaimItem]) -> dict[str, Any] | None:
+    """One proposal, or None when it is unusable or anchored in fewer than two notes."""
+    if not isinstance(value, dict):
+        return None
+    text = _text(value.get("text"))
+    raw_kind = value.get("kind")
+    # Only a string can be a kind; a list or dict would not even be hashable for the lookup.
+    kind = raw_kind.strip().lower().replace("-", "_") if isinstance(raw_kind, str) else ""
+    anchors = [claims[n - 1] for n in _numbers(value.get("claims"), len(claims))]
+    if not text or kind not in QUESTION_KINDS or len({a.path for a in anchors}) < 2:
+        return None
+    why = value.get("why")
+    why = why.strip()[:MAX_WHY_CHARS] if isinstance(why, str) else ""
+    return {"text": text, "kind": kind, "why": why, "claim_ids": [a.id for a in anchors]}
+
+
+def parse_questions(data: dict[str, Any], claims: list[ClaimItem]) -> list[dict[str, Any]]:
+    """Usable proposals, at most MAX_QUESTIONS, unique by text, with at most one carry_over.
+
+    `claims` are the claims in the order they were numbered in the prompt.
+    """
+    out: list[dict[str, Any]] = []
     for value in _items(data.get("questions")):
-        text = _text(value)
-        if text and text not in questions:
-            questions.append(text)
-    return questions[:MAX_QUESTIONS]
+        question = _parse_question(value, claims)
+        if question is None or any(q["text"] == question["text"] for q in out):
+            continue
+        if question["kind"] == "carry_over" and any(q["kind"] == "carry_over" for q in out):
+            continue
+        out.append(question)
+    return out[:MAX_QUESTIONS]
 
 
 def _numbers(value: Any, limit: int) -> list[int]:
@@ -258,18 +307,21 @@ class _Run:
         model_factory: Callable[[CompassSettings], ChatModel],
         topic: str,
         approved: bool,
+        thinking: CompassSettings | None = None,
     ) -> None:
         self.settings = settings
+        # Settings for the one step that thinks first (questions); the others use `settings`.
+        self.thinking = thinking or settings
         self.vault = vault
         self.topic = topic
         self._factory = model_factory
         self._approved = approved
-        self._model: ChatModel | None = None
+        self._models: dict[bool, ChatModel] = {}
         self._month: float | None = None
         self._spent = 0.0
 
-    async def ask(self, system: str, user: str) -> dict[str, Any]:
-        estimate = estimate_cost(self.settings, len(system) + len(user))
+    async def ask(self, system: str, user: str, *, think: bool = False) -> dict[str, Any]:
+        estimate = estimate_cost(self.thinking if think else self.settings, len(system) + len(user))
         if self._month is None:
             self._month = await asyncio.to_thread(month_spend, self.settings.compass_db_path)
         limit = check_limits(
@@ -278,7 +330,7 @@ class _Run:
         if not limit.ok and not self._approved:
             raise _Stop(RunOutcome("needs_approval", limit.reason, round(estimate, 4)))
         text = await self._stream(
-            [{"role": "system", "content": system}, {"role": "user", "content": user}]
+            [{"role": "system", "content": system}, {"role": "user", "content": user}], think
         )
         try:
             return parse_json_object(text)
@@ -286,13 +338,13 @@ class _Run:
             logger.warning("claims answer was not JSON: %.200s", text)
             raise _Unreadable(RunOutcome("failed", _unreadable_message(text))) from None
 
-    async def _stream(self, messages: list[dict[str, Any]]) -> str:
-        if self._model is None:
+    async def _stream(self, messages: list[dict[str, Any]], think: bool) -> str:
+        if think not in self._models:
             try:
-                self._model = self._factory(self.settings)
+                self._models[think] = self._factory(self.thinking if think else self.settings)
             except AiNotConfiguredError as e:
                 raise _Stop(RunOutcome("not_configured", str(e))) from None
-        model = self._model
+        model = self._models[think]
         text = ""
         try:
             async for event in model.stream(messages, []):
@@ -396,13 +448,31 @@ def _numbered(claims: list[ClaimItem], *, titles: bool) -> str:
     )
 
 
-def _sample(claims: list[ClaimItem]) -> list[ClaimItem]:
-    """At most MAX_PROMPT_CLAIMS claims spread evenly over all notes."""
-    step = max(1, -(-len(claims) // MAX_PROMPT_CLAIMS))
+def _by_note(claims: list[ClaimItem]) -> str:
+    """Claims grouped under their note ("N<i> <title>"), numbered 1.. across the whole list."""
+    lines: list[str] = []
+    note = 0
+    path = None
+    for n, c in enumerate(claims, start=1):
+        if c.path != path:
+            path = c.path
+            note += 1
+            lines.append(f"N{note} {c.title}")
+        lines.append(f"{n}. {c.text}")
+    return "\n".join(lines)
+
+
+def _fit(claims: list[ClaimItem]) -> list[ClaimItem]:
+    """All claims, or every k-th one for the smallest k whose prompt fits the size cap."""
+    step = 1
+    while len(_by_note(claims[::step])) > MAX_QUESTION_PROMPT_CHARS:
+        step += 1
+    if step > 1:
+        logger.warning("questions prompt too long: every %dth of %d claims", step, len(claims))
     return claims[::step]
 
 
-def _save_proposals(run: _Run, questions: list[str], sig: str) -> None:
+def _save_proposals(run: _Run, questions: list[dict[str, Any]], sig: str) -> None:
     with writable(run.settings.compass_db_path) as con:
         save_proposals(con, run.topic, questions, sig)
 
@@ -420,9 +490,9 @@ def _progress(run: _Run, kind: str, key: str, sig: str) -> Any | None:
 async def _propose(run: _Run, snap: _Snapshot) -> None:
     if snap.proposals_sig == snap.sig:
         return
-    lines = _numbered(_sample(snap.claims), titles=True)
-    data = await run.ask(QUESTIONS_SYSTEM, lines)
-    await asyncio.to_thread(_save_proposals, run, parse_questions(data), snap.sig)
+    claims = _fit(snap.claims)
+    data = await run.ask(QUESTIONS_SYSTEM, _by_note(claims), think=True)
+    await asyncio.to_thread(_save_proposals, run, parse_questions(data, claims), snap.sig)
 
 
 def _evergreen_block(run: _Run, evergreens: list[NoteRef]) -> str:
@@ -491,7 +561,14 @@ async def run_topic_claims(
             "compass_ai_max_output_tokens": settings.compass_ai_claims_max_output_tokens,
         }
     )
-    run = _Run(tuned, vault, model_factory, topic, approved)
+    # The questions step thinks first: without it the questions turn generic (#166).
+    thinking = settings.model_copy(
+        update={
+            "compass_ai_reasoning": True,
+            "compass_ai_max_output_tokens": settings.compass_ai_questions_max_output_tokens,
+        }
+    )
+    run = _Run(tuned, vault, model_factory, topic, approved, thinking)
     try:
         snap = await asyncio.to_thread(_snapshot, run)
         if snap.pending:

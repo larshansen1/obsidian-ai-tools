@@ -162,6 +162,17 @@ optional except the key, read from the same `.env`:
   `COMPASS_AI_CLAIMS_MAX_OUTPUT_TOKENS` (default 4000), because a thinking model can spend its whole
   output budget thinking and return an empty answer. The view's `next_step` (read, analyse, sort,
   done) drives the four-step screen.
+- Suggested questions (#166) are anchored in specific notes, not topic-wide. The questions step
+  sends every claim of the topic grouped by note (thinned evenly only past 240,000 characters) and
+  is the one claims call that thinks first, with `COMPASS_AI_QUESTIONS_MAX_OUTPUT_TOKENS` (default
+  16000): without thinking, the questions came back as textbook debates. Each question has a kind
+  (`tension`: notes disagree, a yes/no question the sort step can use; `recurring`: an idea many
+  notes repeat; `carry_over`: does a principle hold in another kind of system, at most one), a
+  one-line `why` and its anchor claims from at least two notes. Only `tension` questions get a
+  "Use this question" button. Proposals saved in the old string format are suggested again.
+  The cost check prices that call at the full 16000-token budget, so with the default
+  (Sonnet-level) prices it asks for approval on most topics. Set `COMPASS_AI_INPUT_USD_PER_MTOK`
+  and `COMPASS_AI_OUTPUT_USD_PER_MTOK` to your model's prices to get estimates that match.
 - Before calling a claims change done, run it on real data: `uv run python scripts/replay_claims.py
   <topic>` copies your `compass.duckdb`, runs the whole flow with the real model and runs it again to
   check nothing repeats (`--dry` shows the cached state for free). Mocked tests cannot show how a

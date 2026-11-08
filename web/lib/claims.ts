@@ -11,6 +11,17 @@ export type SharedClaim = {
   unlinked_notes: NoteRef[];
 };
 
+// tension: notes that would answer differently (yes/no, can be sorted into sides). recurring: an
+// idea many notes repeat but never examine. carry_over: does a principle hold in another kind of system?
+export type QuestionKind = "tension" | "recurring" | "carry_over";
+
+export type SuggestedQuestion = {
+  text: string;
+  kind: QuestionKind;
+  why: string;
+  anchors: ClaimItem[];
+};
+
 // What to do next: read notes, suggest questions and find agreement, sort by the question, or nothing.
 export type NextStep = "read" | "analyse" | "sort" | "done";
 
@@ -19,7 +30,7 @@ export type ClaimsView = {
   read_notes: number;
   pending_notes: number;
   claim_count: number;
-  questions: string[];
+  questions: SuggestedQuestion[];
   question: string | null;
   supporting: ClaimItem[];
   pushing_back: ClaimItem[];

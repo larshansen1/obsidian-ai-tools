@@ -1,11 +1,24 @@
-import type { ClaimsView } from "./claims";
+import type { ClaimsView, QuestionKind, SuggestedQuestion } from "./claims";
+
+// A suggested question anchored in claims from two notes.
+export function suggested(text: string, kind: QuestionKind = "tension"): SuggestedQuestion {
+  return {
+    text,
+    kind,
+    why: `Why: ${text}`,
+    anchors: [
+      { id: "c1", text: "Plans help.", path: "notes/a.md", title: "A" },
+      { id: "c2", text: "Plans fail.", path: "notes/k.md", title: "K" },
+    ],
+  };
+}
 
 export const CLAIMS: ClaimsView = {
   topic: "big",
   read_notes: 3,
   pending_notes: 0,
   claim_count: 3,
-  questions: ["Do agents need plans?", "Do tools matter?"],
+  questions: [suggested("Do agents need plans?"), suggested("Do tools matter?")],
   question: "Do agents need plans?",
   supporting: [{ id: "c1", text: "Plans help.", path: "notes/a.md", title: "A" }],
   pushing_back: [{ id: "c2", text: "Plans fail.", path: "notes/k.md", title: "K" }],

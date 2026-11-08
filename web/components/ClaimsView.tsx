@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { noteLabel, noteUrl } from "../lib/chat";
-import type { ClaimItem, ClaimsView, SharedClaim } from "../lib/claims";
+import type { ClaimItem, ClaimsView, QuestionKind, SharedClaim, SuggestedQuestion } from "../lib/claims";
 
 function SourceLink({ vault, path, title }: { vault: string; path: string; title: string }) {
   return (
@@ -166,6 +166,54 @@ export function Agreement({
     <ul className="list" data-testid="agreement">
       {view.shared.map((item) => (
         <Shared key={item.text} item={item} vault={vault} linkAction={linkAction} selection={selection} />
+      ))}
+    </ul>
+  );
+}
+
+const KIND_LABEL: Record<QuestionKind, string> = {
+  tension: "Notes disagree",
+  recurring: "Keeps coming back",
+  carry_over: "Does it carry over?",
+};
+
+// Suggested questions with the notes each is anchored in (#166). Only "Notes disagree" questions
+// are yes or no, so only they can be used to sort claims; the others are for reading the notes.
+export function SuggestedQuestions({
+  questions,
+  chosen,
+  vault,
+  busy,
+  onChoose,
+}: {
+  questions: SuggestedQuestion[];
+  chosen: string | null;
+  vault: string;
+  busy: boolean;
+  onChoose: (question: string) => void;
+}) {
+  return (
+    <ul className="list" data-testid="questions">
+      {questions.map((q) => (
+        <li key={q.text}>
+          <span className="muted">{KIND_LABEL[q.kind]}:</span> {q.text}{" "}
+          {q.kind === "tension" ? (
+            <button type="button" disabled={busy} onClick={() => onChoose(q.text)}>
+              {q.text === chosen ? "Chosen" : "Use this question"}
+            </button>
+          ) : null}
+          {q.why ? <p className="muted claims-caption">{q.why}</p> : null}
+          <details>
+            <summary>From {q.anchors.length === 1 ? "1 claim" : `${q.anchors.length} claims`}</summary>
+            <ul className="list" aria-label={`Claims behind: ${q.text}`}>
+              {q.anchors.map((c) => (
+                <li key={c.id}>
+                  {c.text} <SourceLink vault={vault} path={c.path} title={c.title} />
+                </li>
+              ))}
+            </ul>
+          </details>
+        </li>
       ))}
     </ul>
   );

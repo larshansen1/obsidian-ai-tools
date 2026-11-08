@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CLAIMS } from "../lib/claimsFixture";
+import { CLAIMS, suggested } from "../lib/claimsFixture";
 import type { ClaimsRun, ClaimsView } from "../lib/claims";
 import { ClaimsSection } from "./ClaimsSection";
 
@@ -49,7 +49,7 @@ const READ: ClaimsView = {
 
 const ASKED: ClaimsView = {
   ...READ,
-  questions: ["Do agents need plans?", "Do tools matter?"],
+  questions: [suggested("Do agents need plans?"), suggested("Do tools matter?")],
   next_step: "done",
 };
 
@@ -298,6 +298,54 @@ describe("ClaimsSection actions", () => {
 
     expect(await screen.findByRole("button", { name: "Chosen" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Use this question" })).toBeInTheDocument();
+  });
+
+  it("shows each question's kind, why line and the notes behind it", async () => {
+    api({ ...ASKED, questions: [suggested("Do plans help?")] });
+    render(<ClaimsSection topic="big" />);
+
+    const item = within(await screen.findByTestId("questions")).getAllByRole("listitem")[0];
+    expect(within(item).getByText("Notes disagree:")).toBeInTheDocument();
+    expect(within(item).getByText("Why: Do plans help?")).toBeInTheDocument();
+    const anchors = within(item).getByRole("list", { name: "Claims behind: Do plans help?" });
+    expect(within(anchors).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Plans help. A",
+      "Plans fail. K",
+    ]);
+    expect(within(anchors).getByRole("link", { name: "A" })).toHaveAttribute(
+      "href",
+      "obsidian://open?vault=v&file=notes%2Fa",
+    );
+    expect(within(item).getByText("From 2 claims")).toBeInTheDocument();
+  });
+
+  it("offers only disagreement questions for sorting, not recurring or carry-over ones", async () => {
+    api({
+      ...ASKED,
+      questions: [
+        suggested("Do plans help?"),
+        suggested("What is judgment?", "recurring"),
+        suggested("Does explicit state carry over?", "carry_over"),
+      ],
+    });
+    render(<ClaimsSection topic="big" />);
+
+    const list = await screen.findByTestId("questions");
+    expect(within(list).getAllByRole("button", { name: "Use this question" })).toHaveLength(1);
+    expect(within(list).getByText("Keeps coming back:")).toBeInTheDocument();
+    expect(within(list).getByText("Does it carry over?:")).toBeInTheDocument();
+  });
+
+  it("says no question stood out when the suggestions came back empty", async () => {
+    api({ ...ASKED, questions: [] });
+    render(<ClaimsSection topic="big" />);
+
+    expect(
+      await (await step("Choose a question")).findByText(
+        "No question stood out in these notes. You can still write your own.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("questions")).toBeNull();
   });
 
   it("shows an error and keeps the old view when saving the question fails", async () => {
