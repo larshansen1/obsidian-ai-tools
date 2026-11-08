@@ -60,7 +60,7 @@ async function step(name: string) {
 }
 
 function states() {
-  return ["Read your notes", "Choose a question", "Claims for and against", "Where they agree"].map(
+  return ["Read your notes", "Choose a question", "How the notes split", "Where they agree"].map(
     (name) => screen.getByRole("region", { name }).getAttribute("data-state"),
   );
 }
@@ -81,7 +81,7 @@ describe("ClaimsSection layout", () => {
     expect(headings).toEqual([
       "1Read your notesDo this next",
       "2Choose a questionWaiting",
-      "3Claims for and againstWaiting",
+      "3How the notes splitWaiting",
       "4Where they agreeWaiting",
     ]);
   });
@@ -102,7 +102,7 @@ describe("ClaimsSection layout", () => {
     await screen.findByText("Read 0 of 3 notes, 0 claims.");
 
     expect((await step("Choose a question")).getByText(/Read your notes first/)).toBeInTheDocument();
-    expect((await step("Claims for and against")).getByText(/Choose a question in step 2/)).toBeInTheDocument();
+    expect((await step("How the notes split")).getByText(/Choose a question in step 2/)).toBeInTheDocument();
     expect((await step("Where they agree")).getByText(/Needs step 2 first/)).toBeInTheDocument();
   });
 });
@@ -140,12 +140,12 @@ describe("ClaimsSection steps", () => {
     api(CHOSEN);
     render(<ClaimsSection topic="big" />);
 
-    const button = await (await step("Claims for and against")).findByRole("button", {
-      name: "Sort claims by this question",
+    const button = await (await step("How the notes split")).findByRole("button", {
+      name: "Sort and summarise",
     });
     expect(button).toBeEnabled();
     expect(states()).toEqual(["done", "done", "next", "done"]);
-    expect((await step("Claims for and against")).getByText(/Do agents need plans\?.*place the 3 claims on a side/)).toBeInTheDocument();
+    expect((await step("How the notes split")).getByText(/Do agents need plans\?.*Sort the 3 claims and summarise the split\./)).toBeInTheDocument();
     expect(screen.queryByTestId("claims-table")).toBeNull();
   });
 
@@ -249,20 +249,72 @@ describe("ClaimsSection actions", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
-  it("saves a proposed question and then offers the sort", async () => {
-    api(ASKED);
+  it("one click saves the question, then sorts and summarises it", async () => {
+    api(ASKED, { view: CLAIMS });
     render(<ClaimsSection topic="big" />);
 
     fireEvent.click((await screen.findAllByRole("button", { name: "Use this question" }))[1]);
 
-    await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith("/api/topics/big/claims/question", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: "Do tools matter?" }),
-      }),
+    expect(await screen.findByTestId("split-summary")).toBeInTheDocument();
+    const calls = fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/topics/big/claims/"));
+    expect(calls).toEqual([
+      [
+        "/api/topics/big/claims/question",
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: "Do tools matter?" }) },
+      ],
+      [
+        "/api/topics/big/claims/run",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approved: false }) },
+      ],
+    ]);
+  });
+
+  it("asks once for approval when the one-click run would cost too much", async () => {
+    api(ASKED, { status: "needs_approval", message: "Over the limit.", estimate_usd: 0.3, view: CHOSEN });
+    render(<ClaimsSection topic="big" />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Use this question" }))[0]);
+
+    expect(await screen.findByRole("button", { name: "Run anyway" })).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: "Run anyway" })).toHaveLength(1);
+    expect(screen.getByText("Over the limit. Estimated next call: $0.3000.")).toBeInTheDocument();
+    const runs = fetchMock.mock.calls.filter(([url]) => url === "/api/topics/big/claims/run");
+    expect(runs).toHaveLength(1);
+  });
+
+  it("shows the summary first and keeps the claim lists folded under it", async () => {
+    api(CLAIMS);
+    render(<ClaimsSection topic="big" />);
+
+    const summary = await screen.findByTestId("split-summary");
+    expect(within(summary).getByText("The notes lean yes.")).toBeInTheDocument();
+    expect(within(within(summary).getByRole("list", { name: "Where they agree" })).getByRole("listitem").textContent).toBe("Plans matter.");
+    expect(within(within(summary).getByRole("list", { name: "Where they split" })).getByRole("listitem").textContent).toBe(
+      "Yes rests on studies; no on experience.",
     );
-    expect(await (await step("Claims for and against")).findByRole("button", { name: "Sort claims by this question" })).toBeEnabled();
+    expect(within(within(summary).getByRole("list", { name: "What is missing" })).getByRole("listitem").textContent).toBe(
+      "A direct comparison.",
+    );
+    expect(within(summary).getByRole("link", { name: "A" })).toHaveAttribute("href", "obsidian://open?vault=v&file=notes%2Fa");
+    const folded = screen.getByText("All claims for and against (2)").closest("details");
+    expect(folded).not.toBeNull();
+    expect(folded?.open).toBe(false);
+    expect(within(folded as HTMLElement).getByTestId("claims-table")).toBeInTheDocument();
+  });
+
+  it("does not run when saving the question fails", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/ai/status") return { ok: true, json: async () => ({ vault_name: "v" }) };
+      if (url === "/api/topics/big/claims/question") {
+        return { ok: false, status: 422, json: async () => ({ detail: "Too long" }) };
+      }
+      return { ok: true, json: async () => ASKED };
+    });
+    render(<ClaimsSection topic="big" />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Use this question" }))[0]);
+
+    expect(await screen.findByText("Too long")).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalledWith("/api/topics/big/claims/run", expect.anything());
   });
 

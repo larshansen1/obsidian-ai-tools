@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { noteLabel, noteUrl } from "../lib/chat";
-import type { ClaimItem, ClaimsView, QuestionKind, SharedClaim, SuggestedQuestion } from "../lib/claims";
+import type { ClaimItem, ClaimsView, QuestionKind, SharedClaim, SplitSummary, SuggestedQuestion } from "../lib/claims";
 
 function SourceLink({ vault, path, title }: { vault: string; path: string; title: string }) {
   return (
@@ -216,5 +216,45 @@ export function SuggestedQuestions({
         </li>
       ))}
     </ul>
+  );
+}
+
+function Points({ label, points }: { label: string; points: string[] }) {
+  if (points.length === 0) return null;
+  return (
+    <>
+      <h4>{label}</h4>
+      <ul className="list" aria-label={label}>
+        {points.map((point) => (
+          <li key={point}>{point}</li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+// The summary of how the notes split on the question (#169), shown above the claim lists.
+export function SplitSummaryView({ summary, vault }: { summary: SplitSummary; vault: string }) {
+  return (
+    <div data-testid="split-summary">
+      <p>
+        <strong>{summary.bottom_line}</strong>
+      </p>
+      <Points label="Where they agree" points={summary.agree} />
+      <Points label="Where they split" points={summary.split} />
+      <Points label="What is missing" points={summary.missing} />
+      {summary.read.length > 0 ? (
+        <>
+          <h4>Worth reading</h4>
+          <ul className="list" aria-label="Worth reading">
+            {summary.read.map((note) => (
+              <li key={note.path}>
+                <SourceLink vault={vault} path={note.path} title={note.title} />
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </div>
   );
 }

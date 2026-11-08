@@ -27,6 +27,7 @@ from vault_compass.claims_run import (
     EXTRACT_SYSTEM,
     QUESTIONS_SYSTEM,
     STANCE_SYSTEM,
+    SUMMARY_SYSTEM,
 )
 from vault_compass.config import CompassSettings
 from vault_compass.notes import refresh_notes
@@ -39,6 +40,7 @@ KIND = {
     QUESTIONS_SYSTEM: "questions",
     AGREEMENT_SYSTEM: "agree",
     STANCE_SYSTEM: "stances",
+    SUMMARY_SYSTEM: "summary",
 }
 TOPICS_YAML = (
     "topics:\n  big:\n    name: Big\n    tags: [x]\nmin_notes: 1\n"
@@ -100,6 +102,15 @@ def shaped(kind: str, rng: random.Random) -> Any:
             "c": number_list(rng),
         }
         return {"matches": rng.choice([[item() for _ in range(rng.randint(0, 4))], junk(rng)])}
+    if kind == "summary":
+        points = lambda: rng.choice([["A point.", junk(rng)], junk(rng)])  # noqa: E731
+        return {
+            "bottom_line": rng.choice(["The notes split.", "", junk(rng)]),
+            "agree": points(),
+            "split": points(),
+            "missing": points(),
+            "read": number_list(rng),
+        }
     return {
         "supporting": rng.choice([number_list(rng), junk(rng)]),
         "pushing_back": rng.choice([number_list(rng), junk(rng)]),
@@ -167,6 +178,10 @@ def _check(view: dict[str, Any]) -> None:
     assert sum(q["kind"] == "carry_over" for q in view["questions"]) <= 1
     for question in view["questions"]:
         assert len({a["path"] for a in question["anchors"]}) >= 2
+    if view["summary"] is not None:
+        assert view["summary"]["bottom_line"]
+        reads = [n["path"] for n in view["summary"]["read"]]
+        assert len(reads) == len(set(reads)) <= 5
     for shared in view["shared"]:
         assert len({c["path"] for c in shared["claims"]}) >= 2
         if shared["evergreen"]:
@@ -190,7 +205,10 @@ def _check_db(db: Path) -> None:
         for kind, payload in con.execute("SELECT kind, payload FROM claim_analysis").fetchall():
             data = json.loads(payload)
             assert isinstance(
-                data, dict if kind.startswith("stances") or kind.endswith("progress") else list
+                data,
+                dict
+                if kind.startswith(("stances", "split_summary")) or kind.endswith("progress")
+                else list,
             )
 
 

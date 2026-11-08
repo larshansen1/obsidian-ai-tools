@@ -10,7 +10,7 @@ import {
   makeAssistantToolUI,
 } from "@assistant-ui/react";
 import { useDataStreamRuntime } from "@assistant-ui/react-data-stream";
-import { Agreement, ClaimsTable } from "./ClaimsView";
+import { Agreement, ClaimsTable, SplitSummaryView } from "./ClaimsView";
 import { CoverageBars } from "./CoverageBars";
 import { WriteCard } from "./WriteCard";
 import { WRITE_TOOLS, type PendingWrite, type WriteOutcome } from "../lib/writes";
@@ -142,6 +142,7 @@ export function ToolCard({
     const view = result as ClaimsView;
     return (
       <Folded summary={`Claims on the topic: ${plural(view.claim_count, "claim")}`}>
+        {view.summary ? <SplitSummaryView summary={view.summary} vault={vault} /> : null}
         <ClaimsTable view={view} vault={vault} />
         <Agreement view={view} vault={vault} />
       </Folded>
