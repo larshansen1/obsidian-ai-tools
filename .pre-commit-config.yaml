@@ -59,16 +59,21 @@ repos:
         types: [python]
         stages: [pre-commit]
 
-      - id: pytest-fast
-        name: pytest fast
-        entry: ./scripts/test.sh -m "not slow" -q
+      # Tests run on push, not on every commit: the full parallel suite with
+      # coverage takes ~45s locally, and a second fast run on commit added
+      # ~80s per commit without catching anything the push run misses.
+      - id: pytest-coverage
+        name: pytest full coverage (parallel)
+        entry: env COVERAGE=1 ./scripts/test.sh -q
         language: system
         pass_filenames: false
-        stages: [pre-commit]
+        stages: [pre-push]
 
-      - id: pytest-coverage
-        name: pytest full coverage
-        entry: env COVERAGE=1 ./scripts/test.sh -q
+      # Runs after pytest-coverage (hooks run in file order) and reads the
+      # .coverage file it writes.
+      - id: crap-gate
+        name: CRAP gate (complexity x coverage)
+        entry: ./scripts/crap_gate.sh
         language: system
         pass_filenames: false
         stages: [pre-push]

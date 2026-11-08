@@ -117,7 +117,7 @@ CRAP complements, does not replace, the radon CC gates: at 100% coverage CRAP ==
 
 The gate landed on a codebase whose five worst hotspots already exceeded threshold 30 (worst: `process_inbox` at CRAP ~756). Rather than raise the threshold — a single high threshold that cleared 756 would tolerate CRAP up to 756 everywhere and gut the gate — those five are grandfathered through the `BASELINE` dict in `scripts/crap_report.py`: each keeps its recorded CRAP value as a cap, so it passes at or below that value but fails the moment it worsens. Grandfathering is explicitly not a threshold change. All five were fixed in #112 and `BASELINE` is now empty: fix a new hotspot rather than adding it there.
 
-Pre-commit hooks run a subset on every commit; the full suite runs on push. See `.pre-commit-config.yaml` and `.github/workflows/ci.yml` for the exact configuration.
+Pre-commit hooks run the quick checks (lint, format, bandit, gitleaks, README check, import-linter, radon) on every commit. Tests run on push only: the full suite in parallel with coverage, plus mypy and the CRAP gate. CI runs each check once per pull request. See `.pre-commit-config.yaml` and `.github/workflows/ci.yml` for the exact configuration.
 
 ## Vault Compass
 
@@ -204,7 +204,7 @@ Verification notes (the parts most likely to bite):
 
 - The editable install records an **absolute path**: each worktree's `.venv` imports that worktree's own `src/`, never the main checkout's, so worktrees don't cross-contaminate.
 - `uv run` picks up the worktree-local `.venv` automatically; no activation needed.
-- The `language: system` hooks (pytest-fast, radon-cc, README check) resolve `.venv/bin/python` and `./scripts/...` relative to the worktree CWD — the venv must live at `.worktrees/<name>/.venv`.
+- The `language: system` hooks (pytest-coverage, crap-gate, radon-cc, README check) resolve `.venv/bin/python` and `./scripts/...` relative to the worktree CWD — the venv must live at `.worktrees/<name>/.venv`.
 - Remote-repo hook environments (ruff, bandit, gitleaks, …) are cached under `~/.cache/pre-commit` and shared across worktrees, so the first `pre-commit run` inside a fresh worktree doesn't re-fetch.
 - Worktrees share the main checkout's `.git/hooks`, so one `pre-commit install` in the main checkout covers every worktree.
 

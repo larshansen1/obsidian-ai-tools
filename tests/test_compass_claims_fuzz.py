@@ -3,7 +3,8 @@
 A real model sometimes answers with the wrong type, a missing key, a huge number or cut-off JSON.
 Whatever it sends, the run must end with one of the known statuses (never a 500), and what is
 stored must stay consistent. Seeded, so a failure repeats: run one seed with
-`pytest -k "seed_17"`. More seeds: COMPASS_FUZZ_SEEDS=500.
+`pytest -k "seed_17"`. 10 seeds by default to keep PR runs fast; the nightly workflow
+runs 200. More seeds locally: COMPASS_FUZZ_SEEDS=500.
 """
 
 import json
@@ -31,7 +32,7 @@ from vault_compass.config import CompassSettings
 from vault_compass.notes import refresh_notes
 from vault_compass.topics import load_topics
 
-SEEDS = int(os.environ.get("COMPASS_FUZZ_SEEDS", "60"))
+SEEDS = int(os.environ.get("COMPASS_FUZZ_SEEDS", "10"))
 STATUSES = {"done", "needs_approval", "not_configured", "failed"}
 KIND = {
     EXTRACT_SYSTEM: "extract",

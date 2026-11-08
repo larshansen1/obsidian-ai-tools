@@ -8,3 +8,4 @@ ruff==0.15.8
 bandit==1.9.4
 mutmut==3.7.0
 import-linter==2.15
+pytest-xdist>=3.8.0
