@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ClaimsSection } from "./ClaimsSection";
 import { CoverageSection } from "./CoverageSection";
 import { EditTopic } from "./WriteActions";
@@ -35,6 +35,9 @@ export function TopicPageScreen({
   const [error, setError] = useState<string | null>(null);
   // Bumped after a write so the page re-reads the refreshed data.
   const [version, setVersion] = useState(0);
+  // True once the claims card leads with an answered question (#171).
+  const [leading, setLeading] = useState(false);
+  const onWrite = useCallback(() => setVersion((v) => v + 1), []);
 
   useEffect(() => {
     logUsage("screen_view", "topic_page", id);
@@ -79,29 +82,9 @@ export function TopicPageScreen({
   }
 
   const { stats } = data;
-  return (
-    <main className="page">
-      {back}
-      <header className="card">
-        <h1 className="page-title" style={{ marginBottom: 12 }}>{stats.name}</h1>
-        <dl data-testid="header" className="facts">
-          <dt>Notes</dt>
-          <dd>{stats.note_count}</dd>
-          <dt>Momentum</dt>
-          <dd>{formatMomentum(stats.momentum)}</dd>
-          <dt>Evergreens</dt>
-          <dd>{stats.evergreens}</dd>
-          <dt>Notes with links</dt>
-          <dd>{stats.linked_notes}</dd>
-          <dt>Tags</dt>
-          <dd>{data.tags.join(", ")}</dd>
-        </dl>
-        <EditTopic topic={id} tags={data.tags} onChange={() => setVersion((v) => v + 1)} />
-        {stats.below_min_notes ? (
-          <p className="warn">Fewer than {data.min_notes} notes, so the trend is not shown on the map.</p>
-        ) : null}
-      </header>
-
+  // Signal notes and sources. Once a question is answered the claims card moves above them (#171).
+  const overview = (
+    <>
       {data.signal ? (
         <section className="card" aria-label="Signal notes" data-testid="signal-notes">
           <h2>Notes behind the signal</h2>
@@ -149,8 +132,43 @@ export function TopicPageScreen({
           ))}
         </ul>
       </section>
+    </>
+  );
+  return (
+    <main className="page">
+      {back}
+      <header className="card">
+        <h1 className="page-title" style={{ marginBottom: 12 }}>{stats.name}</h1>
+        <dl data-testid="header" className="facts">
+          <dt>Notes</dt>
+          <dd>{stats.note_count}</dd>
+          <dt>Momentum</dt>
+          <dd>{formatMomentum(stats.momentum)}</dd>
+          <dt>Evergreens</dt>
+          <dd>{stats.evergreens}</dd>
+          <dt>Notes with links</dt>
+          <dd>{stats.linked_notes}</dd>
+          <dt>Tags</dt>
+          <dd>
+            {/* Folded: twelve tags wrap into many lines and push the answer off a phone screen (#171). */}
+            <details>
+              <summary>{data.tags.length}</summary>
+              {data.tags.join(", ")}
+            </details>
+          </dd>
+        </dl>
+        <EditTopic topic={id} tags={data.tags} onChange={() => setVersion((v) => v + 1)} />
+        {stats.below_min_notes ? (
+          <p className="warn">Fewer than {data.min_notes} notes, so the trend is not shown on the map.</p>
+        ) : null}
+      </header>
 
-      <ClaimsSection topic={id} onWrite={() => setVersion((v) => v + 1)} />
+      {/* The claims card keeps its place in the tree (moving it would remount it mid-run);
+          the overview moves around it instead. */}
+      {leading ? null : overview}
+      <ClaimsSection topic={id} onWrite={onWrite} onAnswerFirst={setLeading} />
+      {leading ? overview : null}
+
 
       <CoverageSection topic={id} />
 

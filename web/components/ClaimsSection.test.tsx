@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CLAIMS, suggested } from "../lib/claimsFixture";
 import type { ClaimsRun, ClaimsView } from "../lib/claims";
-import { ClaimsSection } from "./ClaimsSection";
+import { ClaimsSection, splitCounts } from "./ClaimsSection";
 
 const fetchMock = vi.fn();
 
@@ -34,6 +34,7 @@ const FRESH: ClaimsView = {
   question: null,
   supporting: [],
   pushing_back: [],
+  summary: null,
   shared: [],
   stale: true,
   next_step: "read",
@@ -136,35 +137,97 @@ describe("ClaimsSection steps", () => {
     expect(screen.queryByRole("button", { name: /Suggest|Read|Sort/ })).toBeNull();
   });
 
-  it("step 3 holds the sort button once a question is chosen", async () => {
+  it("leads with the chosen question and its sort button until it is sorted", async () => {
     api(CHOSEN);
     render(<ClaimsSection topic="big" />);
 
-    const button = await (await step("How the notes split")).findByRole("button", {
-      name: "Sort and summarise",
-    });
-    expect(button).toBeEnabled();
-    expect(states()).toEqual(["done", "done", "next", "done"]);
-    expect((await step("How the notes split")).getByText(/Do agents need plans\?.*Sort the 3 claims and summarise the split\./)).toBeInTheDocument();
+    const answer = within(await screen.findByTestId("answer"));
+    expect(answer.getByRole("heading", { level: 2 }).textContent).toBe("Do agents need plans?");
+    expect(answer.getByTestId("answer-counts").textContent).toBe("Not sorted yet: 3 claims to place. Change question");
+    expect(answer.getByRole("button", { name: "Sort and summarise" })).toBeEnabled();
     expect(screen.queryByTestId("claims-table")).toBeNull();
+    expect(screen.queryByTestId("split-summary")).toBeNull();
   });
 
   it("does not claim the claims are sorted before the sort has run", async () => {
     api(CHOSEN);
     render(<ClaimsSection topic="big" />);
 
-    expect(await (await step("Choose a question")).findByText("Question chosen. You can switch to another at any time.")).toBeInTheDocument();
-    expect(screen.queryByText(/are sorted/)).toBeNull();
+    const done = await screen.findByRole("list", { name: "Finished steps" });
+    expect(within(done).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "✓ 3 notes read · 3 claims",
+      "✓ Question chosen",
+    ]);
   });
 
-  it("shows the table and the agreement when everything is done, with no button", async () => {
+  it("leads with the answer and folds finished steps into one line each", async () => {
     api(CLAIMS);
     render(<ClaimsSection topic="big" />);
 
-    expect(await screen.findByTestId("claims-table")).toBeInTheDocument();
+    const answer = within(await screen.findByTestId("answer"));
+    expect(answer.getByRole("heading", { level: 2 }).textContent).toBe("Do agents need plans?");
+    expect(answer.getByTestId("answer-counts").textContent).toBe(
+      "1 claim for (from 1 note), 1 against (from 1 note) Change question",
+    );
+    expect(answer.getByTestId("split-summary")).toBeInTheDocument();
+    expect(answer.getByTestId("claims-table").closest("details")?.open).toBe(false);
+    const done = screen.getByRole("list", { name: "Finished steps" });
+    expect(within(done).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "✓ 3 notes read · 3 claims",
+      "✓ Question chosen",
+      "✓ Sorted and summarised",
+    ]);
+    expect(screen.queryByRole("region", { name: "Read your notes" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Choose a question" })).toBeNull();
     expect(screen.getByTestId("agreement")).toBeInTheDocument();
-    expect(states()).toEqual(["done", "done", "done", "done"]);
     expect(screen.queryByRole("button", { name: /Read|Suggest|Sort/ })).toBeNull();
+    expect(screen.queryByTestId("questions")).toBeNull();
+  });
+
+  it("opens and closes the question picker from the answer", async () => {
+    api(CLAIMS);
+    render(<ClaimsSection topic="big" />);
+    const toggle = await screen.findByRole("button", { name: "Change question" });
+
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const picker = within(screen.getByRole("region", { name: "Change question" }));
+    expect(picker.getAllByRole("listitem", { name: "" }).length).toBeGreaterThan(0);
+    expect(picker.getByRole("textbox", { name: "Your own question" })).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("region", { name: "Change question" })).toBeNull();
+  });
+
+  it("closes the picker and sorts the new question in one click", async () => {
+    api(CLAIMS, { view: CLAIMS });
+    render(<ClaimsSection topic="big" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Change question" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Use this question" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith("/api/topics/big/claims/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved: false }),
+      }),
+    );
+    expect(screen.queryByRole("region", { name: "Change question" })).toBeNull();
+  });
+
+  it("tells the page when it leads with the answer", async () => {
+    const onAnswerFirst = vi.fn();
+    api(READ);
+    const { unmount } = render(<ClaimsSection topic="big" onAnswerFirst={onAnswerFirst} />);
+    await screen.findByRole("region", { name: "Read your notes" });
+    expect(onAnswerFirst).toHaveBeenLastCalledWith(false);
+    unmount();
+
+    api(CLAIMS);
+    render(<ClaimsSection topic="big" onAnswerFirst={onAnswerFirst} />);
+    await screen.findByTestId("answer");
+    expect(onAnswerFirst).toHaveBeenLastCalledWith(true);
   });
 
   it("offers Read more notes when notes were added after the first read", async () => {
@@ -321,7 +384,8 @@ describe("ClaimsSection actions", () => {
   it("saves an edited question, trimmed", async () => {
     api(CLAIMS);
     render(<ClaimsSection topic="big" />);
-    const input = await screen.findByRole("textbox", { name: "Your own question" });
+    fireEvent.click(await screen.findByRole("button", { name: "Change question" }));
+    const input = screen.getByRole("textbox", { name: "Your own question" });
 
     fireEvent.change(input, { target: { value: "  Why plan?  " } });
     fireEvent.click(screen.getByRole("button", { name: "Use my question" }));
@@ -344,11 +408,12 @@ describe("ClaimsSection actions", () => {
     expect(fetchMock).not.toHaveBeenCalledWith("/api/topics/big/claims/question", expect.anything());
   });
 
-  it("marks the chosen question", async () => {
+  it("marks the chosen question in the picker", async () => {
     api(CLAIMS);
     render(<ClaimsSection topic="big" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Change question" }));
 
-    expect(await screen.findByRole("button", { name: "Chosen" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Chosen" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Use this question" })).toBeInTheDocument();
   });
 
@@ -528,5 +593,18 @@ describe("ClaimsSection draft new evergreen", () => {
 
     await step("Read your notes");
     expect(screen.queryByRole("region", { name: "Draft new evergreen" })).toBeNull();
+  });
+});
+
+describe("splitCounts", () => {
+  const claim = (id: string, path: string) => ({ id, text: id, path, title: path });
+  it("counts claims and distinct notes per side, with plurals and thousands", () => {
+    const many = Array.from({ length: 1200 }, (_, i) => claim(`s${i}`, `n${i % 2}.md`));
+    expect(splitCounts({ ...CLAIMS, supporting: many, pushing_back: [claim("p", "x.md")] })).toBe(
+      "1,200 claims for (from 2 notes), 1 against (from 1 note)",
+    );
+    expect(splitCounts({ ...CLAIMS, supporting: [], pushing_back: [] })).toBe(
+      "0 claims for (from 0 notes), 0 against (from 0 notes)",
+    );
   });
 });
