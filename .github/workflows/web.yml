@@ -1,14 +1,10 @@
 name: Web
 
-# Runs only when the web app (or this workflow) changes. The Python CI in ci.yml
+# Runs only when the web app (or this workflow) changes, once per pull request
+# (no second run on merge to main, same as ci.yml). The Python CI in ci.yml
 # always runs, so required checks never wait on a skipped workflow.
 on:
   pull_request:
-    paths:
-      - "web/**"
-      - ".github/workflows/web.yml"
-  push:
-    branches: [main]
     paths:
       - "web/**"
       - ".github/workflows/web.yml"

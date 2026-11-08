@@ -307,7 +307,7 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for a detailed account of the AI-assisted d
 
 ## Security
 
-Keep `.env` files and API keys out of version control. Security checks run in CI on every push and PR (Bandit for Python vulnerabilities, Gitleaks for secrets). The same checks run locally via pre-commit hooks:
+Keep `.env` files and API keys out of version control. Security checks run in CI on every pull request (Bandit for Python vulnerabilities, Gitleaks for secrets). The same checks run locally via pre-commit hooks:
 
 ```bash
 pre-commit run --all-files

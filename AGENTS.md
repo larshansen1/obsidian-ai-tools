@@ -20,16 +20,22 @@ uv run pre-commit run --all-files   # must pass clean (no files modified)
 | Hook | Stage | Command to run manually |
 |------|-------|------------------------|
 | ruff lint + format | pre-commit | `uv run pre-commit run --all-files` |
-| bandit, gitleaks, README check, import-linter, radon, pytest-fast | pre-commit | same |
+| bandit, gitleaks, README check, import-linter, radon | pre-commit | same |
 | **mypy** | **pre-push** | `uv run mypy src --config-file mypy.ini` |
-| **pytest full coverage** | **pre-push** | `COVERAGE=1 ./scripts/test.sh -q` |
+| **pytest full coverage (parallel)** | **pre-push** | `COVERAGE=1 ./scripts/test.sh -q` |
+| **CRAP gate** | **pre-push** | `./scripts/crap_gate.sh` (after the coverage run) |
 
-mypy and coverage only run on `git push`, not `git commit`. Always run both manually before pushing:
+No tests run on `git commit`. Tests, mypy and the CRAP gate run on `git push`. Run them manually before pushing, or with `uv run pre-commit run --hook-stage pre-push --all-files`:
 
 ```bash
 uv run mypy src --config-file mypy.ini
-COVERAGE=1 ./scripts/test.sh -q   # must be ≥ 80%
+COVERAGE=1 ./scripts/test.sh -q   # parallel (pytest-xdist), must be ≥ 80%
+./scripts/crap_gate.sh
 ```
+
+`./scripts/test.sh` runs tests across all CPU cores. Set `PYTEST_WORKERS=0` to run them one at a time when debugging a single failure.
+
+CI runs once per pull request (not again on merge to `main`): pre-commit hooks, mypy, parallel tests with coverage, the CRAP gate, and the Gitleaks security job. Each check runs once.
 
 Coverage floor is 80% (`fail_under = 80` in `pyproject.toml`). New modules must include tests for all non-trivial paths — especially LLM-calling functions, which need a mocked client test (patch `OpenAI` at `obsidian_ai_tools.<module>.OpenAI`).
 
@@ -42,9 +48,9 @@ These patterns routinely blow the 100-char limit — keep them short or split th
 - Test assertions: `assert "long literal string" in content` — extract into a variable first
 - Patch target strings in tests: `"obsidian_ai_tools.commands.module.function_name"`
 
-### Never modify scripts/run_radon.sh or .pre-commit-config.yaml
+### Never switch scripts/run_radon.sh or .pre-commit-config.yaml to `uv run`
 
-These files must use plain `python`/`python3` — not `uv run` — because they run both locally (where the venv is active) and in CI (which has no `uv`). Changing them to use `uv run` will break CI with "uv: command not found".
+These files must use plain `python`/`python3` or `.venv/bin/...` — not `uv run` — so the `language: system` hooks run the same way in every checkout and worktree. Changing which hooks run is fine when an issue asks for it; changing how they invoke Python is not.
 
 ### Import hygiene for new files
 

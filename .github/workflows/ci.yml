@@ -1,9 +1,11 @@
 name: CI
 
+# Runs once per change, on the pull request. No second run on merge to main:
+# as a solo repo, main rarely moves between the PR run and the merge. Update
+# the branch before merging if it did.
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   security:
@@ -49,26 +51,26 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      - name: README command reference
-        run: uv run python scripts/check_readme_commands.py
+      - name: Cache pre-commit hook environments
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
-      - name: Pre-commit hooks (lint, format, bandit, gitleaks, import-linter, radon, pytest-fast)
+      # Commit-stage hooks: ruff lint + format, bandit, README check,
+      # import-linter, radon. Each check runs only here, not again as its own
+      # step. gitleaks is skipped because the hook scans staged files only and
+      # CI has none; the security job above does the real scan.
+      - name: Pre-commit hooks
         run: uv run pre-commit run --all-files
-
-      - name: Format check (ruff)
-        run: uv run ruff format --check .
-
-      - name: Import contracts (import-linter)
-        run: uv run lint-imports
+        env:
+          SKIP: gitleaks
 
       - name: Typecheck (mypy)
         run: uv run mypy src --config-file mypy.ini
 
-      - name: Full tests with coverage enforcement
-        run: COVERAGE=1 uv run pytest -q --disable-warnings --cov=src/obsidian_ai_tools --cov=src/vault_compass --cov-fail-under=80
+      - name: Full tests with coverage (parallel)
+        run: uv run pytest -q -n auto --cov --cov-report=term --cov-fail-under=80
 
       - name: CRAP gate (complexity x coverage)
-        run: |
-          uv run radon cc src -s -j > cc.json
-          uv run coverage json -o coverage.json
-          uv run python scripts/crap_report.py
+        run: ./scripts/crap_gate.sh

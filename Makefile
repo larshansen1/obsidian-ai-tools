@@ -71,8 +71,7 @@ coverage:
 
 .PHONY: crap
 crap:
-	$(PYTHON) -m coverage json -o coverage.json
-	$(PYTHON) scripts/crap_report.py
+	./scripts/crap_gate.sh
 
 
 # ----------------------------

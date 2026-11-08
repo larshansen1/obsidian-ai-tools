@@ -123,4 +123,5 @@ dev = [
     "mutmut==3.7.0",
     "import-linter==2.15",
     "types-PyYAML>=6.0",
+    "pytest-xdist>=3.8.0",
 ]
