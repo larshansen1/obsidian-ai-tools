@@ -1,5 +1,6 @@
 """Tests for source-based duplicate detection."""
 
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,6 +8,7 @@ import pytest
 
 from obsidian_ai_tools.dedup import (
     ExistingNote,
+    SourceIndex,
     _youtube_video_id,
     find_note_by_source,
     normalize_source_url,
@@ -296,3 +298,120 @@ class TestFindNoteBySourceAdditional:
             fm, content = VaultStore.parse_frontmatter(note)
 
         assert fm == {"title": "x"}
+
+
+def _set_mtime(path: Path, mtime_ns: int) -> None:
+    """Pin a file's mtime so change detection never depends on clock resolution."""
+    os.utime(path, ns=(mtime_ns, mtime_ns))
+
+
+class TestSourceIndex:
+    """The cached lookup used by the extension badge."""
+
+    def test_finds_match_like_find_note_by_source(self, tmp_path: Path) -> None:
+        _write_note_file(tmp_path / "inbox" / "web-note.md", "https://example.com/article")
+
+        found = SourceIndex().find(tmp_path, "https://www.example.com/article/?utm_source=x")
+
+        assert found == ExistingNote(
+            file_path=tmp_path / "inbox" / "web-note.md",
+            title="Existing Note",
+            tags=["test", "vault"],
+            source_type="web",
+        )
+
+    def test_returns_none_without_match(self, tmp_path: Path) -> None:
+        _write_note_file(tmp_path / "inbox" / "web-note.md", "https://example.com/other")
+
+        assert SourceIndex().find(tmp_path, "https://example.com/article") is None
+
+    def test_first_match_in_sorted_order_wins(self, tmp_path: Path) -> None:
+        _write_note_file(tmp_path / "b.md", "https://example.com/article", title="B")
+        _write_note_file(tmp_path / "a.md", "https://example.com/article", title="A")
+
+        found = SourceIndex().find(tmp_path, "https://example.com/article")
+
+        assert found is not None
+        assert found.title == "A"
+
+    def test_unchanged_notes_are_not_reparsed(self, tmp_path: Path) -> None:
+        note = tmp_path / "inbox" / "web-note.md"
+        _write_note_file(note, "https://example.com/article")
+        _set_mtime(note, 1_000_000_000)
+        index = SourceIndex()
+        index.find(tmp_path, "https://example.com/missing")
+
+        with patch("obsidian_ai_tools.dedup._parse_frontmatter") as mock_parse:
+            found = index.find(tmp_path, "https://example.com/article")
+
+        mock_parse.assert_not_called()
+        assert found is not None
+        assert found.file_path == note
+
+    def test_edited_note_is_reread(self, tmp_path: Path) -> None:
+        note = tmp_path / "inbox" / "web-note.md"
+        _write_note_file(note, "https://example.com/old")
+        _set_mtime(note, 1_000_000_000)
+        index = SourceIndex()
+        assert index.find(tmp_path, "https://example.com/new") is None
+
+        _write_note_file(note, "https://example.com/new")
+        _set_mtime(note, 1_000_000_001)
+
+        found = index.find(tmp_path, "https://example.com/new")
+        assert found is not None
+        assert found.file_path == note
+        assert index.find(tmp_path, "https://example.com/old") is None
+
+    def test_new_note_is_found_on_next_lookup(self, tmp_path: Path) -> None:
+        index = SourceIndex()
+        assert index.find(tmp_path, "https://example.com/article") is None
+
+        _write_note_file(tmp_path / "inbox" / "web-note.md", "https://example.com/article")
+
+        found = index.find(tmp_path, "https://example.com/article")
+        assert found is not None
+        assert found.file_path == tmp_path / "inbox" / "web-note.md"
+
+    def test_deleted_note_is_forgotten(self, tmp_path: Path) -> None:
+        note = tmp_path / "inbox" / "web-note.md"
+        _write_note_file(note, "https://example.com/article")
+        index = SourceIndex()
+        assert index.find(tmp_path, "https://example.com/article") is not None
+
+        note.unlink()
+
+        assert index.find(tmp_path, "https://example.com/article") is None
+
+    def test_note_without_source_url_never_matches(self, tmp_path: Path) -> None:
+        plain = tmp_path / "plain.md"
+        plain.write_text("---\ntitle: Plain\n---\nbody\n", encoding="utf-8")
+
+        assert SourceIndex().find(tmp_path, "https://example.com/article") is None
+
+    def test_file_deleted_during_walk_is_skipped(self, tmp_path: Path) -> None:
+        _write_note_file(tmp_path / "a.md", "https://example.com/gone")
+        _write_note_file(tmp_path / "b.md", "https://example.com/article")
+        real_stat = Path.stat
+
+        def flaky_stat(self: Path, *args: object, **kwargs: object) -> os.stat_result:
+            if self.name == "a.md":
+                raise FileNotFoundError(self)
+            return real_stat(self, *args, **kwargs)
+
+        with patch.object(Path, "stat", flaky_stat):
+            found = SourceIndex().find(tmp_path, "https://example.com/article")
+
+        assert found is not None
+        assert found.file_path == tmp_path / "b.md"
+
+    def test_vaults_are_indexed_separately(self, tmp_path: Path) -> None:
+        vault_a = tmp_path / "a"
+        vault_b = tmp_path / "b"
+        _write_note_file(vault_a / "note.md", "https://example.com/article")
+        vault_b.mkdir()
+        index = SourceIndex()
+
+        assert index.find(vault_a, "https://example.com/article") is not None
+        assert index.find(vault_b, "https://example.com/article") is None
+        assert index.find(vault_a, "https://example.com/article") is not None
