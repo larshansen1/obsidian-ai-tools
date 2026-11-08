@@ -346,8 +346,15 @@ export function ClaimsSection({
           {view.summary ? (
             <>
               <SplitSummaryView summary={view.summary} vault={vault} />
-              <DraftEvergreen topic={topic} claimIds={answerClaimIds(view)} onChange={afterDraft} fromAnswer />
-              <details>
+              {/* Keyed by the question: a new question starts folded, with no draft of the old answer. */}
+              <DraftEvergreen
+                key={`draft:${view.question}`}
+                topic={topic}
+                claimIds={answerClaimIds(view)}
+                onChange={afterDraft}
+                fromAnswer
+              />
+              <details key={`claims:${view.question}`}>
                 <summary>All claims for and against ({view.supporting.length + view.pushing_back.length})</summary>
                 <ClaimsTable view={view} vault={vault} selection={selection} />
               </details>
@@ -440,7 +447,7 @@ export function ClaimsSection({
         ) : (
           <>
             {view.summary ? <SplitSummaryView summary={view.summary} vault={vault} /> : null}
-            <details>
+            <details key={`claims:${view.question}`}>
               <summary>
                 All claims for and against ({view.supporting.length + view.pushing_back.length})
               </summary>

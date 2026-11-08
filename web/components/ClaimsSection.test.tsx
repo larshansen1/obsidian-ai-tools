@@ -831,3 +831,39 @@ describe("ClaimsSection picked-claims bar (#148)", () => {
     expect(screen.getByTestId("claims").lastElementChild).toBe(bar());
   });
 });
+
+describe("ClaimsSection switching question", () => {
+  it("folds the claims list again and drops the old answer's draft", async () => {
+    const next = { ...CLAIMS, question: "Why plan?" };
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/ai/status") return { ok: true, json: async () => ({ vault_name: "v" }) };
+      if (url === "/api/topics/big/claims/question") {
+        return { ok: true, json: async () => ({ ...next, summary: null, next_step: "sort" }) };
+      }
+      if (url === "/api/topics/big/claims/run") {
+        return { ok: true, json: async () => ({ status: "done", message: null, estimate_usd: null, view: next }) };
+      }
+      if (url === "/api/topics/big/evergreen-draft") return { ok: true, json: async () => ({ body: "draft" }) };
+      if (url === "/api/topics/big/evergreen-draft/write") {
+        const first = { status: "done", message: null, estimate_usd: null, title: "Old answer", body: "B" };
+        return { ok: true, status: 200, json: async () => first };
+      }
+      return { ok: true, json: async () => CLAIMS };
+    });
+    render(<ClaimsSection topic="big" />);
+    const answer = within(await screen.findByTestId("answer"));
+    const list = () => screen.getByText(/^All claims for and against/).closest("details") as HTMLDetailsElement;
+    list().open = true;
+    fireEvent.click(answer.getByRole("button", { name: "Draft evergreen from this answer" }));
+    await waitFor(() => expect(answer.getByRole("textbox", { name: "Title" })).toHaveValue("Old answer"));
+
+    fireEvent.click(answer.getByRole("button", { name: "Change question" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Your own question" }), { target: { value: "Why plan?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use my question" }));
+
+    await waitFor(() => expect(answer.getByRole("heading", { level: 2 }).textContent).toBe("Why plan?"));
+    await waitFor(() => expect(answer.getByRole("button", { name: "Draft evergreen from this answer" })).toBeEnabled());
+    expect(list().open).toBe(false);
+    expect(answer.queryByRole("textbox", { name: "Title" })).toBeNull();
+  });
+});
