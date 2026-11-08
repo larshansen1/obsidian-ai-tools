@@ -665,7 +665,15 @@ describe("ClaimsSection draft new evergreen", () => {
     );
     rerender(<ClaimsSection topic="other" />);
 
-    expect(await screen.findByRole("button", { name: "Draft new evergreen" })).toBeDisabled();
+    // The picked-claims bar has a button of the same name: look inside the draft step.
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("region", { name: "Draft new evergreen" })).getByRole("button", {
+          name: "Draft new evergreen",
+        }),
+      ).toBeDisabled(),
+    );
+    expect(screen.queryByRole("region", { name: "Picked claims" })).toBeNull();
   });
 
   it("hides the draft step until claims are sorted or matched", async () => {
@@ -728,5 +736,98 @@ describe("ClaimsSection draft from the answer", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ claim_ids: ["c1", "c2"], title: "", body: "draft", instruction: null, answer: true, approved: false }),
     });
+  });
+});
+
+describe("ClaimsSection picked-claims bar (#148)", () => {
+  function serve() {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/ai/status") return { ok: true, json: async () => ({ vault_name: "v" }) };
+      if (url === "/api/topics/big/claims") return { ok: true, json: async () => CLAIMS };
+      if (url === "/api/topics/big/evergreen-draft") return { ok: true, json: async () => ({ body: "draft" }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ status: "done", message: null, estimate_usd: null, title: "AI title", body: "AI text" }),
+      };
+    });
+  }
+  const bar = () => screen.queryByRole("region", { name: "Picked claims" });
+  const tick = (text: string) => fireEvent.click(screen.getByRole("checkbox", { name: `Pick claim: ${text}` }));
+  const draftCalls = () => fetchMock.mock.calls.filter(([url]) => url === "/api/topics/big/evergreen-draft");
+
+  it("shows the exact count while claims are ticked and hides with none", async () => {
+    serve();
+    render(<ClaimsSection topic="big" />);
+    await screen.findByTestId("answer");
+
+    expect(bar()).toBeNull();
+    tick("Plans help.");
+    expect(within(bar() as HTMLElement).getByText("1 claim picked")).toBeInTheDocument();
+    tick("Plans fail.");
+    expect(within(bar() as HTMLElement).getByText("2 claims picked")).toBeInTheDocument();
+    tick("Plans help.");
+    tick("Plans fail.");
+    expect(bar()).toBeNull();
+  });
+
+  it("Clear unticks everything and hides the bar", async () => {
+    serve();
+    render(<ClaimsSection topic="big" />);
+    await screen.findByTestId("answer");
+    tick("Plans help.");
+    tick("Plans fail.");
+
+    fireEvent.click(within(bar() as HTMLElement).getByRole("button", { name: "Clear" }));
+
+    expect(bar()).toBeNull();
+    expect(screen.getAllByRole("checkbox").filter((c) => (c as HTMLInputElement).checked)).toEqual([]);
+    expect(draftCalls()).toEqual([]);
+  });
+
+  it("starts the draft with the ticked claims in tick order and focuses the title", async () => {
+    serve();
+    render(<ClaimsSection topic="big" />);
+    await screen.findByTestId("answer");
+    tick("Plans fail.");
+    tick("Plans help.");
+
+    fireEvent.click(within(bar() as HTMLElement).getByRole("button", { name: "Draft new evergreen" }));
+
+    const draft = within(await screen.findByRole("region", { name: "Draft new evergreen" }));
+    const title = await draft.findByRole("textbox", { name: "Title" });
+    await waitFor(() => expect(title).toHaveValue("AI title"));
+    expect(document.activeElement).toBe(title);
+    expect(draftCalls()).toEqual([
+      [
+        "/api/topics/big/evergreen-draft",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ claim_ids: ["c2", "c1"] }) },
+      ],
+    ]);
+  });
+
+  it("does not restart a draft that is already open", async () => {
+    serve();
+    render(<ClaimsSection topic="big" />);
+    await screen.findByTestId("answer");
+    tick("Plans help.");
+    fireEvent.click(within(bar() as HTMLElement).getByRole("button", { name: "Draft new evergreen" }));
+    const draft = within(await screen.findByRole("region", { name: "Draft new evergreen" }));
+    await waitFor(() => expect(draft.getByRole("textbox", { name: "Title" })).toHaveValue("AI title"));
+    fireEvent.change(draft.getByRole("textbox", { name: "Title" }), { target: { value: "Mine" } });
+
+    fireEvent.click(within(bar() as HTMLElement).getByRole("button", { name: "Draft new evergreen" }));
+
+    expect(draft.getByRole("textbox", { name: "Title" })).toHaveValue("Mine");
+    expect(draftCalls().length).toBe(1);
+  });
+
+  it("sits last in the claims card, below the draft form", async () => {
+    serve();
+    render(<ClaimsSection topic="big" />);
+    await screen.findByTestId("answer");
+    tick("Plans help.");
+
+    expect(screen.getByTestId("claims").lastElementChild).toBe(bar());
   });
 });

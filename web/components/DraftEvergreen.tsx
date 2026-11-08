@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useImperativeHandle, useState, type Ref } from "react";
 import { usePlanned } from "./WriteActions";
 import { planEvergreen, startDraft, writeDraft } from "../lib/ingest";
 
@@ -17,6 +17,9 @@ export const UPDATED = "Done. The draft is updated.";
 
 export const FROM_ANSWER = "Draft evergreen from this answer";
 
+// Lets a control elsewhere on the page (the picked-claims bar, #148) open the draft.
+export type DraftHandle = { start: () => void };
+
 // `fromAnswer`: the draft answers the topic's chosen question, from its summary and `claimIds`
 // (both sides, picked by the caller), with one click and no ticking.
 export function DraftEvergreen({
@@ -24,11 +27,13 @@ export function DraftEvergreen({
   claimIds,
   onChange,
   fromAnswer = false,
+  ref,
 }: {
   topic: string;
   claimIds: string[];
   onChange: () => void;
   fromAnswer?: boolean;
+  ref?: Ref<DraftHandle>;
 }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   // The claims the draft started from: ticking more later does not change this draft.
@@ -98,6 +103,13 @@ export function DraftEvergreen({
     await ask({ instruction: null, base: first }, ids, false);
   }
 
+  // An open draft is kept: starting again would throw away its revisions.
+  useImperativeHandle(ref, () => ({
+    start: () => {
+      if (draft === null && !starting && claimIds.length > 0) void start();
+    },
+  }));
+
   function send() {
     const said = instruction.trim();
     if (draft === null || said === "" || writing) return;
@@ -141,6 +153,7 @@ export function DraftEvergreen({
       <label className="draft-field">
         Title
         <input
+          autoFocus
           value={draft.title}
           readOnly={writing}
           onChange={(e) => setDraft({ ...draft, title: e.target.value })}

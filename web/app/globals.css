@@ -617,6 +617,28 @@ a {
   box-sizing: border-box;
   font: inherit;
 }
+/* #148: stays at the bottom of the screen while claims are ticked. */
+.pick-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 -2px 8px rgb(0 0 0 / 12%);
+}
+/* On narrow screens the card reaches the fixed Chat button: sit above it, not under it. */
+@media (max-width: 900px) {
+  .pick-bar {
+    bottom: 64px;
+  }
+}
 .draft-turns {
   margin: 0;
   padding-left: 20px;
