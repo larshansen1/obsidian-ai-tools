@@ -99,6 +99,9 @@ export function ClaimsSection({
   const [version, setVersion] = useState(0);
   // Claims ticked for "Draft new evergreen", in the order they were ticked.
   const [picked, setPicked] = useState<string[]>([]);
+  // Under an answer the one-click draft leads; the ticked-claims draft shows once a claim is
+  // ticked and then stays, so unticking or a save does not throw away an open draft.
+  const [ticked, setTicked] = useState(false);
   // The question picker under "Change question" on the answer card.
   const [switching, setSwitching] = useState(false);
   // When the current run started, for the "Working… 1:05" line on the answer card.
@@ -189,12 +192,14 @@ export function ClaimsSection({
   const live = picked.filter((id) => shown.has(id));
   const selection: ClaimSelection = {
     selected: new Set(live),
-    toggle: (ids) =>
+    toggle: (ids) => {
+      setTicked(true);
       setPicked((current) =>
         ids.every((id) => current.includes(id))
           ? current.filter((id) => !ids.includes(id))
           : [...current, ...ids.filter((id) => !current.includes(id))],
-      ),
+      );
+    },
   };
   const afterDraft = () => {
     setPicked([]);
@@ -253,7 +258,8 @@ export function ClaimsSection({
       )}
     </Step>
   );
-  const draftStep = states.sides === "done" || states.agree === "done" ? (
+  const draftReady = states.sides === "done" || states.agree === "done";
+  const draftStep = draftReady && (!leading || ticked) ? (
       <section className="step" aria-label="Draft new evergreen">
         <h3 className="step-title">Draft new evergreen</h3>
         <DraftEvergreen topic={topic} claimIds={live} onChange={afterDraft} />

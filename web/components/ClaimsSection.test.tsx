@@ -618,7 +618,13 @@ describe("ClaimsSection draft new evergreen", () => {
     const onWrite = vi.fn();
     render(<ClaimsSection topic="big" onWrite={onWrite} />);
 
-    expect(await screen.findByRole("button", { name: "Draft new evergreen" })).toBeDisabled();
+    // Under an answer the one-click draft leads: the ticked-claims draft waits for a tick.
+    expect(await screen.findByRole("button", { name: "Draft evergreen from this answer" })).toBeEnabled();
+    expect(screen.queryByRole("region", { name: "Draft new evergreen" })).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Pick claim: Plans help." }));
+    expect(screen.getByRole("button", { name: "Draft new evergreen from 1 claim" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Pick claim: Plans help." }));
+    expect(screen.getByRole("button", { name: "Draft new evergreen" })).toBeDisabled();
     fireEvent.click(screen.getByRole("checkbox", { name: "Pick claim: Plans help." }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Pick claim: Agents need tools." }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Pick claim: Plans help." }));
