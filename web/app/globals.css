@@ -635,3 +635,48 @@ a {
   gap: 6px;
   align-items: baseline;
 }
+
+/* Answer-first claims card (#171): the chosen question and its answer lead the topic page. */
+.answer-kicker {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* Beats `.card h2` (small caps label style): the question is the page's main heading here. */
+.card h2.answer-question {
+  margin: 4px 0 8px;
+  font-size: 1.35rem;
+  font-weight: 650;
+  line-height: 1.3;
+  text-transform: none;
+  letter-spacing: normal;
+  color: inherit;
+}
+.answer-switcher {
+  margin: 8px 0 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.steps-done {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 16px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
+@media (max-width: 600px) {
+  /* On a phone the question and the answer's bottom line should share the first screen. */
+  .card h2.answer-question {
+    margin: 2px 0 4px;
+    font-size: 1.05rem;
+  }
+  .facts {
+    gap: 2px 12px;
+  }
+}

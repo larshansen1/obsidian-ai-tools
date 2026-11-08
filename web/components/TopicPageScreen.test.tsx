@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ClaimsView } from "../lib/claims";
 import { CLAIMS } from "../lib/claimsFixture";
 import { TopicPageScreen } from "./TopicPageScreen";
 import type { TopicPage } from "../lib/topicPage";
@@ -48,9 +49,9 @@ const COVERAGE = { topic: "big", count: 2, notes: 1, by_type: [{ type: "study", 
 
 const fetchMock = vi.fn();
 
-function respondWith(page: TopicPage) {
+function respondWith(page: TopicPage, claims: ClaimsView = CLAIMS) {
   fetchMock.mockImplementation((url: string) => {
-    if (url === "/api/topics/big/claims") return Promise.resolve({ ok: true, json: () => Promise.resolve(CLAIMS) });
+    if (url === "/api/topics/big/claims") return Promise.resolve({ ok: true, json: () => Promise.resolve(claims) });
     if (url === "/api/topics/big/coverage") return Promise.resolve({ ok: true, json: () => Promise.resolve(COVERAGE) });
     return url.startsWith("/api/topics/")
       ? Promise.resolve({ ok: true, json: () => Promise.resolve(page) })
@@ -70,7 +71,10 @@ describe("TopicPageScreen", () => {
 
     const header = await screen.findByTestId("header");
 
-    expect(header.textContent).toBe("Notes7Momentum+200%Evergreens2Notes with links1Tagsx, x2");
+    expect(header.textContent).toBe("Notes7Momentum+200%Evergreens2Notes with links1Tags2x, x2");
+    const tags = within(header).getByText("x, x2").closest("details");
+    expect(tags?.open).toBe(false);
+    expect(within(tags as HTMLElement).getByText("2").tagName).toBe("SUMMARY");
     expect(screen.getByRole("heading", { level: 1, name: "Big" })).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/topics/big?window=30");
   });
@@ -175,6 +179,29 @@ describe("TopicPageScreen", () => {
     expect(await screen.findByTestId("claims")).toBeInTheDocument();
     expect(await screen.findByTestId("claims-table")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/topics/big/claims");
+  });
+
+  it("moves the answered question above the sources", async () => {
+    render(<TopicPageScreen id="big" window="30" signal={null} />);
+    await screen.findByTestId("answer");
+
+    // The page hears about the answer in an effect, so the move lands one render later.
+    const order = () =>
+      [...document.querySelectorAll("main > header, main > section")].map((el) => el.getAttribute("aria-label") ?? el.tagName);
+    await waitFor(() =>
+      expect(order()).toEqual(["HEADER", "Claims across sources", "Sources", "Coverage gaps", "Evergreens", "Recent notes"]),
+    );
+  });
+
+  it("keeps the sources above the claims while no question is answered", async () => {
+    respondWith(PAGE, { ...CLAIMS, question: null, summary: null, next_step: "sort" });
+    render(<TopicPageScreen id="big" window="30" signal={null} />);
+    await screen.findByRole("region", { name: "Choose a question" });
+
+    const order = [...document.querySelectorAll("main > header, main > section")].map(
+      (el) => el.getAttribute("aria-label") ?? el.tagName,
+    );
+    expect(order).toEqual(["HEADER", "Sources", "Claims across sources", "Coverage gaps", "Evergreens", "Recent notes"]);
   });
 
   it("logs the page view with the topic id", async () => {

@@ -53,8 +53,35 @@ function Step({
   );
 }
 
+const count = (n: number) => n.toLocaleString("en-US");
+const plural = (n: number, word: string) => `${count(n)} ${word}${n === 1 ? "" : "s"}`;
+const notesIn = (claims: ClaimsView["supporting"]) => new Set(claims.map((c) => c.path)).size;
+
+/** "N claims for (from X notes), M against (from Y notes)" for the answer card. */
+export function splitCounts(view: ClaimsView): string {
+  const side = (claims: ClaimsView["supporting"]) => `from ${plural(notesIn(claims), "note")}`;
+  return (
+    `${plural(view.supporting.length, "claim")} for (${side(view.supporting)}), ` +
+    `${count(view.pushing_back.length)} against (${side(view.pushing_back)})`
+  );
+}
+
+/** The page leads with the answer once a question is chosen and the notes are read (#171). */
+export function answerFirst(view: ClaimsView): boolean {
+  return view.question !== null && view.next_step !== "read" && view.next_step !== "analyse";
+}
+
 // `onWrite` hears about a saved or undone evergreen, so the page can re-read its evergreens.
-export function ClaimsSection({ topic, onWrite }: { topic: string; onWrite?: () => void }) {
+// `onAnswerFirst` hears whether the section leads with the answer, so the page can move it up.
+export function ClaimsSection({
+  topic,
+  onWrite,
+  onAnswerFirst,
+}: {
+  topic: string;
+  onWrite?: () => void;
+  onAnswerFirst?: (answerFirst: boolean) => void;
+}) {
   const [view, setView] = useState<ClaimsView | null>(null);
   const [vault, setVault] = useState("");
   const [busy, setBusy] = useState(false);
@@ -64,6 +91,13 @@ export function ClaimsSection({ topic, onWrite }: { topic: string; onWrite?: () 
   const [version, setVersion] = useState(0);
   // Claims ticked for "Draft new evergreen", in the order they were ticked.
   const [picked, setPicked] = useState<string[]>([]);
+  // The question picker under "Change question" on the answer card.
+  const [switching, setSwitching] = useState(false);
+  const leading = view !== null && answerFirst(view);
+
+  useEffect(() => {
+    onAnswerFirst?.(leading);
+  }, [leading, onAnswerFirst]);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,6 +144,8 @@ export function ClaimsSection({ topic, onWrite }: { topic: string; onWrite?: () 
       return;
     }
     setView(saved);
+    setSwitching(false);
+    setCustom("");
     // One click: a question that is not sorted and summarised yet is done right away (#169).
     if (saved.next_step === "sort") await run(false);
   }
@@ -168,6 +204,120 @@ export function ClaimsSection({ topic, onWrite }: { topic: string; onWrite?: () 
       </div>
     ) : null;
 
+  const agreeStep = (
+    <Step number={4} title="Where they agree" state={states.agree}>
+      {states.agree === "waiting" ? (
+        <p className="hint">Needs step 2 first. It finds claims several notes make that match your evergreens.</p>
+      ) : (
+        <>
+          <p className="muted">
+            Claims made by two or more notes that match one of your evergreens, and the notes that back an
+            evergreen without linking to it.
+          </p>
+          <Agreement
+            view={view}
+            vault={vault}
+            selection={selection}
+            linkAction={(evergreen, notes) => (
+              <LinkNotes evergreen={evergreen} notes={notes} onChange={() => setVersion((v) => v + 1)} />
+            )}
+          />
+        </>
+      )}
+    </Step>
+  );
+  const draftStep = states.sides === "done" || states.agree === "done" ? (
+      <section className="step" aria-label="Draft new evergreen">
+        <h3 className="step-title">Draft new evergreen</h3>
+        <DraftEvergreen topic={topic} claimIds={live} onChange={afterDraft} />
+      </section>
+    ) : null;
+
+  // The suggested questions and the own-question box: step 2, or "Change question" on the answer.
+  const picker = (
+    <>
+    {proposals.length > 0 ? (
+      <SuggestedQuestions
+        questions={proposals}
+        chosen={view.question}
+        vault={vault}
+        busy={busy}
+        onChoose={(q) => void choose(q)}
+      />
+    ) : view.next_step === "analyse" ? (
+      <p className="hint">No suggestions yet.</p>
+    ) : (
+      <p className="hint">No question stood out in these notes. You can still write your own.</p>
+    )}
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void choose(custom || view.question || "");
+      }}
+    >
+      <label>
+        Or write your own question{" "}
+        <input
+          aria-label="Your own question"
+          value={custom}
+          placeholder={view.question ?? "Is …?"}
+          onChange={(event) => setCustom(event.target.value)}
+        />
+      </label>{" "}
+      <button type="submit" disabled={busy}>
+        Use my question
+      </button>
+    </form>
+    </>
+  );
+
+  if (leading) {
+    const question = view.question as string;
+    return (
+      <section className="card" aria-label="Claims across sources" data-testid="claims">
+        <div aria-label="Answer" role="region" data-testid="answer">
+          <p className="muted answer-kicker">Your question</p>
+          <h2 className="answer-question">{question}</h2>
+          <p className="muted" data-testid="answer-counts">
+            {view.summary ? splitCounts(view) : `Not sorted yet: ${plural(view.claim_count, "claim")} to place.`}{" "}
+            <button type="button" aria-expanded={switching} disabled={busy} onClick={() => setSwitching((v) => !v)}>
+              Change question
+            </button>
+          </p>
+          {switching ? (
+            <div className="answer-switcher" aria-label="Change question" role="region">
+              {picker}
+            </div>
+          ) : null}
+          {view.summary ? (
+            <>
+              <SplitSummaryView summary={view.summary} vault={vault} />
+              <details>
+                <summary>All claims for and against ({view.supporting.length + view.pushing_back.length})</summary>
+                <ClaimsTable view={view} vault={vault} selection={selection} />
+              </details>
+            </>
+          ) : null}
+          {action("sort")}
+          {view.next_step === "done" && notice ? (
+            <div role={notice.kind === "error" ? "alert" : "status"} className="warn">
+              {notice.message}
+            </div>
+          ) : null}
+        </div>
+
+        <ul className="steps-done" aria-label="Finished steps">
+          <li>✓ {plural(view.read_notes, "note")} read · {plural(view.claim_count, "claim")}</li>
+          <li>✓ Question chosen</li>
+          {view.summary ? <li>✓ Sorted and summarised</li> : null}
+        </ul>
+
+        {agreeStep}
+        {draftStep}
+      </section>
+    );
+  }
+
   return (
     <section className="card" aria-label="Claims across sources" data-testid="claims">
       <h2>Claims across sources</h2>
@@ -194,38 +344,7 @@ export function ClaimsSection({ topic, onWrite }: { topic: string; onWrite?: () 
             <p className="step-status">
               {view.question ? "Question chosen. You can switch to another at any time." : "Pick the yes or no question to sort your claims by."}
             </p>
-            {proposals.length > 0 ? (
-              <SuggestedQuestions
-                questions={proposals}
-                chosen={view.question}
-                vault={vault}
-                busy={busy}
-                onChoose={(q) => void choose(q)}
-              />
-            ) : view.next_step === "analyse" ? (
-              <p className="hint">No suggestions yet.</p>
-            ) : (
-              <p className="hint">No question stood out in these notes. You can still write your own.</p>
-            )}
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void choose(custom || view.question || "");
-              }}
-            >
-              <label>
-                Or write your own question{" "}
-                <input
-                  aria-label="Your own question"
-                  value={custom}
-                  placeholder={view.question ?? "Is …?"}
-                  onChange={(event) => setCustom(event.target.value)}
-                />
-              </label>{" "}
-              <button type="submit" disabled={busy}>
-                Use my question
-              </button>
-            </form>
+            {picker}
             {action("analyse")}
           </>
         )}
@@ -254,33 +373,8 @@ export function ClaimsSection({ topic, onWrite }: { topic: string; onWrite?: () 
         {action("sort")}
       </Step>
 
-      <Step number={4} title="Where they agree" state={states.agree}>
-        {states.agree === "waiting" ? (
-          <p className="hint">Needs step 2 first. It finds claims several notes make that match your evergreens.</p>
-        ) : (
-          <>
-            <p className="muted">
-              Claims made by two or more notes that match one of your evergreens, and the notes that back an
-              evergreen without linking to it.
-            </p>
-            <Agreement
-              view={view}
-              vault={vault}
-              selection={selection}
-              linkAction={(evergreen, notes) => (
-                <LinkNotes evergreen={evergreen} notes={notes} onChange={() => setVersion((v) => v + 1)} />
-              )}
-            />
-          </>
-        )}
-      </Step>
-
-      {states.sides === "done" || states.agree === "done" ? (
-        <section className="step" aria-label="Draft new evergreen">
-          <h3 className="step-title">Draft new evergreen</h3>
-          <DraftEvergreen topic={topic} claimIds={live} onChange={afterDraft} />
-        </section>
-      ) : null}
+      {agreeStep}
+      {draftStep}
     </section>
   );
 }
