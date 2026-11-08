@@ -121,49 +121,54 @@ function Shared({
     title,
   }));
   const unlinked = new Set(item.unlinked_notes.map((n) => n.path));
-  const links = (list: { path: string; title: string }[]) =>
-    list.map((n, i) => (
-      <span key={n.path}>
-        {i > 0 ? ", " : ""}
-        <SourceLink vault={vault} path={n.path} title={n.title} />
-      </span>
-    ));
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const counts = [
+    plural(item.claims.length, "claim"),
+    plural(notes.length, "note"),
+    ...(item.evergreen && unlinked.size > 0 ? [`${unlinked.size} not linked`] : []),
+  ].join(" · ");
   return (
-    <li>
-      <Pick ids={item.claims.map((c) => c.id)} label={`Pick claim: ${item.text}`} selection={selection} />
-      <strong>{item.text}</strong>
-      <div className="muted">
-        In {item.claims.length} claims from {notes.length} notes
+    <li className="shared">
+      {/* Lead with my own evergreen: I recognise it at once; the AI's line explains the match. */}
+      <h4 className="shared-title">
         {item.evergreen ? (
-          <>
-            {" "}
-            · matches evergreen <SourceLink vault={vault} path={item.evergreen.path} title={item.evergreen.title} />
-          </>
+          <SourceLink vault={vault} path={item.evergreen.path} title={item.evergreen.title} />
         ) : (
-          " · no evergreen matches yet"
-        )}
-      </div>
-      <div data-testid="closest-notes">Closest: {links(notes.slice(0, CLOSEST_NOTES))}</div>
-      <details>
-        <summary>
-          Show all {notes.length} notes
-          {unlinked.size > 0 ? ` (${unlinked.size} not linked to the evergreen)` : ""}
-        </summary>
-        <ul className="list" aria-label={`Notes behind: ${item.text}`}>
-          {notes.map((n) => (
-            <li key={n.path}>
-              <SourceLink vault={vault} path={n.path} title={n.title} />
-              {unlinked.has(n.path) ? <span className="muted"> · not linked</span> : null}
-            </li>
-          ))}
-        </ul>
-        {linkAction && item.evergreen && unlinked.size > 0
-          ? linkAction(
-              item.evergreen.path,
-              item.unlinked_notes.map((n) => n.path),
-            )
-          : null}
-      </details>
+          item.text
+        )}{" "}
+        <Pick ids={item.claims.map((c) => c.id)} label={`Pick claim: ${item.text}`} selection={selection} />
+      </h4>
+      {item.evergreen ? <p className="muted shared-why">{item.text}</p> : null}
+      <p className="muted shared-counts">
+        {counts}
+        {item.evergreen ? "" : " · no evergreen matches yet"}
+      </p>
+      <ul className="shared-notes" aria-label={`Closest notes: ${item.text}`} data-testid="closest-notes">
+        {notes.slice(0, CLOSEST_NOTES).map((n) => (
+          <li key={n.path}>
+            <SourceLink vault={vault} path={n.path} title={n.title} />
+          </li>
+        ))}
+      </ul>
+      {notes.length > CLOSEST_NOTES || (linkAction && item.evergreen && unlinked.size > 0) ? (
+        <details>
+          <summary>Show all {notes.length} notes</summary>
+          <ul className="shared-notes" aria-label={`Notes behind: ${item.text}`}>
+            {notes.map((n) => (
+              <li key={n.path}>
+                <SourceLink vault={vault} path={n.path} title={n.title} />
+                {unlinked.has(n.path) ? <span className="muted"> · not linked</span> : null}
+              </li>
+            ))}
+          </ul>
+          {linkAction && item.evergreen && unlinked.size > 0
+            ? linkAction(
+                item.evergreen.path,
+                item.unlinked_notes.map((n) => n.path),
+              )
+            : null}
+        </details>
+      ) : null}
     </li>
   );
 }
@@ -182,7 +187,7 @@ export function Agreement({
 }) {
   if (view.shared.length === 0) return <p className="hint">No claim is shared by two or more notes yet.</p>;
   return (
-    <ul className="list" data-testid="agreement">
+    <ul className="shared-list" data-testid="agreement">
       {view.shared.map((item) => (
         <Shared key={item.text} item={item} vault={vault} linkAction={linkAction} selection={selection} />
       ))}

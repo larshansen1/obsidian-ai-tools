@@ -680,3 +680,42 @@ a {
     gap: 2px 12px;
   }
 }
+
+/* "Where they agree" (#173): one block per evergreen, my evergreen first, notes one per line. */
+.shared-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shared-list > li.shared {
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.shared-list > li.shared:first-child {
+  border-top: 0;
+}
+.shared-title {
+  margin: 0 0 2px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+/* A plain link here, not a chip: it is the heading. */
+.shared-title .chat-cite,
+.shared-notes .chat-cite {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+.shared-why,
+.shared-counts {
+  margin: 2px 0;
+}
+.shared-counts {
+  font-size: 13px;
+}
+.shared-notes {
+  margin: 6px 0;
+  padding-left: 18px;
+}
