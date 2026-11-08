@@ -27,11 +27,14 @@ Stance = Literal["supporting", "pushing_back", "unrelated"]
 NextStep = Literal["read", "analyse", "sort", "done"]
 
 AGREEMENT_KIND = "agreement"
-# "_v2": the sort answer format changed; sorts saved in the old format are ignored.
-STANCES_KIND = "stances_v2"
+# "_v3": the sort counts only claims about the question's own subject (#169); "_v2" sorts were
+# loose (background claims landed on a side) and are redone.
+STANCES_KIND = "stances_v3"
 # Work saved part-way through a long step, so a stopped run resumes instead of starting over.
 AGREEMENT_PROGRESS_KIND = "agreement_progress"
-STANCES_PROGRESS_KIND = "stances_progress_v2"
+STANCES_PROGRESS_KIND = "stances_progress_v3"
+# A plain-language summary of how the sorted claims split on the chosen question (#169).
+SUMMARY_KIND = "split_summary_v1"
 
 CLAIMS_DDL = (
     """
@@ -124,6 +127,20 @@ class SharedClaim(BaseModel):
     unlinked_notes: list[NoteRef]
 
 
+class SplitSummary(BaseModel):
+    """How the notes split on the chosen question, in plain language (#169)."""
+
+    # One or two sentences: how the notes split and how strong each side is.
+    bottom_line: str
+    agree: list[str]
+    # Where they split and why: what each side rests on.
+    split: list[str]
+    # What is missing that would settle the question.
+    missing: list[str]
+    # The notes most worth reading on the question (3 to 5).
+    read: list[NoteRef]
+
+
 class ClaimsView(BaseModel):
     topic: str
     # Source notes read so far; evergreens and notes in excluded folders are never counted.
@@ -136,6 +153,8 @@ class ClaimsView(BaseModel):
     pushing_back: list[ClaimItem]
     # Claims the model found unrelated to the question; counted, not shown.
     unrelated: int
+    # The summary of the split; None until the chosen question is sorted and summarised.
+    summary: SplitSummary | None
     shared: list[SharedClaim]
     # True when a run would do more work: unread notes, or questions/agreement/stances missing.
     stale: bool
@@ -367,6 +386,23 @@ def _shared_view(
     return out
 
 
+def summary_view(raw: dict[str, Any], claims: list[ClaimItem]) -> SplitSummary:
+    """A cached summary with its note picks resolved to current notes (gone ones dropped)."""
+    by_id = {c.id: c for c in claims}
+    read: dict[str, NoteRef] = {}
+    for cid in raw.get("read_ids", []):
+        claim = by_id.get(cid)
+        if claim is not None and claim.path not in read:
+            read[claim.path] = NoteRef(path=claim.path, title=claim.title, created=None)
+    return SplitSummary(
+        bottom_line=raw.get("bottom_line", ""),
+        agree=list(raw.get("agree", [])),
+        split=list(raw.get("split", [])),
+        missing=list(raw.get("missing", [])),
+        read=list(read.values()),
+    )
+
+
 def _next_step(*, pending: int, has_claims: bool, analysed: bool, sorted_: bool) -> NextStep:
     if pending or not has_claims:
         return "read"
@@ -386,13 +422,14 @@ def build_claims_view(
     proposals, proposals_sig, chosen = load_questions(con, topic)
     shared_raw = cached_for(con, topic, AGREEMENT_KIND, "", sig)
     stances = cached_for(con, topic, STANCES_KIND, chosen, sig) if chosen else None
+    summary = cached_for(con, topic, SUMMARY_KIND, chosen, sig) if chosen else None
     supporting, pushing, unrelated = _split_stances(claims, stances or {})
     shared = _shared_view(con, shared_raw or [], claims, evergreen_notes(con, topic, definitions))
     next_step = _next_step(
         pending=len(unread),
         has_claims=bool(claims),
         analysed=proposals_sig == sig and shared_raw is not None,
-        sorted_=chosen is None or stances is not None,
+        sorted_=chosen is None or (stances is not None and summary is not None),
     )
     return ClaimsView(
         topic=topic,
@@ -404,6 +441,7 @@ def build_claims_view(
         supporting=supporting,
         pushing_back=pushing,
         unrelated=unrelated if stances is not None else 0,
+        summary=summary_view(summary, claims) if summary is not None else None,
         shared=shared,
         stale=next_step != "done",
         next_step=next_step,

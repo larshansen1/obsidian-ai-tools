@@ -88,7 +88,7 @@ describe("runLabel", () => {
     expect(runLabel(at("read", { claim_count: 0 }))).toBe("Read notes");
     expect(runLabel(at("read", { claim_count: 5 }))).toBe("Read more notes");
     expect(runLabel(at("analyse"))).toBe("Suggest questions and find agreement");
-    expect(runLabel(at("sort"))).toBe("Sort claims by this question");
+    expect(runLabel(at("sort"))).toBe("Sort and summarise");
   });
 
   it("has no button when everything is done", () => {

@@ -20,6 +20,7 @@ from vault_compass.claims import (
     question_views,
     save_analysis,
     signature,
+    summary_view,
     unlinked_supporters,
 )
 from vault_compass.claims_run import (
@@ -28,8 +29,11 @@ from vault_compass.claims_run import (
     EXTRACT_SYSTEM,
     MAX_EVERGREENS,
     MAX_QUESTION_PROMPT_CHARS,
+    NO_CLAIMS_SUMMARY,
     QUESTIONS_SYSTEM,
     STANCE_SYSTEM,
+    SUMMARY_SYSTEM,
+    UNREADABLE,
     _by_note,
     _chunks,
     _fit,
@@ -42,6 +46,7 @@ from vault_compass.claims_run import (
     parse_matches,
     parse_questions,
     parse_stances,
+    parse_summary,
 )
 from vault_compass.config import CompassSettings
 from vault_compass.notes import refresh_notes
@@ -63,12 +68,13 @@ EVERGREEN = "notes/evergreen/ev.md"
 DIARY = "notes/reflections/diary.md"
 
 
-Kind = Literal["extract", "questions", "agree", "stances"]
+Kind = Literal["extract", "questions", "agree", "stances", "summary"]
 _KIND_OF = {
     EXTRACT_SYSTEM: "extract",
     QUESTIONS_SYSTEM: "questions",
     AGREEMENT_SYSTEM: "agree",
     STANCE_SYSTEM: "stances",
+    SUMMARY_SYSTEM: "summary",
 }
 CLAIMS_PER_NOTE = 4
 
@@ -154,6 +160,15 @@ class AutoModel:
                         "c": list(range(1, len(lines) + 1)),
                     }
                 ]
+            }
+        if kind == "summary":
+            numbers = [int(line.split(" | ", 1)[0]) for line in user.split("\n") if " | " in line]
+            return {
+                "bottom_line": f"Split on {len(numbers)} claims.",
+                "agree": ["Both sides agree."],
+                "split": ["They part here."],
+                "missing": ["A study."],
+                "read": numbers[:1] + numbers[-1:],
             }
         question, lines = user.split("\n\nCLAIMS\n")
         texts = [line.split(". ", 1)[1] for line in lines.split("\n")]
@@ -528,6 +543,7 @@ def test_view_before_any_run_is_empty_and_stale(vault: Path) -> None:
         "supporting": [],
         "pushing_back": [],
         "unrelated": 0,
+        "summary": None,
         "shared": [],
         "stale": True,
         "next_step": "read",
@@ -661,7 +677,7 @@ def test_questions_saved_in_the_old_format_are_suggested_again(vault: Path) -> N
     )
     model = AutoModel()
     fresh = _run(_client(model))["view"]
-    assert model.kinds() == ["questions", "stances"]
+    assert model.kinds() == ["questions", "stances", "summary"]
     assert _texts(fresh) == ["Q one?", "Q two?"]
     assert fresh["question"] == "Old question?"
     with duckdb.connect(str(_db(vault))) as con:
@@ -743,7 +759,7 @@ def test_choosing_a_question_sorts_claims_into_two_sides(vault: Path) -> None:
     assert saved.json()["supporting"] == []
     model.calls.clear()
     view = _run(client)["view"]
-    assert model.kinds() == ["stances"]
+    assert model.kinds() == ["stances", "summary"]
     assert model.users("stances")[0].startswith("QUESTION\nMy own question?\n\nCLAIMS\n1. ")
     assert sorted(c["text"] for c in view["supporting"]) == sorted(
         [f"{A} claim 1", f"{B} claim 1", "Tools help."]
@@ -779,11 +795,139 @@ def test_switching_questions_only_sorts_again(vault: Path) -> None:
     model.calls.clear()
     client.put("/topics/big/claims/question", json={"question": "Second?"})
     _run(client)
-    assert model.kinds() == ["stances"]
+    assert model.kinds() == ["stances", "summary"]
     model.calls.clear()
     client.put("/topics/big/claims/question", json={"question": "First?"})
     assert _run(client)["view"] == first
     assert model.calls == []
+
+
+def test_parse_summary_keeps_clean_points_and_one_claim_per_note() -> None:
+    claims = [_item(1, A), _item(2, A), _item(3, B), _item(4, KEY)]
+    data = {
+        "bottom_line": "  They split.  ",
+        "agree": [" One. ", "", 3, "Two."],
+        "split": "not a list",
+        "missing": ["m" * 700],
+        "read": [2, 1, 3, 9, 3, 0],
+    }
+    assert parse_summary(data, claims) == {
+        "bottom_line": "They split.",
+        "agree": ["One.", "Two."],
+        "split": [],
+        "missing": ["m" * 600],
+        "read_ids": ["id2", "id3"],
+    }
+
+
+def test_parse_summary_caps_points_at_six_and_reads_at_five() -> None:
+    claims = [_item(i, f"notes/n{i}.md") for i in range(1, 9)]
+    data = {"bottom_line": "B", "split": [f"p{i}" for i in range(9)], "read": list(range(1, 9))}
+    parsed = parse_summary(data, claims)
+    assert parsed is not None
+    assert parsed["split"] == ["p0", "p1", "p2", "p3", "p4", "p5"]
+    assert parsed["read_ids"] == ["id1", "id2", "id3", "id4", "id5"]
+
+
+@pytest.mark.parametrize("bottom", [None, "", "   ", 3, ["x"]])
+def test_parse_summary_needs_a_bottom_line(bottom: Any) -> None:
+    assert parse_summary({"bottom_line": bottom, "agree": ["a"]}, [_item(1)]) is None
+
+
+def test_parse_stances_ignores_the_named_subject() -> None:
+    chunk = [_item(1), _item(2), _item(3)]
+    data = {"subject": "one symptom", "supporting": [1], "pushing_back": [3]}
+    assert parse_stances(data, chunk) == {
+        "id1": "supporting",
+        "id2": "unrelated",
+        "id3": "pushing_back",
+    }
+
+
+def test_summary_view_resolves_reads_to_current_notes() -> None:
+    claims = [_item(1, A), _item(2, B)]
+    raw = {
+        "bottom_line": "B",
+        "agree": ["a"],
+        "split": [],
+        "missing": ["m"],
+        "read_ids": ["gone", "id2", "id1"],
+    }
+    assert summary_view(raw, claims).model_dump() == {
+        "bottom_line": "B",
+        "agree": ["a"],
+        "split": [],
+        "missing": ["m"],
+        "read": [
+            {"path": B, "title": "x", "created": None},
+            {"path": A, "title": "x", "created": None},
+        ],
+    }
+
+
+def test_choosing_a_question_summarises_the_split(vault: Path) -> None:
+    model = AutoModel()
+    client = _client(model)
+    _run(client)
+    client.put("/topics/big/claims/question", json={"question": "Q?"})
+    model.calls.clear()
+    view = _run(client)["view"]
+    assert model.kinds() == ["stances", "summary"]
+    (user,) = model.users("summary")
+    supporting = [f"{c['title']} | {c['text']}" for c in view["supporting"]]
+    pushing = [f"{c['title']} | {c['text']}" for c in view["pushing_back"]]
+    n = len(supporting)
+    assert user == (
+        "QUESTION\nQ?\n\nFOR\n"
+        + "\n".join(f"{i} | {line}" for i, line in enumerate(supporting, start=1))
+        + "\n\nAGAINST\n"
+        + "\n".join(f"{n + i} | {line}" for i, line in enumerate(pushing, start=1))
+    )
+    first, last = view["supporting"][0], view["pushing_back"][-1]
+    assert view["summary"] == {
+        "bottom_line": f"Split on {n + len(pushing)} claims.",
+        "agree": ["Both sides agree."],
+        "split": ["They part here."],
+        "missing": ["A study."],
+        "read": [
+            {"path": first["path"], "title": first["title"], "created": None},
+            {"path": last["path"], "title": last["title"], "created": None},
+        ],
+    }
+    assert (view["next_step"], view["stale"]) == ("done", False)
+    assert _run(_client(None))["view"] == view  # cached: no model is even created
+
+
+def test_a_question_no_claim_bears_on_is_summarised_without_a_model_call(vault: Path) -> None:
+    model = AutoModel(stance=lambda _q, texts: "U" * len(texts))
+    client = _client(model)
+    _run(client)
+    client.put("/topics/big/claims/question", json={"question": "Q?"})
+    model.calls.clear()
+    view = _run(client)["view"]
+    assert model.kinds() == ["stances"]
+    assert view["summary"] == {
+        "bottom_line": NO_CLAIMS_SUMMARY,
+        "agree": [],
+        "split": [],
+        "missing": [],
+        "read": [],
+    }
+    assert NO_CLAIMS_SUMMARY == "No claims in these notes are about this question."
+
+
+def test_an_unreadable_summary_fails_and_keeps_the_question_to_sort(vault: Path) -> None:
+    model = AutoModel(raw={("summary", 0): '{"bottom_line": ""}'})
+    client = _client(model)
+    _run(client)
+    client.put("/topics/big/claims/question", json={"question": "Q?"})
+    body = _run(client)
+    assert (body["status"], body["message"]) == ("failed", UNREADABLE)
+    assert (body["view"]["summary"], body["view"]["next_step"]) == (None, "sort")
+    retry = AutoModel()
+    view = _run(_client(retry))["view"]
+    assert retry.kinds() == ["summary"]  # the sort was kept; only the summary runs again
+    assert view["summary"]["bottom_line"].startswith("Split on ")
 
 
 def test_a_stance_answer_with_no_numbers_leaves_every_claim_unrelated(vault: Path) -> None:
@@ -1164,7 +1308,7 @@ def test_a_stopped_sort_resumes_at_the_chunk_it_stopped_on(big_vault: Path) -> N
 
     healthy = AutoModel()
     final = _run(_client(healthy))["view"]
-    assert healthy.kinds() == ["stances", "stances"]
+    assert healthy.kinds() == ["stances", "stances", "summary"]
     resumed = [u.split("\n\nCLAIMS\n")[1].split("\n") for u in healthy.users("stances")]
     assert [len(r) for r in resumed] == [75, 20]
     assert not set(first_chunk_lines) & {line for r in resumed for line in r}
@@ -1181,13 +1325,13 @@ def test_sorts_saved_in_an_older_format_are_ignored(big_vault: Path) -> None:
     sig = signature(c["id"] for c in view["shared"][0]["claims"])
     garbage = {c["id"]: "supporting" for c in view["shared"][0]["claims"]}
     with duckdb.connect(str(_db(big_vault))) as con:
-        for kind in ("stances", "stances_progress"):
+        for kind in ("stances", "stances_progress", "stances_v2", "stances_progress_v2"):
             save_analysis(con, "big", kind, "Q?", sig, garbage)
     again = _view(client)
     assert (again["next_step"], again["supporting"]) == ("sort", [])
     model = AutoModel()
     final = _run(_client(model))["view"]
-    assert model.kinds() == ["stances", "stances", "stances"]
+    assert model.kinds() == ["stances", "stances", "stances", "summary"]
     assert len(final["supporting"]) == 43
 
 
@@ -1225,6 +1369,7 @@ def test_changed_notes_restart_the_analysis_not_the_reading(big_vault: Path) -> 
         "stances",
         "stances",
         "stances",
+        "summary",
     ]
     assert view["claim_count"] == TOTAL_BIG
     assert view["stale"] is False

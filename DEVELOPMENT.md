@@ -173,6 +173,13 @@ optional except the key, read from the same `.env`:
   The cost check prices that call at the full 16000-token budget, so with the default
   (Sonnet-level) prices it asks for approval on most topics. Set `COMPASS_AI_INPUT_USD_PER_MTOK`
   and `COMPASS_AI_OUTPUT_USD_PER_MTOK` to your model's prices to get estimates that match.
+- Sort and summary (#169): the sort first names the question's subject and counts a claim only if
+  it is about that subject (background on the wider field is unrelated); sorts from before this
+  (`stances_v2`) are redone. After the sort, one more call summarises the split (`split_summary_v1`
+  in `claim_analysis`, keyed by question): bottom line, where the notes agree, where they split
+  and why, what is missing, and 3 to 5 notes to read. A question no claim bears on gets a fixed
+  summary with no model call. "Use this question" saves the question and runs sort and summary in
+  one click; the claim lists sit folded under the summary.
 - Before calling a claims change done, run it on real data: `uv run python scripts/replay_claims.py
   <topic>` copies your `compass.duckdb`, runs the whole flow with the real model and runs it again to
   check nothing repeats (`--dry` shows the cached state for free). Mocked tests cannot show how a

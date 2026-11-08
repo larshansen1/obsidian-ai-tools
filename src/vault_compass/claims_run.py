@@ -23,6 +23,7 @@ from .claims import (
     QUESTION_KINDS,
     STANCES_KIND,
     STANCES_PROGRESS_KIND,
+    SUMMARY_KIND,
     ClaimItem,
     EligibleNote,
     cached_for,
@@ -109,10 +110,29 @@ matches. Reply with JSON only: {"matches": [{"e": <evergreen number>, "text": ".
 "c": [<claim numbers>]}]}"""
 
 STANCE_SYSTEM = """\
-You are given a question and numbered claims. List the numbers of the claims that support a \
-yes to the question, and the numbers of the claims that push back (point to a no). Leave out \
-claims that are unrelated to the question. Use only the numbers you were given. Reply with JSON \
-only: {"supporting": [<numbers>], "pushing_back": [<numbers>]}"""
+You are given a question and numbered claims. First name the question's subject: the specific \
+thing it asks about, in a few words (for a question on one symptom, that symptom, not the \
+condition it belongs to). A claim counts only if it is about that subject itself and bears on \
+the answer. A claim about the wider field, or one that only shares a theme with the question, \
+is unrelated even if it leans one way. Most claims are usually unrelated. List the numbers of \
+the claims that count and support a yes, and of those that count and push back (point to a \
+no). Leave out every other claim. Use only the numbers you were given. Reply with JSON only: \
+{"subject": "<the subject>", "supporting": [<numbers>], "pushing_back": [<numbers>]}"""
+
+SUMMARY_SYSTEM = """\
+You help one person think with their own notes. You are given a question and the claims from \
+their notes that bear on it, numbered, each with its note title: first the claims that support \
+a yes (FOR), then those that push back (AGAINST). Summarise how the notes split, for a smart \
+reader who is not an expert. Plain words, short sentences, no jargon, no em dashes.
+
+- bottom_line: one or two sentences. How the notes split and how strong each side is. Say \
+plainly when a side has few claims, or when most claims come from one or two notes.
+- agree: what both sides accept, as short points (may be empty).
+- split: where they part and why: what each side rests on (studies, lived experience, theory).
+- missing: what is not in these notes that would settle the question.
+- read: the numbers of 3 to 5 claims whose notes are most worth reading, from both sides.
+Use only what the claims say. Reply with JSON only: {"bottom_line": "...", "agree": ["..."], \
+"split": ["..."], "missing": ["..."], "read": [<numbers>]}"""
 
 _KEY_CLAIMS_HEADING = re.compile(r"^#{1,6}\s*key claims\s*$", re.IGNORECASE | re.MULTILINE)
 _NEXT_HEADING = re.compile(r"^#{1,6}\s", re.MULTILINE)
@@ -270,6 +290,33 @@ def finalize_shared(
     return sorted(shared, key=lambda item: (-len(item["claim_ids"]), item["evergreen"]))
 
 
+MAX_SUMMARY_POINTS = 6
+MAX_SUMMARY_READS = 5
+MAX_SUMMARY_CHARS = 600
+
+
+def _points(value: Any) -> list[str]:
+    """Non-blank strings from a list, cut to length, at most MAX_SUMMARY_POINTS."""
+    texts = (v.strip()[:MAX_SUMMARY_CHARS] for v in _items(value) if isinstance(v, str))
+    return [t for t in texts if t][:MAX_SUMMARY_POINTS]
+
+
+def parse_summary(data: dict[str, Any], claims: list[ClaimItem]) -> dict[str, Any] | None:
+    """The summary to cache, or None when it has no bottom line. `claims` as numbered."""
+    bottom = data.get("bottom_line")
+    if not isinstance(bottom, str) or not bottom.strip():
+        return None
+    picks = [claims[n - 1] for n in _numbers(data.get("read"), len(claims))]
+    read_ids = list({c.path: c.id for c in reversed(picks)}.values())[::-1]
+    return {
+        "bottom_line": bottom.strip()[:MAX_SUMMARY_CHARS],
+        "agree": _points(data.get("agree")),
+        "split": _points(data.get("split")),
+        "missing": _points(data.get("missing")),
+        "read_ids": read_ids[:MAX_SUMMARY_READS],
+    }
+
+
 def parse_stances(data: dict[str, Any], chunk: list[ClaimItem]) -> dict[str, str]:
     """One stance per claim from the two number lists; unlisted or doubly listed is unrelated."""
     supporting = set(_numbers(data.get("supporting"), len(chunk)))
@@ -295,6 +342,7 @@ class _Snapshot:
     chosen: str | None
     has_agreement: bool
     has_stances: bool
+    has_summary: bool
 
 
 class _Run:
@@ -379,6 +427,8 @@ def _snapshot(run: _Run) -> _Snapshot:
             has_agreement=cached_for(con, run.topic, AGREEMENT_KIND, "", sig) is not None,
             has_stances=chosen is not None
             and cached_for(con, run.topic, STANCES_KIND, chosen, sig) is not None,
+            has_summary=chosen is not None
+            and cached_for(con, run.topic, SUMMARY_KIND, chosen, sig) is not None,
         )
 
 
@@ -545,6 +595,44 @@ async def _sort(run: _Run, snap: _Snapshot) -> None:
     await asyncio.to_thread(_save_analysis, run, STANCES_KIND, question, snap.sig, done)
 
 
+NO_CLAIMS_SUMMARY = "No claims in these notes are about this question."
+
+
+async def _summarize(run: _Run, snap: _Snapshot) -> None:
+    """Summarise the split on the chosen question; one call, cached with the sort."""
+    question = snap.chosen
+    if question is None or snap.has_summary:
+        return
+    stances = await asyncio.to_thread(_progress, run, STANCES_KIND, question, snap.sig) or {}
+    sides = {
+        side: [c for c in snap.claims if stances.get(c.id) == side]
+        for side in ("supporting", "pushing_back")
+    }
+    claims = sides["supporting"] + sides["pushing_back"]
+    if not claims:
+        summary: dict[str, Any] | None = {
+            "bottom_line": NO_CLAIMS_SUMMARY,
+            "agree": [],
+            "split": [],
+            "missing": [],
+            "read_ids": [],
+        }
+    else:
+        n = len(sides["supporting"])
+        user = (
+            f"QUESTION\n{question}\n\nFOR\n{_numbered(sides['supporting'], titles=True)}"
+            f"\n\nAGAINST\n"
+            + "\n".join(
+                f"{n + i} | {c.title} | {c.text}"
+                for i, c in enumerate(sides["pushing_back"], start=1)
+            )
+        )
+        summary = parse_summary(await run.ask(SUMMARY_SYSTEM, user), claims)
+        if summary is None:
+            raise _Unreadable(RunOutcome("failed", UNREADABLE))
+    await asyncio.to_thread(_save_analysis, run, SUMMARY_KIND, question, snap.sig, summary)
+
+
 async def run_topic_claims(
     settings: CompassSettings,
     vault: AiVault,
@@ -579,6 +667,7 @@ async def run_topic_claims(
             await _propose(run, snap)
             await _agree(run, snap)
             await _sort(run, snap)
+            await _summarize(run, snap)
     except _Stop as stop:
         return stop.outcome
     except Exception as exc:

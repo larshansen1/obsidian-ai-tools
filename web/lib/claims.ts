@@ -22,6 +22,15 @@ export type SuggestedQuestion = {
   anchors: ClaimItem[];
 };
 
+// How the sorted claims split on the chosen question, in plain language (#169).
+export type SplitSummary = {
+  bottom_line: string;
+  agree: string[];
+  split: string[];
+  missing: string[];
+  read: NoteRef[];
+};
+
 // What to do next: read notes, suggest questions and find agreement, sort by the question, or nothing.
 export type NextStep = "read" | "analyse" | "sort" | "done";
 
@@ -35,6 +44,7 @@ export type ClaimsView = {
   supporting: ClaimItem[];
   pushing_back: ClaimItem[];
   unrelated: number;
+  summary: SplitSummary | null;
   shared: SharedClaim[];
   stale: boolean;
   next_step: NextStep;
@@ -88,7 +98,7 @@ export async function saveQuestion(topic: string, question: string): Promise<Cla
 export function runLabel(view: ClaimsView): string | null {
   if (view.next_step === "read") return view.claim_count === 0 ? "Read notes" : "Read more notes";
   if (view.next_step === "analyse") return "Suggest questions and find agreement";
-  if (view.next_step === "sort") return "Sort claims by this question";
+  if (view.next_step === "sort") return "Sort and summarise";
   return null;
 }
 

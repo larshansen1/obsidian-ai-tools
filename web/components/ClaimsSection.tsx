@@ -14,7 +14,7 @@ import {
   type StepState,
 } from "../lib/claims";
 import { logUsage } from "../lib/topicMap";
-import { Agreement, ClaimsTable, SuggestedQuestions, type ClaimSelection } from "./ClaimsView";
+import { Agreement, ClaimsTable, SplitSummaryView, SuggestedQuestions, type ClaimSelection } from "./ClaimsView";
 import { DraftEvergreen, LinkNotes } from "./WriteActions";
 
 type Notice = { kind: "approval" | "error"; message: string };
@@ -102,11 +102,16 @@ export function ClaimsSection({ topic, onWrite }: { topic: string; onWrite?: () 
     const text = question.trim();
     if (!text) return;
     logUsage("action", "claims_question", topic);
+    let saved: ClaimsView;
     try {
-      setView(await saveQuestion(topic, text));
+      saved = await saveQuestion(topic, text);
     } catch (e) {
       setNotice({ kind: "error", message: (e as Error).message });
+      return;
     }
+    setView(saved);
+    // One click: a question that is not sorted and summarised yet is done right away (#169).
+    if (saved.next_step === "sort") await run(false);
   }
 
   if (!view) {
@@ -226,17 +231,25 @@ export function ClaimsSection({ topic, onWrite }: { topic: string; onWrite?: () 
         )}
       </Step>
 
-      <Step number={3} title="Claims for and against" state={states.sides}>
+      <Step number={3} title="How the notes split" state={states.sides}>
         {view.question === null ? (
-          <p className="hint">Choose a question in step 2. Each claim is then placed on one side.</p>
+          <p className="hint">Choose a question in step 2. Your notes are then sorted and summarised.</p>
         ) : view.next_step === "sort" ? (
           <p className="step-status">
-            The question is chosen: “{view.question}” Now place the {view.claim_count} claims on a side.
+            The question is chosen: “{view.question}” Sort the {view.claim_count} claims and summarise the split.
           </p>
         ) : states.sides === "waiting" ? (
           <p className="hint">Finish the steps above first.</p>
         ) : (
-          <ClaimsTable view={view} vault={vault} selection={selection} />
+          <>
+            {view.summary ? <SplitSummaryView summary={view.summary} vault={vault} /> : null}
+            <details>
+              <summary>
+                All claims for and against ({view.supporting.length + view.pushing_back.length})
+              </summary>
+              <ClaimsTable view={view} vault={vault} selection={selection} />
+            </details>
+          </>
         )}
         {action("sort")}
       </Step>
