@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DraftEvergreen, FIRST_DRAFT, UPDATED } from "./DraftEvergreen";
+import { DraftEvergreen, FIRST_DRAFT, FROM_ANSWER, UPDATED } from "./DraftEvergreen";
 
 const fetchMock = vi.fn();
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -29,14 +29,17 @@ function post(body: unknown) {
   return { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) };
 }
 
-function writeCall(request: {
+function writeCall(req: {
   claim_ids: string[];
   title: string;
   body: string;
   instruction: string | null;
   approved: boolean;
+  answer?: boolean;
 }) {
-  return ["/api/topics/big/evergreen-draft/write", post(request)];
+  // Same key order as the component sends, so the JSON strings compare equal.
+  const { claim_ids, title, body, instruction, approved, answer = false } = req;
+  return ["/api/topics/big/evergreen-draft/write", post({ claim_ids, title, body, instruction, answer, approved })];
 }
 
 const turns = () =>
@@ -323,5 +326,53 @@ describe("DraftEvergreen", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Unknown claim: c1. Read the notes again.");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Draft new evergreen from 1 claim" })).toBeEnabled();
+  });
+});
+
+describe("DraftEvergreen from the answer", () => {
+  it("drafts the answer in one click and keeps the answer for every revision", async () => {
+    respond({ body: SOURCES });
+    done(FIRST);
+    done(SHORTER);
+    render(<DraftEvergreen topic="big" claimIds={["s1", "p1"]} onChange={vi.fn()} fromAnswer />);
+
+    expect(screen.queryByText("Tick claims above to start a draft.")).toBeNull();
+    expect(screen.getByText("The AI writes a first draft. You then chat to improve it and save.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: FROM_ANSWER }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue(FIRST.title));
+    fireEvent.change(screen.getByRole("textbox", { name: "Tell the AI what to change" }), {
+      target: { value: "Shorter" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue(SHORTER.title));
+
+    expect(fetchMock.mock.calls).toEqual([
+      ["/api/topics/big/evergreen-draft", post({ claim_ids: ["s1", "p1"] })],
+      writeCall({ claim_ids: ["s1", "p1"], title: "", body: SOURCES, instruction: null, approved: false, answer: true }),
+      writeCall({
+        claim_ids: ["s1", "p1"],
+        title: FIRST.title,
+        body: FIRST.body,
+        instruction: "Shorter",
+        approved: false,
+        answer: true,
+      }),
+    ]);
+  });
+
+  it("is disabled when the answer has no sorted claims", () => {
+    render(<DraftEvergreen topic="big" claimIds={[]} onChange={vi.fn()} fromAnswer />);
+
+    expect(screen.getByRole("button", { name: FROM_ANSWER })).toBeDisabled();
+  });
+
+  it("shows why it cannot start", async () => {
+    respond({ detail: "Unknown claim: s1. Read the notes again." }, false, 400);
+    render(<DraftEvergreen topic="big" claimIds={["s1"]} onChange={vi.fn()} fromAnswer />);
+
+    fireEvent.click(screen.getByRole("button", { name: FROM_ANSWER }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unknown claim: s1. Read the notes again.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

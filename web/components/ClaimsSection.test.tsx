@@ -171,6 +171,7 @@ describe("ClaimsSection steps", () => {
     );
     expect(answer.getByTestId("split-summary")).toBeInTheDocument();
     expect(answer.getByTestId("claims-table").closest("details")?.open).toBe(false);
+    expect(answer.getByRole("button", { name: "Draft evergreen from this answer" })).toBeEnabled();
     const done = screen.getByRole("list", { name: "Finished steps" });
     expect(within(done).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
       "✓ 3 notes read · 3 claims",
@@ -690,5 +691,36 @@ describe("elapsed", () => {
     expect(elapsed(65_000)).toBe("1:05");
     expect(elapsed(600_000)).toBe("10:00");
     expect(elapsed(-5)).toBe("0:00");
+  });
+});
+
+describe("ClaimsSection draft from the answer", () => {
+  it("sends both sides of the answer to the draft, no ticking needed", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/ai/status") return { ok: true, json: async () => ({ vault_name: "v" }) };
+      if (url === "/api/topics/big/claims") return { ok: true, json: async () => CLAIMS };
+      if (url === "/api/topics/big/evergreen-draft") return { ok: true, json: async () => ({ body: "draft" }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ status: "done", message: null, estimate_usd: null, title: "Plans help", body: "B" }),
+      };
+    });
+    render(<ClaimsSection topic="big" />);
+
+    const answer = within(await screen.findByTestId("answer"));
+    fireEvent.click(answer.getByRole("button", { name: "Draft evergreen from this answer" }));
+
+    await waitFor(() => expect(answer.getByRole("textbox", { name: "Title" })).toHaveValue("Plans help"));
+    expect(fetchMock).toHaveBeenCalledWith("/api/topics/big/evergreen-draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claim_ids: ["c1", "c2"] }),
+    });
+    expect(fetchMock).toHaveBeenCalledWith("/api/topics/big/evergreen-draft/write", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claim_ids: ["c1", "c2"], title: "", body: "draft", instruction: null, answer: true, approved: false }),
+    });
   });
 });

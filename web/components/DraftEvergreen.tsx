@@ -15,14 +15,20 @@ type Ask = { instruction: string | null; base: Draft };
 export const FIRST_DRAFT = "Write a first draft";
 export const UPDATED = "Done. The draft is updated.";
 
+export const FROM_ANSWER = "Draft evergreen from this answer";
+
+// `fromAnswer`: the draft answers the topic's chosen question, from its summary and `claimIds`
+// (both sides, picked by the caller), with one click and no ticking.
 export function DraftEvergreen({
   topic,
   claimIds,
   onChange,
+  fromAnswer = false,
 }: {
   topic: string;
   claimIds: string[];
   onChange: () => void;
+  fromAnswer?: boolean;
 }) {
   const [draft, setDraft] = useState<Draft | null>(null);
   // The claims the draft started from: ticking more later does not change this draft.
@@ -46,6 +52,7 @@ export function DraftEvergreen({
         title: base.title,
         body: base.body,
         instruction: said,
+        answer: fromAnswer,
         approved,
       });
       if (result.status === "done") {
@@ -105,6 +112,17 @@ export function DraftEvergreen({
     setTurns((t) => [...t, { said: "Undo last change", reply: "Back to the version before." }]);
   }
 
+  if (draft === null && fromAnswer) {
+    return (
+      <div className="write-action" data-testid="draft-from-answer">
+        <button type="button" className="primary" disabled={claimIds.length === 0 || starting} onClick={() => void start()}>
+          {FROM_ANSWER}
+        </button>
+        <span className="muted"> The AI writes a first draft. You then chat to improve it and save.</span>
+        {startError ? <p role="alert">{startError}</p> : null}
+      </div>
+    );
+  }
   if (draft === null) {
     return (
       <div className="write-action" data-testid="draft-evergreen">

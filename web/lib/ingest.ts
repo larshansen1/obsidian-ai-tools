@@ -58,6 +58,8 @@ export type DraftRequest = {
   body: string;
   // null asks for a first draft from the claims; text asks for a revision.
   instruction: string | null;
+  // true writes the note that answers the topic's chosen question, from its summary.
+  answer: boolean;
   approved: boolean;
 };
 

@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from datetime import date
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import duckdb
 import pytest
@@ -12,15 +13,17 @@ from fastapi.testclient import TestClient
 
 from vault_compass.ai_client import AiNotConfiguredError, ModelEvent, TextDelta, Usage
 from vault_compass.ai_cost import estimate_cost
-from vault_compass.app import create_app
-from vault_compass.claims import EligibleNote, claim_id, save_claims
+from vault_compass.app import NO_ANSWER_DETAIL, create_app
+from vault_compass.claims import ClaimsView, EligibleNote, SplitSummary, claim_id, save_claims
 from vault_compass.config import CompassSettings
 from vault_compass.db import writable
 from vault_compass.evergreen_ai import (
+    ANSWER_SYSTEM,
     EMPTY,
     FAILED,
     REVISE_SYSTEM,
     WRITE_SYSTEM,
+    answer_block,
     draft_prompt,
     join_sources,
     parse_note,
@@ -477,3 +480,129 @@ def test_an_instruction_of_exactly_two_thousand_characters_is_taken(
     )
 
     assert response.json()["status"] == "done"
+
+
+# ---------------------------------------------------------------------------
+# Draft from the answer to the chosen question
+# ---------------------------------------------------------------------------
+
+SUMMARY = SplitSummary(
+    bottom_line="Most notes say naps help.",
+    agree=["Sleep debt hurts focus."],
+    split=["Some say naps break night sleep.", "Others say length decides."],
+    missing=[],
+    read=[],
+)
+
+ANSWER_TEXT = (
+    "Question: Do naps help?\n\n"
+    "Bottom line: Most notes say naps help.\n\n"
+    "Where they agree:\n- Sleep debt hurts focus.\n\n"
+    "Where they split:\n- Some say naps break night sleep.\n- Others say length decides."
+)
+
+
+def _view(question: str | None, summary: SplitSummary | None) -> ClaimsView:
+    return ClaimsView(
+        topic="sleep",
+        read_notes=2,
+        pending_notes=0,
+        claim_count=2,
+        questions=[],
+        question=question,
+        supporting=[],
+        pushing_back=[],
+        unrelated=0,
+        summary=summary,
+        shared=[],
+        stale=False,
+        next_step="done",
+    )
+
+
+def test_answer_block_leaves_out_empty_sections() -> None:
+    assert answer_block("Do naps help?", SUMMARY) == ANSWER_TEXT
+
+
+def test_answer_block_with_only_a_bottom_line() -> None:
+    bare = SplitSummary(bottom_line="Unclear.", agree=[], split=[], missing=["A trial."], read=[])
+
+    assert answer_block("Q?", bare) == (
+        "Question: Q?\n\nBottom line: Unclear.\n\nWhat is missing:\n- A trial."
+    )
+
+
+def test_a_first_draft_from_the_answer_uses_the_answer_prompt() -> None:
+    assert draft_prompt("Sleep", ["Naps help."], "", "", None, ANSWER_TEXT) == (
+        ANSWER_SYSTEM,
+        f"Topic: Sleep\n\n{ANSWER_TEXT}\n\nClaims:\n1. Naps help.",
+    )
+
+
+def test_a_revision_keeps_the_answer_in_the_prompt() -> None:
+    assert draft_prompt("Sleep", ["Naps help."], "T", "P.", "Shorter", ANSWER_TEXT) == (
+        REVISE_SYSTEM,
+        f"Topic: Sleep\n\n{ANSWER_TEXT}\n\nClaims:\n1. Naps help.\n\n"
+        "Current note:\n# T\n\nP.\n\nInstruction: Shorter",
+    )
+
+
+def test_a_draft_from_the_answer_sends_the_question_and_summary(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model = FakeModel(ANSWER)
+    api = _client(_settings(vault, monkeypatch), model)
+
+    with patch(
+        "vault_compass.app.build_claims_view", return_value=_view("Do naps help?", SUMMARY)
+    ) as build:
+        response = api.post(
+            "/topics/sleep/evergreen-draft/write",
+            json={"claim_ids": [CLAIM_A], "body": f"{SOURCES}\n", "answer": True},
+        )
+
+    assert response.json()["status"] == "done"
+    assert model.calls == [
+        [
+            {"role": "system", "content": ANSWER_SYSTEM},
+            {
+                "role": "user",
+                "content": f"Topic: Sleep\n\n{ANSWER_TEXT}\n\nClaims:\n1. Naps help.",
+            },
+        ]
+    ]
+    assert build.call_count == 1
+    assert build.call_args.args[1:] == (load_topics(vault / ".kai/topics.yaml"), "sleep")
+
+
+@pytest.mark.parametrize(
+    ("question", "summary"), [(None, None), ("Do naps help?", None), (None, SUMMARY)]
+)
+def test_a_draft_from_the_answer_needs_a_sorted_answer(
+    vault: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    question: str | None,
+    summary: SplitSummary | None,
+) -> None:
+    model = FakeModel(ANSWER)
+    api = _client(_settings(vault, monkeypatch), model)
+
+    with patch("vault_compass.app.build_claims_view", return_value=_view(question, summary)):
+        response = api.post(
+            "/topics/sleep/evergreen-draft/write", json={"claim_ids": [CLAIM_A], "answer": True}
+        )
+
+    assert (response.status_code, response.json()) == (409, {"detail": NO_ANSWER_DETAIL})
+    assert model.calls == []
+
+
+def test_a_draft_without_answer_does_not_read_the_claims_view(
+    vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _client(_settings(vault, monkeypatch), FakeModel(ANSWER))
+
+    with patch("vault_compass.app.build_claims_view") as build:
+        response = api.post("/topics/sleep/evergreen-draft/write", json={"claim_ids": [CLAIM_A]})
+
+    assert response.json()["status"] == "done"
+    build.assert_not_called()

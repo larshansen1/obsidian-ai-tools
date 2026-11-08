@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { fetchAiStatus } from "../lib/chat";
 import {
+  answerClaimIds,
   fetchClaims,
   progressText,
   runClaims,
@@ -322,6 +323,7 @@ export function ClaimsSection({
           {view.summary ? (
             <>
               <SplitSummaryView summary={view.summary} vault={vault} />
+              <DraftEvergreen topic={topic} claimIds={answerClaimIds(view)} onChange={afterDraft} fromAnswer />
               <details>
                 <summary>All claims for and against ({view.supporting.length + view.pushing_back.length})</summary>
                 <ClaimsTable view={view} vault={vault} selection={selection} />

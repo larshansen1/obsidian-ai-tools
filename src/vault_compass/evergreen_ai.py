@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 from .ai_client import AiNotConfiguredError, ChatModel, TextDelta, Usage
 from .ai_cost import check_limits, estimate_cost, month_spend, record_call
+from .claims import SplitSummary
 from .claims_run import RunStatus
 from .config import CompassSettings
 from .evergreen_draft import SOURCES_HEADING
@@ -35,6 +36,23 @@ Write the note from the claims you are given. Rules:
 - Then explain why it holds and where it stops holding. Use short sections with ## headings \
 when the note needs more than a few paragraphs.
 - Use only what the claims say. Do not invent studies, numbers or quotes.
+- No [[links]] and no list of sources: the sources are added below the note for you.
+
+Answer with the note only, in Markdown. The first line is the title as "# Title". \
+Nothing before it, nothing after the note."""
+
+ANSWER_SYSTEM = """\
+You write evergreen notes for a personal Obsidian vault. An evergreen note states one idea \
+as a claim, in the owner's own voice, so it stays useful for years.
+
+The owner asked a question of their notes. You get the question, a summary of how the notes \
+answer it, and claims from both sides. Write the note that answers the question. Rules:
+- The title is the answer itself, stated as a claim in one sentence. Say under which \
+conditions it holds when the notes split; do not sit on the fence.
+- Open with two or three sentences that state the answer plainly.
+- Then give the strongest case for it, the strongest case against it, and what would settle \
+it. Use short sections with ## headings.
+- Use only what the summary and the claims say. Do not invent studies, numbers or quotes.
 - No [[links]] and no list of sources: the sources are added below the note for you.
 
 Answer with the note only, in Markdown. The first line is the title as "# Title". \
@@ -105,13 +123,40 @@ def _claims_block(claims: list[str]) -> str:
     return "\n".join(f"{i}. {text}" for i, text in enumerate(claims, start=1))
 
 
+def _section(title: str, items: list[str]) -> list[str]:
+    return [f"{title}:", *(f"- {item}" for item in items)] if items else []
+
+
+def answer_block(question: str, summary: SplitSummary) -> str:
+    """The chosen question and how the notes answer it, for a draft made from the answer."""
+    lines = [f"Question: {question}", "", f"Bottom line: {summary.bottom_line}"]
+    for title, items in (
+        ("Where they agree", summary.agree),
+        ("Where they split", summary.split),
+        ("What is missing", summary.missing),
+    ):
+        if items:
+            lines += ["", *_section(title, items)]
+    return "\n".join(lines)
+
+
 def draft_prompt(
-    topic_name: str, claims: list[str], title: str, prose: str, instruction: str | None
+    topic_name: str,
+    claims: list[str],
+    title: str,
+    prose: str,
+    instruction: str | None,
+    answer: str | None = None,
 ) -> tuple[str, str]:
-    """(system, user) for one call: a first draft when there is no instruction, else a revision."""
-    head = f"Topic: {topic_name}\n\nClaims:\n{_claims_block(claims)}"
+    """(system, user) for one call: a first draft when there is no instruction, else a revision.
+
+    `answer` (from `answer_block`) makes the draft answer the chosen question; it stays in the
+    prompt for revisions, so the model keeps the whole picture.
+    """
+    context = f"\n\n{answer}" if answer else ""
+    head = f"Topic: {topic_name}{context}\n\nClaims:\n{_claims_block(claims)}"
     if instruction is None:
-        return WRITE_SYSTEM, head
+        return (ANSWER_SYSTEM if answer else WRITE_SYSTEM), head
     current = f"# {title}\n\n{prose}" if title else prose
     user = f"{head}\n\nCurrent note:\n{current}\n\nInstruction: {instruction}"
     return REVISE_SYSTEM, user
@@ -155,6 +200,7 @@ async def write_draft(
     title: str,
     body: str,
     instruction: str | None,
+    answer: str | None = None,
     approved: bool = False,
 ) -> DraftOutcome:
     """A first draft (no instruction) or a revision of `title` and `body`.
@@ -167,7 +213,7 @@ async def write_draft(
     def unchanged(status: RunStatus, message: str, estimate: float | None = None) -> DraftOutcome:
         return DraftOutcome(status, message, estimate, title, body)
 
-    system, user = draft_prompt(topic_name, claims, title.strip(), prose, instruction)
+    system, user = draft_prompt(topic_name, claims, title.strip(), prose, instruction, answer)
     estimate = estimate_cost(tuned, len(system) + len(user))
     month = await asyncio.to_thread(month_spend, settings.compass_db_path)
     limit = check_limits(tuned, action_cost=0.0, month_cost=month, next_call=estimate)

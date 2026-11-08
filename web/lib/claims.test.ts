@@ -1,5 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchClaims, progressText, runClaims, runLabel, saveQuestion, stepStates, type ClaimsView } from "./claims";
+import {
+  answerClaimIds,
+  fetchClaims,
+  progressText,
+  runClaims,
+  runLabel,
+  saveQuestion,
+  stepStates,
+  type ClaimsView,
+} from "./claims";
 import { CLAIMS } from "./claimsFixture";
 
 const fetchMock = vi.fn();
@@ -165,5 +174,34 @@ describe("progressText", () => {
     expect(progressText({ ...CLAIMS, read_notes: 0, pending_notes: 5, claim_count: 0 })).toBe(
       "Read 0 of 5 notes, 0 claims.",
     );
+  });
+});
+
+describe("answerClaimIds", () => {
+  const item = (id: string) => ({ id, text: id, path: `${id}.md`, title: id });
+  const view = (supporting: string[], pushing: string[]): ClaimsView => ({
+    ...CLAIMS,
+    supporting: supporting.map(item),
+    pushing_back: pushing.map(item),
+  });
+
+  it("takes for and against in turn", () => {
+    expect(answerClaimIds(view(["s1", "s2", "s3"], ["p1"]))).toEqual(["s1", "p1", "s2", "s3"]);
+  });
+
+  it("stops at the limit per side", () => {
+    expect(answerClaimIds(view(["s1", "s2", "s3"], ["p1", "p2", "p3"]), 2)).toEqual(["s1", "p1", "s2", "p2"]);
+  });
+
+  it("takes fifteen a side by default", () => {
+    const many = (prefix: string) => Array.from({ length: 16 }, (_, i) => `${prefix}${i}`);
+    const ids = answerClaimIds(view(many("s"), many("p")));
+
+    expect(ids.length).toBe(30);
+    expect(ids.slice(-2)).toEqual(["s14", "p14"]);
+  });
+
+  it("is empty with no sorted claims", () => {
+    expect(answerClaimIds(view([], []))).toEqual([]);
   });
 });

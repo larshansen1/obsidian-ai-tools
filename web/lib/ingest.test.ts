@@ -70,7 +70,7 @@ describe("thisMonth", () => {
   it("asks the model for a draft on the topic's draft path", async () => {
     const result = { status: "done", message: null, estimate_usd: null, title: "T", body: "B" };
     respond(result);
-    const request = { claim_ids: ["c1"], title: "", body: "## C", instruction: "Shorter", approved: true };
+    const request = { claim_ids: ["c1"], title: "", body: "## C", instruction: "Shorter", answer: false, approved: true };
 
     expect(await writeDraft("a b", request)).toEqual(result);
     expect(fetchMock.mock.calls).toEqual([

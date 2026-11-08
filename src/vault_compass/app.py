@@ -22,7 +22,7 @@ from .claims import ClaimsView, build_claims_view, save_chosen_question
 from .claims_run import RunStatus, run_topic_claims
 from .config import CompassSettings, get_compass_settings
 from .db import DB_LOCK, writable
-from .evergreen_ai import write_draft
+from .evergreen_ai import answer_block, write_draft
 from .evergreen_draft import MAX_CLAIMS, MAX_TITLE, claim_texts, draft_body, plan_evergreen
 from .kai_ingest import (
     MAX_URL,
@@ -58,6 +58,7 @@ from .vault_writes import (
 from .watcher import refresh_once, watch_vault
 
 NOT_SCANNED_DETAIL = "No topic data yet. Run `compass scan` first."
+NO_ANSWER_DETAIL = "This topic has no answer yet. Pick a question and run Sort and summarise."
 
 
 class StatusResponse(BaseModel):
@@ -156,6 +157,8 @@ class DraftWriteRequest(BaseModel):
     body: str = Field(default="", max_length=100_000)
     # None asks for a first draft from the claims; text asks for a revision of title and body.
     instruction: str | None = Field(default=None, max_length=2000)
+    # True to write the note that answers the topic's chosen question, from its summary.
+    answer: bool = False
     # True after the user agreed to go over a cost limit (N3).
     approved: bool = False
 
@@ -538,6 +541,12 @@ def create_app(
             )
         except WriteError as e:
             raise HTTPException(status_code=400, detail=str(e)) from None
+        answer = None
+        if request.answer:
+            view = await asyncio.to_thread(_claims_view, cfg, topic_id)
+            if view.question is None or view.summary is None:
+                raise HTTPException(status_code=409, detail=NO_ANSWER_DETAIL)
+            answer = answer_block(view.question, view.summary)
         outcome = await write_draft(
             cfg,
             model_factory,
@@ -547,6 +556,7 @@ def create_app(
             title=request.title,
             body=request.body,
             instruction=request.instruction,
+            answer=answer,
             approved=request.approved,
         )
         return DraftWriteResponse(
