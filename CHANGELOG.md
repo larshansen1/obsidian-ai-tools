@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Vault Compass: take single notes out of a topic (#189). A broad tag such as `ai` lands on
+  notes about anything, and no rule tells those apart from the notes that belong. The topic
+  page now shows which of the topic's tags each recent note carries, and a "Check what belongs"
+  card lists the notes that are in the topic through one tag only, each with "Take out of
+  topic". A note taken out goes to the topic's new `exclude` list in `.kai/topics.yaml`
+  (preview, Approve and Undo like every write), so it stays out after a rescan and leaves the
+  counts, the claims and the chat tools for that topic; "Put back" reverses it. The note and
+  its tags are not changed.
 - Vault Compass styled buttons and a confirm on Undo (#188): every button now uses the app's
   own style in place of the browser default ("Edit topic", "Change question", "Undo" and the
   rest), with the filled accent style for the one to click next. "Undo" on Recent changes asks

@@ -80,6 +80,20 @@ class Topic(BaseModel):
 
     name: Annotated[StrictStr, Field(min_length=1)]
     tags: Annotated[list[StrictStr], Field(min_length=1)]
+    # Vault paths of notes that carry one of the tags but do not belong (#189). A tag such as
+    # "ai" lands on notes about anything; this takes one note out without giving up the tag.
+    exclude: list[StrictStr] = Field(default_factory=list)
+
+    @field_validator("exclude")
+    @classmethod
+    def _clean_exclude(cls, paths: list[str]) -> list[str]:
+        cleaned = [path.strip() for path in paths]
+        if any(not path for path in cleaned):
+            raise ValueError("exclude must not hold a blank path")
+        duplicates = sorted({path for path in cleaned if cleaned.count(path) > 1})
+        if duplicates:
+            raise ValueError(f"duplicate excluded notes: {', '.join(duplicates)}")
+        return cleaned
 
     @field_validator("tags")
     @classmethod
@@ -111,6 +125,10 @@ class TopicsFile(BaseModel):
     def topic_tag_pairs(self) -> list[tuple[str, str]]:
         """(topic id, tag) rows, in file order."""
         return [(tid, tag) for tid, topic in self.topics.items() for tag in topic.tags]
+
+    def topic_exclude_pairs(self) -> list[tuple[str, str]]:
+        """(topic id, excluded note path) rows, in file order."""
+        return [(tid, path) for tid, topic in self.topics.items() for path in topic.exclude]
 
 
 def parse_topics(text: str) -> TopicsFile:

@@ -16,6 +16,8 @@ export type Signal = {
 
 export type NoteRef = { path: string; title: string; created: string | null };
 
+export type MatchedNote = NoteRef & { matched_tags: string[] };
+
 export type TopicPage = {
   window: Window;
   min_notes: number;
@@ -25,7 +27,12 @@ export type TopicPage = {
   unknown_source_notes: number;
   source_types: { source_type: string; notes: number; share: number }[];
   evergreens: (NoteRef & { bridges: { id: string; name: string }[] })[];
-  recent_notes: (NoteRef & { duplicates: { path: string; reason: string }[] })[];
+  // matched_tags: the topic's tags the note carries, which is why it is in the topic.
+  recent_notes: (NoteRef & { duplicates: { path: string; reason: string }[]; matched_tags: string[] })[];
+  // Notes that are in the topic through one tag only: the ones to check.
+  single_tag_notes: MatchedNote[];
+  // Notes taken out of the topic by hand.
+  excluded_notes: NoteRef[];
   signal: { kind: SignalKind; rules: string; notes: NoteRef[] } | null;
 };
 

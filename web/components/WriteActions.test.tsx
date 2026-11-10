@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Agreement } from "./ClaimsView";
-import { EditTopic, LinkNotes } from "./WriteActions";
+import { EditTopic, LinkNotes, TopicNoteAction } from "./WriteActions";
 import { CLAIMS } from "../lib/claimsFixture";
 
 const fetchMock = vi.fn();
@@ -21,6 +21,68 @@ function respond(body: unknown, ok = true, status = 200) {
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
+});
+
+describe("TopicNoteAction", () => {
+  const OUT = {
+    id: "p7",
+    kind: "edit_topic",
+    summary: "Topic Big: take out notes/z.md",
+    files: [{ file: ".kai/topics.yaml", lines: [{ op: "+", text: '      - "notes/z.md"' }] }],
+  };
+
+  it("previews taking a note out, and saves only on Approve", async () => {
+    respond(OUT);
+    respond({ id: "l7", status: "written", message: "Topic Big: take out notes/z.md" });
+    const onChange = vi.fn();
+    render(<TopicNoteAction topic="a b" path="notes/z.md" title="Zwift" mode="exclude" onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Take out of topic: Zwift" }));
+
+    expect(await screen.findByText("Topic Big: take out notes/z.md")).toBeInTheDocument();
+    expect(fetchMock.mock.calls).toEqual([
+      [
+        "/api/topics/a%20b/notes",
+        { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ exclude: ["notes/z.md"], restore: [] }) },
+      ],
+    ]);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Take out of topic: Zwift" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenLastCalledWith("/api/writes/p7/apply", {
+      method: "POST",
+      headers: undefined,
+      body: undefined,
+    });
+  });
+
+  it("asks to put a note back with the restore list", async () => {
+    respond({ ...OUT, summary: "Topic Big: put back notes/z.md" });
+    render(<TopicNoteAction topic="big" path="notes/z.md" title="Zwift" mode="restore" onChange={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Put back: Zwift" }));
+
+    expect(await screen.findByText("Topic Big: put back notes/z.md")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/topics/big/notes", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ exclude: [], restore: ["notes/z.md"] }),
+    });
+  });
+
+  it("shows why it cannot be planned and keeps the button", async () => {
+    respond({ detail: "Not a note in this topic: notes/z.md" }, false, 400);
+    render(<TopicNoteAction topic="big" path="notes/z.md" title="Zwift" mode="exclude" onChange={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Take out of topic: Zwift" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Not a note in this topic: notes/z.md");
+    expect(screen.getByRole("button", { name: "Take out of topic: Zwift" })).toBeEnabled();
+    expect(screen.queryByTestId("write-card")).toBeNull();
+  });
 });
 
 describe("EditTopic", () => {

@@ -20,6 +20,13 @@ TOP_SOURCES_LIMIT = 5
 UNKNOWN_SOURCE_TYPE = "unknown"
 
 _NOTE_TOPICS_SQL = "SELECT path, topic FROM note_topics"
+# Which of the topic's tags each note carries: why the note is in the topic (#189).
+_MATCHED_TAGS_SQL = """
+SELECT nt.path, nt.tag
+FROM note_tags nt JOIN topic_tags tt ON tt.tag = nt.tag
+WHERE tt.topic = ?
+"""
+_NOTE_REFS_SQL = "SELECT path, title, created FROM notes"
 _DUPLICATES_SQL = "SELECT path_a, path_b, reason FROM duplicates"
 
 
@@ -58,6 +65,12 @@ class Duplicate(BaseModel):
 
 class RecentNote(NoteRef):
     duplicates: list[Duplicate]
+    # The topic's tags this note carries, in the topic's own order.
+    matched_tags: list[str]
+
+
+class MatchedNote(NoteRef):
+    matched_tags: list[str]
 
 
 class SignalNotes(BaseModel):
@@ -77,6 +90,11 @@ class TopicPageResponse(BaseModel):
     source_types: list[SourceTypeShare]
     evergreens: list[EvergreenNote]
     recent_notes: list[RecentNote]
+    # Notes that are here through one tag only, newest first: the ones to check when a broad
+    # tag pulls in notes that do not belong.
+    single_tag_notes: list[MatchedNote]
+    # Notes taken out of the topic by hand (the topic's `exclude` list), in file order.
+    excluded_notes: list[NoteRef]
     # Set when the page was opened from a signal on the topic map (M6).
     signal: SignalNotes | None
 
@@ -124,6 +142,31 @@ def _duplicates(con: duckdb.DuckDBPyConnection) -> dict[str, list[Duplicate]]:
     return partners
 
 
+def _matched_tags(
+    con: duckdb.DuckDBPyConnection, topic_id: str, tags: list[str]
+) -> dict[str, list[str]]:
+    order = {tag: i for i, tag in enumerate(tags)}
+    matched: dict[str, list[str]] = {}
+    for path, tag in con.execute(_MATCHED_TAGS_SQL, [topic_id]).fetchall():
+        matched.setdefault(path, []).append(tag)
+    for found in matched.values():
+        found.sort(key=lambda tag: order.get(tag, len(order)))
+    return matched
+
+
+def _excluded(con: duckdb.DuckDBPyConnection, paths: list[str]) -> list[NoteRef]:
+    """The excluded notes; one that is no longer in the vault keeps its path as its title."""
+    known = {
+        path: (title, created) for path, title, created in con.execute(_NOTE_REFS_SQL).fetchall()
+    }
+    return [
+        NoteRef(path=p, title=known[p][0], created=known[p][1])
+        if p in known
+        else NoteRef(path=p, title=p, created=None)
+        for p in paths
+    ]
+
+
 def build_topic_page(
     con: duckdb.DuckDBPyConnection,
     definitions: TopicsFile,
@@ -146,6 +189,7 @@ def build_topic_page(
     evergreens = _newest_first([n for n in notes if n.is_evergreen])
     bridges = _bridges([n.path for n in evergreens], topic_id, definitions, con)
     partners = _duplicates(con)
+    matched = _matched_tags(con, topic_id, topic.tags)
 
     signal_notes = None
     if signal is not None:
@@ -166,8 +210,18 @@ def build_topic_page(
             EvergreenNote(**_ref(n).model_dump(), bridges=bridges[n.path]) for n in evergreens
         ],
         recent_notes=[
-            RecentNote(**_ref(n).model_dump(), duplicates=partners.get(n.path, []))
+            RecentNote(
+                **_ref(n).model_dump(),
+                duplicates=partners.get(n.path, []),
+                matched_tags=matched.get(n.path, []),
+            )
             for n in _newest_first(notes)[:RECENT_NOTES_LIMIT]
         ],
+        single_tag_notes=[
+            MatchedNote(**_ref(n).model_dump(), matched_tags=matched[n.path])
+            for n in _newest_first(notes)
+            if len(matched.get(n.path, [])) == 1
+        ],
+        excluded_notes=_excluded(con, topic.exclude),
         signal=signal_notes,
     )

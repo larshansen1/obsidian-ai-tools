@@ -96,12 +96,25 @@ CREATE OR REPLACE TABLE topic_tags (
 )
 """
 
-# A note belongs to every topic whose tags it carries (ADR 0003).
+# Notes taken out of a topic by hand, from each topic's `exclude` list (#189).
+_TOPIC_EXCLUDES_DDL = """
+CREATE OR REPLACE TABLE topic_excludes (
+    topic VARCHAR NOT NULL,
+    path VARCHAR NOT NULL,
+    PRIMARY KEY (topic, path)
+)
+"""
+
+# A note belongs to every topic whose tags it carries (ADR 0003), unless that topic
+# excludes it. Every reader goes through this view, so an excluded note is gone everywhere.
 _NOTE_TOPICS_VIEW = """
 CREATE OR REPLACE VIEW note_topics AS
 SELECT DISTINCT nt.path, tt.topic
 FROM note_tags nt
 JOIN topic_tags tt ON tt.tag = nt.tag
+WHERE NOT EXISTS (
+    SELECT 1 FROM topic_excludes te WHERE te.topic = tt.topic AND te.path = nt.path
+)
 """
 
 # Tags that map to no topic, most used first.
@@ -369,6 +382,8 @@ def _write_topics(con: duckdb.DuckDBPyConnection, topics: TopicsFile, report: Sc
     con.execute("DROP VIEW IF EXISTS note_topics")
     con.execute(_TOPIC_TAGS_DDL)
     _insert_all(con, "INSERT INTO topic_tags VALUES (?, ?)", topics.topic_tag_pairs())
+    con.execute(_TOPIC_EXCLUDES_DDL)
+    _insert_all(con, "INSERT INTO topic_excludes VALUES (?, ?)", topics.topic_exclude_pairs())
     con.execute(_NOTE_TOPICS_VIEW)
     report.unmapped_tags = [(t, int(n)) for t, n in con.execute(UNMAPPED_TAGS_SQL).fetchall()]
 

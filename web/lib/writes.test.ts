@@ -5,6 +5,7 @@ import {
   fetchWrites,
   formatWhen,
   planLinks,
+  planTopicNotes,
   planTopicTags,
   splitTags,
   undoWrite,
@@ -51,6 +52,18 @@ describe("write requests", () => {
       method: "POST",
       headers: JSON_HEADERS,
       body: JSON.stringify({ add: ["x"], remove: ["y"] }),
+    });
+  });
+
+  it("plans taking notes out of a topic, or putting them back", async () => {
+    respond(true, { id: "p3" });
+
+    await planTopicNotes("a b", ["notes/x.md"], ["notes/y.md"]);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/topics/a%20b/notes", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ exclude: ["notes/x.md"], restore: ["notes/y.md"] }),
     });
   });
 

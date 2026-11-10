@@ -799,6 +799,13 @@ button.primary:disabled {
   text-decoration: line-through;
   opacity: 0.6;
 }
+.belongs-row {
+  margin: 6px 0;
+}
+.belongs-row button {
+  padding: 2px 8px;
+  font-size: 0.8em;
+}
 .change {
   display: flex;
   flex-wrap: wrap;

@@ -17,8 +17,11 @@ from vault_compass.topic_edit import (
     TOPICS_LABEL,
     dump_topics,
     flow_list,
+    new_exclude,
     new_tags,
+    plan_topic_notes,
     plan_topic_tags,
+    replace_exclude,
     replace_tags,
 )
 from vault_compass.topics import TopicsError, load_topics, parse_topics
@@ -692,6 +695,114 @@ def load_topics_text(data: bytes) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+# --- taking notes out of a topic (#189) -------------------------------------------
+
+
+def test_new_exclude_adds_at_the_end_and_drops_restored() -> None:
+    assert new_exclude(["a.md", "b.md"], [" c.md ", "c.md"], ["a.md"]) == ["b.md", "c.md"]
+    assert new_exclude([], ["a.md"], []) == ["a.md"]
+    assert new_exclude(["a.md"], [], ["a.md"]) == []
+
+
+@pytest.mark.parametrize(
+    ("exclude", "restore", "message"),
+    [
+        (["a.md"], [], "Already taken out of this topic: a.md"),
+        ([], ["z.md", "y.md"], "Not taken out of this topic: z.md, y.md"),
+        ([], [], "Nothing to change."),
+        ([" "], [], "Nothing to change."),
+    ],
+)
+def test_new_exclude_refuses_a_change_that_makes_no_sense(
+    exclude: list[str], restore: list[str], message: str
+) -> None:
+    with pytest.raises(WriteError) as exc_info:
+        new_exclude(["a.md"], exclude, restore)
+
+    assert str(exc_info.value) == message
+
+
+def test_plan_topic_notes_adds_the_list_under_the_tags_and_touches_nothing_else(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "topics.yaml"
+    path.write_text(TOPICS_YAML, encoding="utf-8")
+
+    edit, summary = plan_topic_notes(path, "big", exclude=['notes/a: "b".md'], restore=[])
+
+    assert summary == 'Topic Big Topic: take out notes/a: "b".md'
+    assert edit.label == TOPICS_LABEL
+    assert edit.after.decode() == TOPICS_YAML.replace(
+        "    tags: [x, y]\n",
+        '    tags: [x, y]\n    exclude:\n      - "notes/a: \\"b\\".md"\n',
+    )
+    assert parse_topics(edit.after.decode()).topics["big"].exclude == ['notes/a: "b".md']
+    assert path.read_text(encoding="utf-8") == TOPICS_YAML  # planning writes nothing
+
+
+def test_plan_topic_notes_on_the_last_topic_keeps_the_settings_below(tmp_path: Path) -> None:
+    path = tmp_path / "topics.yaml"
+    path.write_text(TOPICS_YAML, encoding="utf-8")
+
+    edit, _ = plan_topic_notes(path, "other", exclude=["n.md"], restore=[])
+
+    assert edit.after.decode() == TOPICS_YAML.replace(
+        "    tags: [z]\n", '    tags: [z]\n    exclude:\n      - "n.md"\n'
+    )
+
+
+def test_plan_topic_notes_grows_and_empties_an_existing_block_list(tmp_path: Path) -> None:
+    path = tmp_path / "topics.yaml"
+    listed = TOPICS_YAML.replace(
+        "    tags: [x, y]\n", '    tags: [x, y]\n    exclude:\n      - "a.md"\n'
+    )
+    path.write_text(listed, encoding="utf-8")
+
+    grown, summary = plan_topic_notes(path, "big", exclude=["b.md"], restore=[])
+
+    assert summary == "Topic Big Topic: take out b.md"
+    assert grown.after.decode() == listed.replace(
+        '      - "a.md"\n', '      - "a.md"\n      - "b.md"\n'
+    )
+
+    emptied, summary = plan_topic_notes(path, "big", exclude=[], restore=["a.md"])
+
+    assert summary == "Topic Big Topic: put back a.md"
+    assert emptied.after.decode() == listed.replace('      - "a.md"\n', "      []\n")
+    assert parse_topics(emptied.after.decode()).topics["big"].exclude == []
+
+
+def test_plan_topic_notes_keeps_a_hand_written_flow_list_in_flow_style(tmp_path: Path) -> None:
+    path = tmp_path / "topics.yaml"
+    listed = TOPICS_YAML.replace("    tags: [x, y]\n", "    tags: [x, y]\n    exclude: [a.md]\n")
+    path.write_text(listed, encoding="utf-8")
+
+    edit, summary = plan_topic_notes(path, "big", exclude=["b.md"], restore=["a.md"])
+
+    assert summary == "Topic Big Topic: take out b.md, put back a.md"
+    assert edit.after.decode() == listed.replace("exclude: [a.md]", 'exclude: ["b.md"]')
+
+
+@pytest.mark.parametrize("text", ["topics: [", "other: 1\n", "topics:\n  other:\n    tags: [a]\n"])
+def test_replace_exclude_without_the_topic_is_none(text: str) -> None:
+    assert replace_exclude(text, "big", ["a.md"]) is None
+
+
+def test_plan_topic_notes_refuses_an_unknown_topic_and_an_unreadable_file(tmp_path: Path) -> None:
+    path = tmp_path / "topics.yaml"
+    path.write_text(TOPICS_YAML, encoding="utf-8")
+    with pytest.raises(WriteError) as unknown:
+        plan_topic_notes(path, "nope", exclude=["a.md"], restore=[])
+    assert str(unknown.value) == "Unknown topic: nope"
+
+    path.write_text("topics: [", encoding="utf-8")
+    with pytest.raises(TopicsError) as parse_error:
+        load_topics(path)
+    with pytest.raises(WriteError) as unreadable:
+        plan_topic_notes(path, "big", exclude=["a.md"], restore=[])
+    assert str(unreadable.value) == f"Cannot read the topics file: {parse_error.value}"
+
+
 @pytest.fixture
 def api(vault: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     for key in ("COMPASS_DB_PATH", "COMPASS_TOPICS_PATH"):
@@ -821,3 +932,63 @@ def test_plan_topic_tags_falls_back_when_the_small_edit_reads_back_differently(
 
     assert load_topics_text(edit.after) == ["x", "y", "'q'"]
     assert not edit.after.decode().startswith("# My topics")
+
+
+def _big_paths(api: TestClient) -> list[str]:
+    return sorted(n["path"] for n in api.get("/topics/big").json()["recent_notes"])
+
+
+def test_take_out_flow_preview_apply_survives_a_rescan_and_undo(
+    api: TestClient, vault: Path
+) -> None:
+    topics = vault / ".kai" / "topics.yaml"
+    everything = _big_paths(api)
+    assert "notes/a.md" in everything
+
+    pending = api.post("/topics/big/notes", json={"exclude": ["notes/a.md"]})
+
+    assert pending.status_code == 200
+    assert (pending.json()["kind"], pending.json()["summary"]) == (
+        "edit_topic",
+        "Topic Big Topic: take out notes/a.md",
+    )
+    assert topics.read_text(encoding="utf-8") == TOPICS_YAML
+    assert _big_paths(api) == everything
+
+    applied = api.post(f"/writes/{pending.json()['id']}/apply")
+
+    assert applied.json()["status"] == "written"
+    assert load_topics(topics).topics["big"].exclude == ["notes/a.md"]
+    without = [p for p in everything if p != "notes/a.md"]
+    assert _big_paths(api) == without
+    assert api.get("/topics/big").json()["excluded_notes"] == [
+        {"path": "notes/a.md", "title": "a", "created": None}
+    ]
+
+    # A full rescan reads the list from the file again.
+    refresh_notes(vault, vault / ".kai" / "compass.duckdb", load_topics(topics))
+    assert _big_paths(api) == without
+
+    back = api.post("/topics/big/notes", json={"restore": ["notes/a.md"]})
+    assert back.json()["summary"] == "Topic Big Topic: put back notes/a.md"
+    assert api.post(f"/writes/{back.json()['id']}/apply").json()["status"] == "written"
+    assert _big_paths(api) == everything
+    assert load_topics(topics).topics["big"].exclude == []
+
+
+@pytest.mark.parametrize(
+    ("topic", "body", "status", "detail"),
+    [
+        ("big", {"exclude": ["notes/nope.md"]}, 400, "Not a note in this topic: notes/nope.md"),
+        ("big", {"restore": ["notes/a.md"]}, 400, "Not taken out of this topic: notes/a.md"),
+        ("big", {}, 400, "Nothing to change."),
+        ("nope", {"exclude": ["notes/a.md"]}, 404, "Unknown topic: nope"),
+    ],
+)
+def test_take_out_refusals(
+    api: TestClient, topic: str, body: dict[str, list[str]], status: int, detail: str
+) -> None:
+    response = api.post(f"/topics/{topic}/notes", json=body)
+
+    assert (response.status_code, response.json()) == (status, {"detail": detail})
+    assert api.get("/writes").json() == []
