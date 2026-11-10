@@ -44,6 +44,8 @@ export function ChangesScreen() {
   const [writes, setWrites] = useState<LoggedWrite[] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The write whose Undo was clicked. Undo changes files in the vault, so it asks first (#188).
+  const [asking, setAsking] = useState<string | null>(null);
   // Bumped after an undo so the list is read again.
   const [version, setVersion] = useState(0);
   const [ingests, setIngests] = useState<IngestLog | null>(null);
@@ -75,6 +77,7 @@ export function ChangesScreen() {
   }, []);
 
   async function undo(id: string) {
+    setAsking(null);
     setBusy(true);
     try {
       setMessage((await undoWrite(id)).message);
@@ -107,8 +110,18 @@ export function ChangesScreen() {
               </span>{" "}
               {w.undone ? (
                 <span className="muted">(undone)</span>
+              ) : asking === w.id ? (
+                <span role="group" aria-label="Undo this change">
+                  Undo this change?{" "}
+                  <button type="button" disabled={busy} onClick={() => undo(w.id)}>
+                    Yes, undo
+                  </button>{" "}
+                  <button type="button" onClick={() => setAsking(null)}>
+                    Cancel
+                  </button>
+                </span>
               ) : (
-                <button type="button" disabled={busy} onClick={() => undo(w.id)}>
+                <button type="button" disabled={busy} onClick={() => setAsking(w.id)}>
                   Undo
                 </button>
               )}
