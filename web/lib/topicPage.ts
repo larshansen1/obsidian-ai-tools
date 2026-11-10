@@ -58,6 +58,33 @@ export function topicHref(id: string, window: Window): string {
   return `/topics/${encodeURIComponent(id)}?window=${window}`;
 }
 
+// One topic in the header's picker. Topics below the minimum note count are listed too.
+export type TopicSummary = { id: string; name: string; note_count: number; below_min_notes: boolean };
+
+export async function fetchTopics(): Promise<TopicSummary[]> {
+  const response = await fetch("/api/topics");
+  if (!response.ok) throw new Error(`Request failed (${response.status})`);
+  const body: { topics: TopicSummary[] } = await response.json();
+  return body.topics;
+}
+
+/** "Mental health (484 notes)" for the picker. */
+export function topicOptionLabel(topic: TopicSummary): string {
+  const count = topic.note_count.toLocaleString("en-US");
+  return `${topic.name} (${count} ${topic.note_count === 1 ? "note" : "notes"})`;
+}
+
+/** The topic id of a topic page path, so the picker can show which topic is open; else null. */
+export function topicFromPath(pathname: string | null): string | null {
+  const match = /^\/topics\/([^/]+)\/?$/.exec(pathname ?? "");
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchTopicPage(id: string, window: Window, signal: SignalKind | null): Promise<TopicPage> {
   const query = `window=${window}${signal ? `&signal=${signal}` : ""}`;
   const response = await fetch(`/api/topics/${encodeURIComponent(id)}?${query}`);
