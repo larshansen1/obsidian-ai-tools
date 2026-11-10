@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchAiStatus, noteUrl } from "../lib/chat";
 import { ClaimsSection } from "./ClaimsSection";
 import { CoverageSection } from "./CoverageSection";
-import { EditTopic } from "./WriteActions";
+import { EditTopic, TopicNoteAction } from "./WriteActions";
 import { formatMomentum, formatShare, logUsage, type Window } from "../lib/topicMap";
 import {
   DUPLICATE_REASONS,
@@ -212,6 +212,7 @@ export function TopicPageScreen({
           {data.recent_notes.map((n) => (
             <li key={n.path}>
               <NoteLine note={n} vault={vault} />
+              <span className="muted"> · {n.matched_tags.length === 1 ? "tag" : "tags"}: {n.matched_tags.join(", ")}</span>
               {n.duplicates.length > 0 ? (
                 <span className="dup">
                   {" "}
@@ -222,6 +223,47 @@ export function TopicPageScreen({
           ))}
         </ul>
       </section>
+
+      {data.single_tag_notes.length > 0 || data.excluded_notes.length > 0 ? (
+        <section className="card" aria-label="Check what belongs" data-testid="belongs">
+          <h2>Check what belongs</h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            A note is in this topic when it carries one of the topic’s tags. A broad tag can pull in notes about
+            something else. Take those out here; the tag and the note itself stay as they are.
+          </p>
+          {data.single_tag_notes.length > 0 ? (
+            <details data-testid="single-tag-notes">
+              <summary>In this topic through one tag only ({data.single_tag_notes.length})</summary>
+              <ul className="list">
+                {data.single_tag_notes.map((n) => (
+                  <li key={n.path} className="belongs-row">
+                    <span>
+                      <NoteLine note={n} vault={vault} />
+                      <span className="muted"> · tag: {n.matched_tags.join(", ")}</span>
+                    </span>{" "}
+                    <TopicNoteAction topic={id} path={n.path} title={n.title} mode="exclude" onChange={onWrite} />
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+          {data.excluded_notes.length > 0 ? (
+            <details data-testid="excluded-notes">
+              <summary>Taken out of this topic ({data.excluded_notes.length})</summary>
+              <ul className="list">
+                {data.excluded_notes.map((n) => (
+                  <li key={n.path} className="belongs-row">
+                    <span>
+                      <NoteLine note={n} vault={vault} />
+                    </span>{" "}
+                    <TopicNoteAction topic={id} path={n.path} title={n.title} mode="restore" onChange={onWrite} />
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </section>
+      ) : null}
     </main>
   );
 }

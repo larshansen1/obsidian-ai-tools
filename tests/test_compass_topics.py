@@ -282,6 +282,70 @@ def test_note_topics_maps_each_tag_to_every_topic_that_lists_it(tmp_path: Path) 
     ]
 
 
+def test_an_excluded_note_leaves_that_topic_only(tmp_path: Path) -> None:
+    db = tmp_path / "c.duckdb"
+    topics = TopicsFile.model_validate(
+        {
+            "topics": {
+                "one": {"name": "One", "tags": ["x", "y"], "exclude": ["n1.md"]},
+                "two": {"name": "Two", "tags": ["y"]},
+            }
+        }
+    )
+
+    refresh_notes(_tagged_vault(tmp_path), db, topics)
+
+    # n1 carries both of topic one's tags and is still out of it; topic two keeps it.
+    assert _query(db, "SELECT path, topic FROM note_topics ORDER BY path, topic") == [
+        ("n1.md", "two"),
+        ("n2.md", "one"),
+        ("n2.md", "two"),
+    ]
+    assert _query(db, "SELECT topic, path FROM topic_excludes") == [("one", "n1.md")]
+
+
+def test_exclude_list_is_dropped_from_the_database_when_it_leaves_the_file(tmp_path: Path) -> None:
+    db = tmp_path / "c.duckdb"
+    vault = _tagged_vault(tmp_path)
+    one = {"name": "One", "tags": ["x"]}
+    refresh_notes(
+        vault, db, TopicsFile.model_validate({"topics": {"one": {**one, "exclude": ["n1.md"]}}})
+    )
+    assert _query(db, "SELECT path FROM note_topics") == []
+
+    refresh_notes(vault, db, TopicsFile.model_validate({"topics": {"one": one}}))
+
+    assert _query(db, "SELECT path FROM note_topics") == [("n1.md",)]
+    assert _query(db, "SELECT topic, path FROM topic_excludes") == []
+
+
+def test_exclude_defaults_to_empty_and_is_cleaned() -> None:
+    plain = parse_topics(MINIMAL)
+    assert plain.topics["a"].exclude == []
+    assert plain.topic_exclude_pairs() == []
+
+    parsed = parse_topics(
+        "topics:\n  a:\n    name: A\n    tags: [x]\n    exclude: [' n/a.md ', b.md]\n"
+        "  b:\n    name: B\n    tags: [y]\n    exclude: [c.md]\n"
+    )
+    assert parsed.topics["a"].exclude == ["n/a.md", "b.md"]
+    assert parsed.topic_exclude_pairs() == [("a", "n/a.md"), ("a", "b.md"), ("b", "c.md")]
+
+
+@pytest.mark.parametrize(
+    ("exclude", "problem"),
+    [
+        ("[a.md, ' a.md']", "Value error, duplicate excluded notes: a.md"),
+        ("[a.md, ' ']", "Value error, exclude must not hold a blank path"),
+    ],
+)
+def test_a_bad_exclude_list_is_refused(exclude: str, problem: str) -> None:
+    with pytest.raises(TopicsError) as exc_info:
+        parse_topics(f"topics:\n  a:\n    name: A\n    tags: [x]\n    exclude: {exclude}\n")
+
+    assert str(exc_info.value) == f"topics file is invalid: topics.a.exclude: {problem}"
+
+
 def test_note_with_two_tags_of_one_topic_appears_once(tmp_path: Path) -> None:
     db = tmp_path / "c.duckdb"
     topics = TopicsFile.model_validate({"topics": {"one": {"name": "One", "tags": ["x", "y"]}}})

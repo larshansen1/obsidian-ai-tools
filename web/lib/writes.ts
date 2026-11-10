@@ -44,6 +44,11 @@ export function planTopicTags(topic: string, add: string[], remove: string[]): P
   return send(`/api/topics/${encodeURIComponent(topic)}/tags`, "POST", { add, remove });
 }
 
+// Takes notes out of a topic, or puts them back: the topic's `exclude` list (#189).
+export function planTopicNotes(topic: string, exclude: string[], restore: string[]): Promise<PendingWrite> {
+  return send(`/api/topics/${encodeURIComponent(topic)}/notes`, "POST", { exclude, restore });
+}
+
 export function applyWrite(id: string): Promise<WriteOutcome> {
   return send(`/api/writes/${encodeURIComponent(id)}/apply`, "POST");
 }

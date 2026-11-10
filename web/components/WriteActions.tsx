@@ -2,7 +2,14 @@
 
 import { useState } from "react";
 import { WriteCard } from "./WriteCard";
-import { planLinks, planTopicTags, splitTags, type PendingWrite, type WriteOutcome } from "../lib/writes";
+import {
+  planLinks,
+  planTopicNotes,
+  planTopicTags,
+  splitTags,
+  type PendingWrite,
+  type WriteOutcome,
+} from "../lib/writes";
 
 // Plans a change on demand and shows its card. `onChange` runs after a write or an undo.
 // `card` options go to WriteCard; `openUrl` gets the planned files so it can link the note.
@@ -67,6 +74,42 @@ export function LinkNotes({
       {error ? <p role="alert">{error}</p> : null}
       {card}
     </div>
+  );
+}
+
+// #189: take one note out of a topic, or put it back. Saved to the topic's `exclude` list in
+// .kai/topics.yaml, so it survives a rescan. Like every write it shows a preview first.
+export function TopicNoteAction({
+  topic,
+  path,
+  title,
+  mode,
+  onChange,
+}: {
+  topic: string;
+  path: string;
+  title: string;
+  mode: "exclude" | "restore";
+  onChange: () => void;
+}) {
+  const { plan, card, error, open } = usePlanned(onChange, { compact: true });
+  const label = mode === "exclude" ? "Take out of topic" : "Put back";
+  return (
+    <span className="write-action">
+      {open ? null : (
+        <button
+          type="button"
+          aria-label={`${label}: ${title}`}
+          onClick={() =>
+            plan(() => planTopicNotes(topic, mode === "exclude" ? [path] : [], mode === "restore" ? [path] : []))
+          }
+        >
+          {label}
+        </button>
+      )}
+      {error ? <span role="alert"> {error}</span> : null}
+      {card}
+    </span>
   );
 }
 

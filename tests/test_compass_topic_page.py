@@ -210,3 +210,69 @@ def test_topic_map_signals_link_to_the_topic_page(client: TestClient) -> None:
     ]
     page = client.get(f"/topics/{signals[0]['topic_id']}?signal={signals[0]['kind']}").json()
     assert len(page["signal"]["notes"]) == signals[0]["note_count"]
+
+
+def test_recent_notes_say_which_topic_tags_they_carry(client: TestClient) -> None:
+    body = client.get("/topics/big").json()
+
+    assert [(n["path"], n["matched_tags"]) for n in body["recent_notes"]] == [
+        ("notes/evergreen/bridge.md", ["x"]),
+        ("a1.md", ["x"]),
+        ("a2.md", ["x2"]),
+        ("notes/evergreen/solo.md", ["x"]),
+        ("w1.md", ["x"]),
+        ("n1.md", ["x"]),
+        ("nodate.md", ["x"]),
+    ]
+
+
+def _retag(client: TestClient, tmp_path: Path, rel: str, tags: str, topics_yaml: str) -> None:
+    vault = tmp_path / "vault"
+    _note(vault, rel, created="2026-09-07", tags=tags)
+    (vault / ".kai" / "topics.yaml").write_text(topics_yaml, encoding="utf-8")
+    refresh_notes(
+        vault, vault / ".kai" / "compass.duckdb", load_topics(vault / ".kai" / "topics.yaml")
+    )
+
+
+def test_single_tag_notes_leave_out_a_note_with_two_of_the_tags(
+    client: TestClient, tmp_path: Path
+) -> None:
+    # a1 now carries both tags, in the note's own order x2 then x.
+    _retag(client, tmp_path, "a1.md", "[x2, x]", TOPICS_YAML)
+
+    body = client.get("/topics/big").json()
+
+    assert [(n["path"], n["matched_tags"]) for n in body["single_tag_notes"]] == [
+        ("notes/evergreen/bridge.md", ["x"]),
+        ("a2.md", ["x2"]),
+        ("notes/evergreen/solo.md", ["x"]),
+        ("w1.md", ["x"]),
+        ("n1.md", ["x"]),
+        ("nodate.md", ["x"]),
+    ]
+    # Matched tags follow the topic's order, not the note's.
+    recent = {n["path"]: n["matched_tags"] for n in body["recent_notes"]}
+    assert recent["a1.md"] == ["x", "x2"]
+    assert body["excluded_notes"] == []
+
+
+def test_excluded_notes_leave_every_list_and_count_and_are_named(
+    client: TestClient, tmp_path: Path
+) -> None:
+    excluding = TOPICS_YAML.replace(
+        "    tags: [x, x2]\n", "    tags: [x, x2]\n    exclude: [n1.md, gone.md]\n"
+    )
+    _retag(client, tmp_path, "a1.md", "[x]", excluding)
+
+    body = client.get("/topics/big").json()
+
+    assert body["stats"]["note_count"] == 6
+    assert "n1.md" not in [n["path"] for n in body["recent_notes"]]
+    assert "n1.md" not in [n["path"] for n in body["single_tag_notes"]]
+    # A path that is no longer a note keeps its place, with the path as its title.
+    assert body["excluded_notes"] == [
+        {"path": "n1.md", "title": "n1", "created": "2026-06-08"},
+        {"path": "gone.md", "title": "gone.md", "created": None},
+    ]
+    assert client.get("/topics/other").json()["excluded_notes"] == []

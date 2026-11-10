@@ -38,7 +38,7 @@ from .note_links import plan_links
 from .notes import UNMAPPED_TAGS_SQL
 from .signals import SignalKind
 from .source_ai import ActionBudget, OpenRouterSourceAi, SourceAi
-from .topic_edit import plan_topic_tags
+from .topic_edit import plan_topic_notes, plan_topic_tags
 from .topic_map import TopicMapResponse, Window, build_topic_map
 from .topic_page import TopicPageResponse, build_topic_page
 from .topics import TopicsError, load_topics
@@ -137,6 +137,12 @@ class TopicTagsRequest(BaseModel):
     remove: list[str] = Field(default_factory=list, max_length=50)
 
 
+class TopicNotesRequest(BaseModel):
+    # Vault paths of notes to take out of the topic, or to put back.
+    exclude: list[str] = Field(default_factory=list, max_length=50)
+    restore: list[str] = Field(default_factory=list, max_length=50)
+
+
 class IngestRequest(BaseModel):
     url: str = Field(min_length=1, max_length=MAX_URL)
     title: str = Field(default="", max_length=500)
@@ -202,6 +208,7 @@ class ChatHistory(BaseModel):
 
 
 _TOPIC_COUNTS_SQL = "SELECT topic, COUNT(*) FROM note_topics GROUP BY topic"
+_TOPIC_PATHS_SQL = "SELECT path FROM note_topics WHERE topic = ?"
 
 
 @contextmanager
@@ -442,6 +449,26 @@ def create_app(
             edit, summary = plan_topic_tags(
                 cfg.compass_topics_path, topic_id, request.add, request.remove
             )
+        except WriteError as e:
+            status = 404 if str(e).startswith("Unknown topic") else 400
+            raise HTTPException(status_code=status, detail=str(e)) from None
+        return plan_write(cfg.compass_db_path, "edit_topic", summary, [edit])
+
+    @app.post("/topics/{topic_id}/notes")
+    def plan_topic_notes_write(topic_id: str, request: TopicNotesRequest) -> PendingWrite:
+        cfg = current()
+        with _compass_db(cfg) as con:
+            rows = con.execute(_TOPIC_PATHS_SQL, [topic_id]).fetchall()
+        in_topic = {row[0] for row in rows}
+        strangers = [p for p in request.exclude if p.strip() not in in_topic]
+        try:
+            if strangers and topic_id in load_topics(cfg.compass_topics_path).topics:
+                raise WriteError(f"Not a note in this topic: {', '.join(strangers)}")
+            edit, summary = plan_topic_notes(
+                cfg.compass_topics_path, topic_id, request.exclude, request.restore
+            )
+        except TopicsError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from None
         except WriteError as e:
             status = 404 if str(e).startswith("Unknown topic") else 400
             raise HTTPException(status_code=status, detail=str(e)) from None

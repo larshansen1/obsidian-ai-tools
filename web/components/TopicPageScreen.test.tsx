@@ -39,9 +39,17 @@ const PAGE: TopicPage = {
     { path: "e2.md", title: "Solo", created: null, bridges: [] },
   ],
   recent_notes: [
-    { path: "a1.md", title: "A1", created: "2026-09-07", duplicates: [{ path: "a2.md", reason: "source_url" }] },
-    { path: "n1.md", title: "N1", created: "2026-06-08", duplicates: [] },
+    {
+      path: "a1.md",
+      title: "A1",
+      created: "2026-09-07",
+      duplicates: [{ path: "a2.md", reason: "source_url" }],
+      matched_tags: ["x", "x2"],
+    },
+    { path: "n1.md", title: "N1", created: "2026-06-08", duplicates: [], matched_tags: ["x"] },
   ],
+  single_tag_notes: [],
+  excluded_notes: [],
   signal: null,
 };
 
@@ -156,9 +164,52 @@ describe("TopicPageScreen", () => {
     const items = within(await screen.findByTestId("recent-notes")).getAllByRole("listitem");
 
     expect(items.map((li) => li.textContent)).toEqual([
-      "A1 (2026-09-07) Likely duplicate of a2.md (same source link)",
-      "N1 (2026-06-08)",
+      "A1 (2026-09-07) · tags: x, x2 Likely duplicate of a2.md (same source link)",
+      "N1 (2026-06-08) · tag: x",
     ]);
+  });
+
+  it("leaves out the check card when no note is here by one tag and none is taken out", async () => {
+    render(<TopicPageScreen id="big" window="30" signal={null} />);
+
+    await screen.findByTestId("recent-notes");
+    expect(screen.queryByTestId("belongs")).toBeNull();
+  });
+
+  it("lists the notes here through one tag, with the tag and a way to take each out", async () => {
+    respondWith({
+      ...PAGE,
+      single_tag_notes: [
+        { path: "z.md", title: "Zwift review", created: "2026-10-01", matched_tags: ["x"] },
+        { path: "g.md", title: "GTA 7", created: null, matched_tags: ["x2"] },
+      ],
+    });
+    render(<TopicPageScreen id="big" window="30" signal={null} />);
+
+    const list = within(await screen.findByTestId("single-tag-notes"));
+    expect(list.getByText("In this topic through one tag only (2)")).toBeInTheDocument();
+    expect(list.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Zwift review (2026-10-01) · tag: x Take out of topic",
+      "GTA 7 (no date) · tag: x2 Take out of topic",
+    ]);
+    expect(list.getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Take out of topic: Zwift review",
+      "Take out of topic: GTA 7",
+    ]);
+    expect(screen.queryByTestId("excluded-notes")).toBeNull();
+  });
+
+  it("lists the notes taken out, with a way to put each back", async () => {
+    respondWith({ ...PAGE, excluded_notes: [{ path: "z.md", title: "Zwift review", created: "2026-10-01" }] });
+    render(<TopicPageScreen id="big" window="30" signal={null} />);
+
+    const list = within(await screen.findByTestId("excluded-notes"));
+    expect(list.getByText("Taken out of this topic (1)")).toBeInTheDocument();
+    expect(list.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Zwift review (2026-10-01) Put back",
+    ]);
+    expect(list.getByRole("button").getAttribute("aria-label")).toBe("Put back: Zwift review");
+    expect(screen.queryByTestId("single-tag-notes")).toBeNull();
   });
 
   it("says so when there are no evergreens", async () => {
