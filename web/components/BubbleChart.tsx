@@ -1,4 +1,19 @@
-import { CHART, LABEL_FONT, layoutBubbles, placeLabels, type TopicStats } from "../lib/topicMap";
+import {
+  CHART,
+  LABEL_FONT,
+  layoutBubbles,
+  placeLabels,
+  sizeLegend,
+  xTicks,
+  yTicks,
+  type TopicStats,
+} from "../lib/topicMap";
+
+// Offsets below the bottom of the plot. The numbers sit under the lowest bubble and its name.
+const GRID_DROP = 46;
+const TICK_ROW = 62;
+const NAME_ROW = 82;
+const LEGEND_BASE = 150;
 
 type Props = {
   topics: TopicStats[];
@@ -12,6 +27,17 @@ export function BubbleChart({ topics, selectedId, onSelect }: Props) {
   const labels = new Map(placeLabels(bubbles, names).map((l) => [l.id, l]));
   const plotBottom = CHART.height - CHART.padBottom;
   const midX = (CHART.padLeft + CHART.width - CHART.padRight) / 2;
+  const plotLeft = CHART.padLeft - 30;
+  const plotRight = CHART.width - CHART.padRight + 24;
+  const across = xTicks(topics);
+  const up = yTicks(topics);
+  const sizes = sizeLegend(topics);
+  const legendLeft = CHART.padLeft - 24;
+  // Each legend bubble sits on one base line, its count to the right of it.
+  const marks = sizes.map((mark, i) => {
+    const before = sizes.slice(0, i).reduce((width, m) => width + 2 * m.r + 64, 0);
+    return { ...mark, cx: legendLeft + 96 + before + mark.r };
+  });
   return (
     <svg
       className="chart"
@@ -19,20 +45,68 @@ export function BubbleChart({ topics, selectedId, onSelect }: Props) {
       role="group"
       aria-label="Topic map: momentum across, evergreens up, bubble size is note count"
     >
-      <line x1={midX} x2={midX} y1={CHART.padTop - 24} y2={plotBottom} style={{ stroke: "var(--border)" }} strokeDasharray="4 4" />
-      <line x1={CHART.padLeft - 24} x2={CHART.width - CHART.padRight + 24} y1={plotBottom} y2={plotBottom} style={{ stroke: "var(--muted)" }} />
-      <text x={CHART.padLeft - 24} y={plotBottom + 56} fontSize={12} style={{ fill: "var(--muted)" }}>
+      <g data-testid="y-axis" style={{ fill: "var(--muted)" }}>
+        {up.map((tick) => (
+          <g key={tick.value}>
+            {tick.value === 0 ? null : (
+              <line x1={plotLeft} x2={plotRight} y1={tick.pos} y2={tick.pos} style={{ stroke: "var(--border)" }} />
+            )}
+            <text x={plotLeft - 8} y={tick.pos + 4} fontSize={12} textAnchor="end" data-testid="y-tick">
+              {tick.label}
+            </text>
+          </g>
+        ))}
+      </g>
+      <g data-testid="x-axis" style={{ fill: "var(--muted)" }}>
+        {across.map((tick) => (
+          <g key={tick.value}>
+            <line
+              x1={tick.pos}
+              x2={tick.pos}
+              y1={CHART.padTop - 24}
+              y2={plotBottom + GRID_DROP}
+              style={{ stroke: tick.value === 0 ? "var(--muted)" : "var(--border)" }}
+              strokeDasharray={tick.value === 0 ? undefined : "4 4"}
+            />
+            <text x={tick.pos} y={plotBottom + TICK_ROW} fontSize={12} textAnchor="middle" data-testid="x-tick">
+              {tick.label}
+            </text>
+          </g>
+        ))}
+      </g>
+      <line x1={plotLeft} x2={plotRight} y1={plotBottom} y2={plotBottom} style={{ stroke: "var(--muted)" }} />
+      <text x={legendLeft} y={plotBottom + NAME_ROW} fontSize={12} style={{ fill: "var(--muted)" }}>
         ← Slowing
       </text>
-      <text x={CHART.width - CHART.padRight + 24} y={plotBottom + 56} fontSize={12} textAnchor="end" style={{ fill: "var(--muted)" }}>
+      <text x={plotRight} y={plotBottom + NAME_ROW} fontSize={12} textAnchor="end" style={{ fill: "var(--muted)" }}>
         Growing →
       </text>
-      <text x={midX} y={plotBottom + 56} textAnchor="middle" fontSize={12} style={{ fill: "var(--muted)" }}>
+      <text x={midX} y={plotBottom + NAME_ROW} textAnchor="middle" fontSize={12} style={{ fill: "var(--muted)" }}>
         Momentum
       </text>
       <text x={16} y={16} fontSize={12} style={{ fill: "var(--muted)" }}>
         ↑ Evergreens (worked through)
       </text>
+      <g data-testid="size-legend" style={{ fill: "var(--muted)" }}>
+        <text x={legendLeft} y={plotBottom + LEGEND_BASE - 4} fontSize={12}>
+          Bubble size
+        </text>
+        {marks.map((mark) => (
+          <g key={mark.count} data-testid="size-mark">
+            <circle
+              cx={mark.cx}
+              cy={plotBottom + LEGEND_BASE - mark.r}
+              r={mark.r}
+              fillOpacity={0.2}
+              strokeWidth={1.5}
+              style={{ fill: "var(--accent)", stroke: "var(--accent)" }}
+            />
+            <text x={mark.cx + mark.r + 6} y={plotBottom + LEGEND_BASE - 4} fontSize={12}>
+              {mark.count.toLocaleString("en-US")} notes
+            </text>
+          </g>
+        ))}
+      </g>
       {[...bubbles].sort((a, b) => b.r - a.r).map((b) => {
         const name = names.get(b.id) ?? b.id;
         const selected = b.id === selectedId;

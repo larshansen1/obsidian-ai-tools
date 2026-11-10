@@ -8,8 +8,11 @@ import {
   layoutBubbles,
   placeLabels,
   LABEL_FONT,
+  sizeLegend,
   tileTrend,
   xDomain,
+  xTicks,
+  yTicks,
   type TopicStats,
 } from "./topicMap";
 
@@ -65,6 +68,77 @@ describe("xDomain", () => {
   });
 });
 
+describe("axis numbers", () => {
+  const left = CHART.padLeft;
+  const right = CHART.width - CHART.padRight;
+  const top = CHART.padTop;
+  const bottom = CHART.height - CHART.padBottom;
+
+  it("rounds the momentum axis up to the next 50, and leaves an exact 50 alone", () => {
+    expect(xDomain([topic({ momentum: 150 })])).toBe(150);
+    expect(xDomain([topic({ momentum: -150.1 })])).toBe(200);
+    expect(xDomain([topic({ momentum: 100.1 })])).toBe(150);
+  });
+
+  it("marks both ends, the halves and zero on the momentum axis", () => {
+    expect(xTicks([topic({ momentum: 40 })])).toEqual([
+      { value: -100, pos: left, label: "-100%" },
+      { value: -50, pos: left + (right - left) / 4, label: "-50%" },
+      { value: 0, pos: (left + right) / 2, label: "0%" },
+      { value: 50, pos: left + ((right - left) * 3) / 4, label: "+50%" },
+      { value: 100, pos: right, label: "+100%" },
+    ]);
+  });
+
+  it("puts the momentum marks where the bubbles with those values sit", () => {
+    const topics = [topic({ id: "a", momentum: -75 }), topic({ id: "b", momentum: 150 })];
+    const ticks = xTicks(topics);
+    const [a, b] = layoutBubbles(topics);
+    expect(ticks.map((t) => t.value)).toEqual([-150, -75, 0, 75, 150]);
+    expect(ticks[1].pos).toBe(a.x);
+    expect(ticks[4].pos).toBe(b.x);
+  });
+
+  it("counts evergreens in whole steps, at most four above zero", () => {
+    const values = (max: number) => yTicks([topic({ evergreens: max })]).map((t) => t.value);
+    expect(values(0)).toEqual([0, 1]);
+    expect(values(1)).toEqual([0, 1]);
+    expect(values(4)).toEqual([0, 1, 2, 3, 4]);
+    expect(values(5)).toEqual([0, 2, 4]);
+    expect(values(8)).toEqual([0, 2, 4, 6, 8]);
+    expect(values(9)).toEqual([0, 3, 6, 9]);
+  });
+
+  it("puts the evergreen marks where the bubbles with those counts sit", () => {
+    expect(yTicks([topic({ evergreens: 2 })])).toEqual([
+      { value: 0, pos: bottom, label: "0" },
+      { value: 1, pos: (top + bottom) / 2, label: "1" },
+      { value: 2, pos: top, label: "2" },
+    ]);
+  });
+});
+
+describe("sizeLegend", () => {
+  it("shows a round count and the biggest topic, at the radius a bubble of that size gets", () => {
+    const topics = [topic({ id: "a", note_count: 400 }), topic({ id: "b", note_count: 100 })];
+    const [, small] = layoutBubbles(topics);
+    expect(sizeLegend(topics)).toEqual([
+      { count: 100, r: small.r },
+      { count: 400, r: MAX_RADIUS },
+    ]);
+    expect(small.r).toBe(MAX_RADIUS / 2);
+  });
+
+  it("picks the largest round count that is at most half the biggest topic", () => {
+    const counts = (max: number) => sizeLegend([topic({ note_count: max })]).map((m) => m.count);
+    expect(counts(19)).toEqual([19]);
+    expect(counts(20)).toEqual([10, 20]);
+    expect(counts(499)).toEqual([100, 499]);
+    expect(counts(500)).toEqual([250, 500]);
+    expect(counts(2000)).toEqual([1000, 2000]);
+  });
+});
+
 describe("layoutBubbles", () => {
   const left = CHART.padLeft;
   const right = CHART.width - CHART.padRight;
@@ -98,6 +172,19 @@ describe("layoutBubbles", () => {
     ]);
     expect(big.r).toBe(MAX_RADIUS);
     expect(empty.r).toBe(MIN_RADIUS);
+  });
+
+  it("gives a topic with a quarter of the notes half the radius, down to the minimum", () => {
+    const [, quarter, floor, under] = layoutBubbles([
+      topic({ id: "big", note_count: 3600 }),
+      topic({ id: "quarter", note_count: 900 }),
+      topic({ id: "floor", note_count: 100 }),
+      topic({ id: "under", note_count: 99 }),
+    ]);
+    expect(quarter.r).toBe(15);
+    // 30 * sqrt(100 / 3600) is exactly the minimum radius of 5.
+    expect(floor.r).toBe(5);
+    expect(under.r).toBe(MIN_RADIUS);
   });
 
   it("marks small topics as muted and missing momentum as plotted at the centre", () => {

@@ -85,27 +85,85 @@ export type Bubble = {
   hasMomentum: boolean;
 };
 
-// Padding leaves room for the biggest bubble and its label beyond the plot edges.
-export const CHART = { width: 720, height: 480, padLeft: 72, padRight: 56, padTop: 56, padBottom: 88 };
-export const MIN_RADIUS = 6;
-export const MAX_RADIUS = 22;
+// Padding leaves room for the biggest bubble and its label beyond the plot edges. The bottom
+// also holds the momentum numbers, the axis names and the size legend (#184).
+export const CHART = { width: 720, height: 552, padLeft: 72, padRight: 56, padTop: 56, padBottom: 160 };
+// Area follows the note count, so a topic with a quarter of the notes has half the radius.
+export const MIN_RADIUS = 5;
+export const MAX_RADIUS = 30;
 export const MIN_X_RANGE = 100;
+// The momentum axis ends on a multiple of this, so its numbers are round.
+export const X_STEP = 50;
+export const MAX_Y_TICKS = 4;
 
 function scale(value: number, domainMin: number, domainMax: number, rangeMin: number, rangeMax: number): number {
   if (domainMax === domainMin) return (rangeMin + rangeMax) / 2;
   return rangeMin + ((value - domainMin) / (domainMax - domainMin)) * (rangeMax - rangeMin);
 }
 
-/** x domain is symmetric around 0 and at least ±100%, so a small topic cannot stretch the chart. */
+/**
+ * x domain is symmetric around 0 and at least ±100%, so a small topic cannot stretch the chart.
+ * It is rounded up to a multiple of X_STEP, so the axis numbers are round.
+ */
 export function xDomain(topics: TopicStats[]): number {
   const visible = topics.filter((t) => !t.below_min_notes && t.momentum !== null);
-  return Math.max(MIN_X_RANGE, ...visible.map((t) => Math.abs(t.momentum as number)));
+  const widest = Math.max(MIN_X_RANGE, ...visible.map((t) => Math.abs(t.momentum as number)));
+  return Math.ceil(widest / X_STEP) * X_STEP;
+}
+
+const maxEvergreensOf = (topics: TopicStats[]) => Math.max(1, ...topics.map((t) => t.evergreens));
+const maxCountOf = (topics: TopicStats[]) => Math.max(1, ...topics.map((t) => t.note_count));
+
+function radius(count: number, maxCount: number): number {
+  return Math.max(MIN_RADIUS, MAX_RADIUS * Math.sqrt(count / maxCount));
+}
+
+export type Tick = { value: number; pos: number; label: string };
+
+/** Five momentum marks: both ends, halfway to each, and zero in the middle. */
+export function xTicks(topics: TopicStats[]): Tick[] {
+  const limit = xDomain(topics);
+  const left = CHART.padLeft;
+  const right = CHART.width - CHART.padRight;
+  return [-limit, -limit / 2, 0, limit / 2, limit].map((value) => ({
+    value,
+    pos: scale(value, -limit, limit, left, right),
+    label: formatMomentum(value),
+  }));
+}
+
+/** Whole evergreen counts from 0 up, at most MAX_Y_TICKS steps, so no mark falls between notes. */
+export function yTicks(topics: TopicStats[]): Tick[] {
+  const max = maxEvergreensOf(topics);
+  const step = Math.ceil(max / MAX_Y_TICKS);
+  const top = CHART.padTop;
+  const bottom = CHART.height - CHART.padBottom;
+  const ticks: Tick[] = [];
+  for (let value = 0; value <= max; value += step) {
+    ticks.push({ value, pos: scale(value, 0, max, bottom, top), label: String(value) });
+  }
+  return ticks;
+}
+
+const NICE_COUNTS = [1000, 500, 250, 100, 50, 25, 10];
+
+export type SizeMark = { count: number; r: number };
+
+/**
+ * Two bubbles for the size legend: a round note count at most half the biggest topic, and the
+ * biggest topic itself. Only the biggest when no round count fits under it.
+ */
+export function sizeLegend(topics: TopicStats[]): SizeMark[] {
+  const maxCount = maxCountOf(topics);
+  const nice = NICE_COUNTS.find((n) => n * 2 <= maxCount);
+  const counts = nice === undefined ? [maxCount] : [nice, maxCount];
+  return counts.map((count) => ({ count, r: radius(count, maxCount) }));
 }
 
 export function layoutBubbles(topics: TopicStats[]): Bubble[] {
   const limit = xDomain(topics);
-  const maxEvergreens = Math.max(1, ...topics.map((t) => t.evergreens));
-  const maxCount = Math.max(1, ...topics.map((t) => t.note_count));
+  const maxEvergreens = maxEvergreensOf(topics);
+  const maxCount = maxCountOf(topics);
   const left = CHART.padLeft;
   const right = CHART.width - CHART.padRight;
   const top = CHART.padTop;
@@ -117,7 +175,7 @@ export function layoutBubbles(topics: TopicStats[]): Bubble[] {
       id: t.id,
       x: scale(clamped, -limit, limit, left, right),
       y: scale(t.evergreens, 0, maxEvergreens, bottom, top),
-      r: MIN_RADIUS + (MAX_RADIUS - MIN_RADIUS) * Math.sqrt(t.note_count / maxCount),
+      r: radius(t.note_count, maxCount),
       muted: t.below_min_notes,
       hasMomentum: t.momentum !== null,
     };

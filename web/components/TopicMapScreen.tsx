@@ -94,6 +94,11 @@ export function TopicMapScreen() {
             evergreens means you have worked the topic through. Links are shown separately. <strong>Across:</strong>{" "}
             momentum. <strong>Size:</strong> number of notes.
           </p>
+          <p className="legend" data-testid="trend-note">
+            The “Notes, last 30 days” tile compares the whole vault with the 30 days before. Momentum compares
+            each topic with its own monthly rate over the 90 days before, so the tile can be up while most topics
+            slow.
+          </p>
         </div>
         {selected ? (
           <TopicPanel topic={selected} minNotes={data.min_notes} window={window} />

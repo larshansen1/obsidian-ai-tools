@@ -163,6 +163,29 @@ describe("TopicMapScreen", () => {
     );
   });
 
+  it("puts numbers on both axes and a size legend on the chart", async () => {
+    render(<TopicMapScreen />);
+
+    await screen.findByTestId("bubble-big");
+    expect(screen.getAllByTestId("x-tick").map((t) => t.textContent)).toEqual([
+      "-200%",
+      "-100%",
+      "0%",
+      "+100%",
+      "+200%",
+    ]);
+    expect(screen.getAllByTestId("y-tick").map((t) => t.textContent)).toEqual(["0", "1"]);
+    expect(screen.getByTestId("size-legend").textContent).toBe("Bubble size6 notes");
+  });
+
+  it("says why the tile and the chart can point different ways", async () => {
+    render(<TopicMapScreen />);
+
+    expect((await screen.findByTestId("trend-note")).textContent).toBe(
+      "The “Notes, last 30 days” tile compares the whole vault with the 30 days before. Momentum compares each topic with its own monthly rate over the 90 days before, so the tile can be up while most topics slow.",
+    );
+  });
+
   it("shows the formula", async () => {
     render(<TopicMapScreen />);
 
