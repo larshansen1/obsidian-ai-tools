@@ -48,6 +48,8 @@ function mockApi(history: unknown = null) {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.startsWith("/api/ai/status")) return { ok: true, json: async () => STATUS };
     if (url.startsWith("/api/chat/history")) return { ok: true, json: async () => ({ messages: history }) };
+    // A reply with an empty stream: the question is sent and nothing comes back.
+    if (url === "/api/chat") return new Response("");
     return { ok: true, json: async () => ({}) };
   });
   vi.stubGlobal("fetch", fetchMock);
