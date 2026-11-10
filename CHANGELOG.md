@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Vault Compass menu and topic picker (#186): every screen has a header with links to the topic
+  map and Recent changes, and a "Go to topic" list of every topic with its note count (small
+  topics too). Picking one opens its topic page; on a topic page the list shows which one is
+  open.
 - Vault Compass topic map that reads at a glance (#184): numbers on both axes (momentum in
   round percent steps with a solid zero line, evergreens in whole counts), bubbles whose area
   follows the note count (radius 5 to 30, so a topic with a quarter of the notes has half the
