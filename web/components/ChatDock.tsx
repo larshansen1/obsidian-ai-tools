@@ -29,7 +29,9 @@ import {
   saveHistory,
   scopeFor,
   splitCitations,
+  starterQuestions,
   type AiStatus,
+  type ChatScope,
 } from "../lib/chat";
 
 const VaultName = createContext("");
@@ -280,6 +282,58 @@ function SpendLine({ status }: { status: AiStatus | null }) {
   );
 }
 
+// Questions to start from, shown only while the chat is empty. A click sends the question.
+function Starters({ scope }: { scope: ChatScope }) {
+  return (
+    <ThreadPrimitive.Empty>
+      <p className="muted">{scope.topic ? "Ask about this topic. For example:" : "Ask about your vault. For example:"}</p>
+      <ul className="chat-starters" aria-label="Starter questions">
+        {starterQuestions(scope).map((question) => (
+          <li key={question}>
+            <ThreadPrimitive.Suggestion prompt={question} send>
+              {question}
+            </ThreadPrimitive.Suggestion>
+          </li>
+        ))}
+      </ul>
+    </ThreadPrimitive.Empty>
+  );
+}
+
+// Empties the conversation on screen and the saved one for this topic. It asks first: the
+// history is saved, so a cleared chat does not come back.
+function ClearChat({ topic }: { topic: string | null }) {
+  const aui = useAui();
+  const empty = useAuiState((s) => s.thread.messages.length === 0);
+  const running = useAuiState((s) => s.thread.isRunning);
+  const [asking, setAsking] = useState(false);
+  if (asking) {
+    return (
+      <span className="chat-clear" role="group" aria-label="Clear chat">
+        Clear this chat?{" "}
+        <button
+          type="button"
+          onClick={() => {
+            aui.thread().reset();
+            setAsking(false);
+            void saveHistory(topic, aui.thread().export()).catch(() => undefined);
+          }}
+        >
+          Yes, clear
+        </button>{" "}
+        <button type="button" onClick={() => setAsking(false)}>
+          Cancel
+        </button>
+      </span>
+    );
+  }
+  return (
+    <button type="button" disabled={empty || running} onClick={() => setAsking(true)}>
+      Clear chat
+    </button>
+  );
+}
+
 // Renders nothing. Lives inside the provider so the thread is attached before it is used.
 function ThreadPersistence({
   topic,
@@ -366,15 +420,18 @@ export function ChatDock({ children }: { children: ReactNode }) {
           <div className="dock-main">{children}</div>
           <aside className="dock-panel" hidden={!open} aria-label="Chat">
             <ThreadPrimitive.Root className="chat-thread">
-              <SpendLine status={status} />
+              {/* The buttons sit beside the model and spend line, never on top of it (#187). */}
+              <div className="chat-head">
+                <SpendLine status={status} />
+                <div className="chat-head-actions">
+                  <ClearChat key={scope.topic ?? ""} topic={scope.topic} />
+                  <button type="button" aria-expanded={true} onClick={() => setOpen(false)}>
+                    Close chat
+                  </button>
+                </div>
+              </div>
               <ThreadPrimitive.Viewport className="chat-viewport">
-                <ThreadPrimitive.Empty>
-                  <p className="muted">
-                    {scope.topic
-                      ? "Ask about this topic, for example: what am I missing?"
-                      : "Ask about your vault."}
-                  </p>
-                </ThreadPrimitive.Empty>
+                <Starters scope={scope} />
                 <ThreadPrimitive.Messages>
                   {({ message }) => (message.role === "user" ? <UserMessage /> : <AssistantMessage />)}
                 </ThreadPrimitive.Messages>
@@ -388,14 +445,11 @@ export function ChatDock({ children }: { children: ReactNode }) {
           </aside>
         </div>
       </VaultName.Provider>
-      <button
-        type="button"
-        className={open ? "chat-toggle chat-toggle-open" : "chat-toggle"}
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        {open ? "Close chat" : "Chat"}
-      </button>
+      {open ? null : (
+        <button type="button" className="chat-toggle" aria-expanded={false} onClick={() => setOpen(true)}>
+          Chat
+        </button>
+      )}
     </AssistantRuntimeProvider>
   );
 }

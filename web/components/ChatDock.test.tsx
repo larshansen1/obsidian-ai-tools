@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CLAIMS } from "../lib/claimsFixture";
 import { job } from "../lib/ingestFixture";
@@ -25,10 +25,31 @@ const STATUS = {
   action_limit_usd: 0.25,
 };
 
+// A saved conversation with one question, in the shape the thread exports.
+const SAVED = {
+  headId: "m1",
+  messages: [
+    {
+      parentId: null,
+      message: {
+        id: "m1",
+        role: "user",
+        createdAt: "2026-11-01T10:00:00.000Z",
+        content: [{ type: "text", text: "Old question" }],
+        attachments: [],
+        metadata: { custom: {} },
+      },
+    },
+  ],
+};
+
 function mockApi(history: unknown = null) {
-  const fetchMock = vi.fn(async (url: string) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.startsWith("/api/ai/status")) return { ok: true, json: async () => STATUS };
     if (url.startsWith("/api/chat/history")) return { ok: true, json: async () => ({ messages: history }) };
+    // A reply with an empty stream: the question is sent and nothing comes back.
+    if (url === "/api/chat") return new Response("");
     return { ok: true, json: async () => ({}) };
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -62,10 +83,94 @@ describe("ChatDock", () => {
 
     expect(screen.getByRole("button", { name: "Close chat" })).toHaveAttribute("aria-expanded", "true");
     expect(await screen.findByText("m/x · this month $0.50 of $10.00")).toBeInTheDocument();
-    expect(screen.getByText("Ask about this topic, for example: what am I missing?")).toBeVisible();
+    expect(screen.getByText("Ask about this topic. For example:")).toBeVisible();
+    // One button at a time: the round "Chat" button is gone while the panel is open.
+    expect(screen.queryByRole("button", { name: "Chat" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Close chat" }));
-    expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByLabelText("Chat", { selector: "aside", exact: true })).not.toBeVisible();
+  });
+
+  it("keeps Close beside the model and spend line, in the panel's own header", async () => {
+    mockApi();
+    const { container } = render(<ChatDock>x</ChatDock>);
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+
+    const spend = await screen.findByText("m/x · this month $0.50 of $10.00");
+    const head = container.querySelector(".chat-head") as HTMLElement;
+    expect(spend.parentElement).toBe(head);
+    expect(within(head).getAllByRole("button").map((b) => b.textContent)).toEqual(["Clear chat", "Close chat"]);
+    expect(container.querySelector(".chat-toggle")).toBeNull();
+  });
+
+  it("offers starter questions for the topic in an empty chat", async () => {
+    mockApi();
+    render(<ChatDock>x</ChatDock>);
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+
+    const starters = within(await screen.findByRole("list", { name: "Starter questions" }));
+    expect(starters.getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "What am I missing on this topic?",
+      "Where do my notes on this topic disagree?",
+      "What should I read next on this topic?",
+    ]);
+    expect(screen.getByRole("button", { name: "Clear chat" })).toBeDisabled();
+  });
+
+  it("sends a starter question when it is clicked", async () => {
+    const fetchMock = mockApi();
+    render(<ChatDock>x</ChatDock>);
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/chat/history?topic=big"));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Where do my notes on this topic disagree?" }));
+
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Starter questions" })).toBeNull());
+    expect(document.querySelector(".chat-user")?.textContent).toBe("Where do my notes on this topic disagree?");
+  });
+
+  it("clears the chat on screen and the saved one, after asking", async () => {
+    const fetchMock = mockApi(SAVED);
+    render(<ChatDock>x</ChatDock>);
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    expect(await screen.findByText("Old question")).toBeVisible();
+    fetchMock.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+
+    // Nothing is cleared until the second click.
+    expect(screen.getByRole("group", { name: "Clear chat" }).textContent).toBe("Clear this chat? Yes, clear Cancel");
+    expect(screen.getByText("Old question")).toBeVisible();
+    expect(fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PUT")).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Yes, clear" }));
+
+    await waitFor(() => expect(screen.queryByText("Old question")).toBeNull());
+    expect(await screen.findByRole("list", { name: "Starter questions" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Clear chat" })).toBeDisabled();
+    const puts = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PUT");
+    expect(puts.length).toBeGreaterThanOrEqual(1);
+    for (const [url, init] of puts) {
+      expect(url).toBe("/api/chat/history?topic=big");
+      expect(JSON.parse((init as RequestInit).body as string).messages.messages).toEqual([]);
+    }
+  });
+
+  it("keeps the chat when the clear question is cancelled", async () => {
+    const fetchMock = mockApi(SAVED);
+    render(<ChatDock>x</ChatDock>);
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    await screen.findByText("Old question");
+    fetchMock.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByText("Old question")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Clear chat" })).toBeEnabled();
+    expect(screen.queryByRole("group", { name: "Clear chat" })).toBeNull();
+    expect(fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PUT")).toEqual([]);
   });
 
   it("loads the saved conversation for the topic", async () => {
@@ -84,7 +189,16 @@ describe("ChatDock", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chat" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/chat/history"));
-    expect(screen.getByText("Ask about your vault.")).toBeVisible();
+    expect(screen.getByText("Ask about your vault. For example:")).toBeVisible();
+    expect(
+      within(screen.getByRole("list", { name: "Starter questions" }))
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual([
+      "Which topic should I work on next?",
+      "Where have I read a lot and written little?",
+      "What did I add to my vault this month?",
+    ]);
   });
 });
 

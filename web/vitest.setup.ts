@@ -11,3 +11,8 @@ class ResizeObserverStub {
   disconnect(): void {}
 }
 globalThis.ResizeObserver = ResizeObserverStub;
+
+// jsdom has no element scrollTo; the chat viewport calls it when a message is added.
+if (!Element.prototype.scrollTo) {
+  Element.prototype.scrollTo = () => undefined;
+}
