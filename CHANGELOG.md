@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Vault Compass signal "Reading without writing" (#185): the topic map now flags a topic that
+  has at least the minimum number of notes and no evergreens, and links to its notes. It ranks
+  after "New and growing fast". Before, a 425-note topic with nothing written raised no signal.
 - Chrome extension "already in vault" badge (#159): the toolbar icon shows a green ✓ on pages
   already ingested and an amber … while an ingest runs, updated on tab switch and navigation and
   right after an ingest. Answers are cached for 60 s, and a stopped server is not asked again for

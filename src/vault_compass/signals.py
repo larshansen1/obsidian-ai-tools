@@ -14,7 +14,12 @@ from pydantic import BaseModel
 from .topic_notes import TopicNote, source_name
 from .topics import TopicsFile
 
-SignalKind = Literal["new_and_growing", "writing_more_than_reading", "source_concentration"]
+SignalKind = Literal[
+    "new_and_growing",
+    "reading_without_writing",
+    "writing_more_than_reading",
+    "source_concentration",
+]
 
 MAX_SIGNALS = 3
 RECENT_DAYS = 30
@@ -24,6 +29,7 @@ CONCENTRATION_PERCENT = 50
 # Shown first to last when more than MAX_SIGNALS fire.
 _KIND_ORDER: tuple[SignalKind, ...] = (
     "new_and_growing",
+    "reading_without_writing",
     "writing_more_than_reading",
     "source_concentration",
 )
@@ -31,6 +37,8 @@ _KIND_ORDER: tuple[SignalKind, ...] = (
 SIGNAL_RULES = (
     "New and growing fast: the topic's first note is under 90 days old and it has at least the "
     "minimum number of notes in the last 30 days. "
+    "Reading without writing: the topic has at least the minimum number of notes and no "
+    "evergreens. "
     "Writing more than reading: in the last 30 days you wrote more evergreens than you "
     "saved notes from a source. "
     "Source concentration: at least half of the notes with a known source come from one source."
@@ -57,6 +65,11 @@ def _new_and_growing(notes: list[TopicNote], today: date, min_notes: int) -> lis
         return []
     recent = _recent(notes, today)
     return recent if len(recent) >= min_notes else []
+
+
+def _reading_without_writing(notes: list[TopicNote]) -> list[TopicNote]:
+    # The caller has already checked the topic is big enough to count.
+    return [] if any(n.is_evergreen for n in notes) else notes
 
 
 def _writing_more_than_reading(notes: list[TopicNote], today: date) -> list[TopicNote]:
@@ -86,6 +99,8 @@ def topic_signal_notes(
         return []
     if kind == "new_and_growing":
         return _new_and_growing(notes, today, definitions.min_notes)
+    if kind == "reading_without_writing":
+        return _reading_without_writing(notes)
     if kind == "writing_more_than_reading":
         return _writing_more_than_reading(notes, today)
     return _source_concentration(notes, definitions.min_notes)
@@ -94,6 +109,8 @@ def topic_signal_notes(
 def _message(kind: SignalKind, count: int) -> str:
     if kind == "new_and_growing":
         return f"New and growing fast: {count} notes in the last 30 days."
+    if kind == "reading_without_writing":
+        return f"Reading without writing: {count} notes and no evergreens."
     if kind == "writing_more_than_reading":
         return f"Writing more than reading: {count} evergreens in the last 30 days."
     return f"Source concentration: {count} notes from one source."

@@ -12,7 +12,11 @@ describe("topicPage helpers", () => {
   });
 
   it("accepts only known signal kinds and windows", () => {
-    expect(["new_and_growing", "writing_more_than_reading", "source_concentration"].every(isSignalKind)).toBe(true);
+    expect(
+      ["new_and_growing", "reading_without_writing", "writing_more_than_reading", "source_concentration"].every(
+        isSignalKind,
+      ),
+    ).toBe(true);
     expect(isSignalKind("bogus")).toBe(false);
     expect(isSignalKind(undefined)).toBe(false);
     expect(["30", "90", "all"].every(isWindow)).toBe(true);
