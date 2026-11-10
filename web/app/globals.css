@@ -359,10 +359,59 @@ a {
   cursor: pointer;
 }
 
-.chat-toggle-open {
-  bottom: auto;
-  top: 12px;
-  right: 24px;
+.chat-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-head-actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.chat-head button,
+.chat-starters button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-head button {
+  padding: 4px 10px;
+}
+
+.chat-head button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.chat-starters {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.chat-starters button {
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.chat-starters button:hover {
+  border-color: var(--accent);
 }
 
 .chat-thread {
@@ -372,9 +421,7 @@ a {
 }
 
 .chat-spend {
-  padding: 12px 140px 8px 16px;
   font-size: 12px;
-  border-bottom: 1px solid var(--border);
 }
 
 .chat-viewport {

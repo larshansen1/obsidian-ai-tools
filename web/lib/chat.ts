@@ -11,6 +11,22 @@ export function scopeFor(pathname: string): ChatScope {
   return { screen: "other", topic: null };
 }
 
+// Shown in an empty chat (#187): a click sends the question, so nobody starts from a blank box.
+const TOPIC_STARTERS = [
+  "What am I missing on this topic?",
+  "Where do my notes on this topic disagree?",
+  "What should I read next on this topic?",
+];
+const VAULT_STARTERS = [
+  "Which topic should I work on next?",
+  "Where have I read a lot and written little?",
+  "What did I add to my vault this month?",
+];
+
+export function starterQuestions(scope: ChatScope): string[] {
+  return scope.topic === null ? VAULT_STARTERS : TOPIC_STARTERS;
+}
+
 export type TextPart = { kind: "text"; text: string };
 export type NotePart = { kind: "note"; path: string };
 

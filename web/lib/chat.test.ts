@@ -7,6 +7,7 @@ import {
   saveHistory,
   scopeFor,
   splitCitations,
+  starterQuestions,
 } from "./chat";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -20,6 +21,25 @@ describe("scopeFor", () => {
     expect(scopeFor("/")).toEqual({ screen: "topic_map", topic: null });
     expect(scopeFor("/topics")).toEqual({ screen: "other", topic: null });
     expect(scopeFor("/topics/a/b")).toEqual({ screen: "other", topic: null });
+  });
+});
+
+describe("starterQuestions", () => {
+  it("asks about the topic on a topic page", () => {
+    expect(starterQuestions({ screen: "topic_page", topic: "big" })).toEqual([
+      "What am I missing on this topic?",
+      "Where do my notes on this topic disagree?",
+      "What should I read next on this topic?",
+    ]);
+  });
+  it("asks about the whole vault where there is no topic", () => {
+    const vault = [
+      "Which topic should I work on next?",
+      "Where have I read a lot and written little?",
+      "What did I add to my vault this month?",
+    ];
+    expect(starterQuestions({ screen: "topic_map", topic: null })).toEqual(vault);
+    expect(starterQuestions({ screen: "other", topic: null })).toEqual(vault);
   });
 });
 

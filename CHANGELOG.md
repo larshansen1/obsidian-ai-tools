@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Vault Compass chat dock fixes (#187): "Close chat" now sits in the panel's own header beside
+  the model and spend line, not on top of it; an empty chat offers three starter questions (for
+  the open topic, or for the whole vault) that are sent on a click; and "Clear chat" empties
+  the conversation on screen and the saved one for that topic, after asking.
 - Vault Compass menu and topic picker (#186): every screen has a header with links to the topic
   map and Recent changes, and a "Go to topic" list of every topic with its note count (small
   topics too). Picking one opens its topic page; on a topic page the list shows which one is
