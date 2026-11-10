@@ -5,6 +5,7 @@ import { fetchAiStatus } from "../lib/chat";
 import {
   answerClaimIds,
   fetchClaims,
+  outdatedText,
   progressText,
   runClaims,
   runLabel,
@@ -68,9 +69,13 @@ export function splitCounts(view: ClaimsView): string {
   );
 }
 
-/** The page leads with the answer once a question is chosen and the notes are read (#171). */
+/**
+ * The page leads with the answer once a question is chosen and the notes are read (#171).
+ * An answer already made keeps leading when notes are added or changed: it is marked as
+ * out of date instead of hidden.
+ */
 export function answerFirst(view: ClaimsView): boolean {
-  return view.question !== null && view.next_step !== "read";
+  return view.question !== null && (view.next_step !== "read" || view.summary !== null);
 }
 
 /** "1:05" for a run that has been working for 65 seconds. */
@@ -233,12 +238,16 @@ export function ClaimsSection({
       </div>
     ) : null;
 
+  // Over an answer that new or changed notes have overtaken: say so, and offer one update.
+  const outdated = view.summary !== null ? outdatedText(view) : null;
+  const workLabel = outdated ? "Update answer" : "Sort and summarise";
+
   const agreeStep = (
     <Step number={4} title="Where they agree" state={states.agree}>
       {states.agree === "waiting" ? (
         <p className="hint">
           {leading
-            ? "Runs with Sort and summarise. It finds claims several notes make that match your evergreens."
+            ? `Runs with ${workLabel}. It finds claims several notes make that match your evergreens.`
             : "Needs step 2 first. It finds claims several notes make that match your evergreens."}
         </p>
       ) : (
@@ -349,6 +358,11 @@ export function ClaimsSection({
               {picker}
             </div>
           ) : null}
+          {outdated ? (
+            <p className="warn" role="status" data-testid="answer-outdated">
+              {outdated} Update the answer to include them.
+            </p>
+          ) : null}
           {view.summary ? (
             <>
               <SplitSummaryView summary={view.summary} vault={vault} />
@@ -367,10 +381,10 @@ export function ClaimsSection({
               </details>
             </>
           ) : null}
-          {view.next_step === "sort" || view.next_step === "analyse" ? (
+          {view.next_step !== "done" ? (
             <div className="step-action" data-testid="answer-work">
               <button type="button" className="primary" disabled={busy} onClick={() => void run(false)}>
-                {busy ? "Working…" : "Sort and summarise"}
+                {busy ? "Working…" : workLabel}
               </button>
               {busy && started !== null ? (
                 <span className="muted" role="status">
@@ -398,9 +412,14 @@ export function ClaimsSection({
         </div>
 
         <ul className="steps-done" aria-label="Finished steps">
-          <li>✓ {plural(view.read_notes, "note")} read · {plural(view.claim_count, "claim")}</li>
+          <li>
+            {view.pending_notes > 0
+              ? `${count(view.read_notes)} of ${plural(view.read_notes + view.pending_notes, "note")} read`
+              : `✓ ${plural(view.read_notes, "note")} read`}{" "}
+            · {plural(view.claim_count, "claim")}
+          </li>
           <li>✓ Question chosen</li>
-          {view.summary ? <li>✓ Sorted and summarised</li> : null}
+          {view.summary && !outdated ? <li>✓ Sorted and summarised</li> : null}
         </ul>
 
         {agreeStep}

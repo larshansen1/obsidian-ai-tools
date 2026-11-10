@@ -172,6 +172,8 @@ class ClaimsView(BaseModel):
     # True when a run would do more work: unread notes, or questions/agreement/stances missing.
     stale: bool
     next_step: NextStep
+    # True when the answer shown was made before notes were added or changed; a run updates it.
+    answer_outdated: bool = False
 
 
 class EligibleNote(NamedTuple):
@@ -459,6 +461,34 @@ def summary_view(raw: dict[str, Any], claims: list[ClaimItem]) -> SplitSummary:
     )
 
 
+class _Answer(NamedTuple):
+    """What to show for the chosen question, and whether it is the current claim set's."""
+
+    stances: dict[str, str] | None
+    summary: dict[str, Any] | None
+    # Both were made from the current claim set, so the sort step has nothing left to do.
+    current: bool
+
+
+def _saved_answer(
+    con: duckdb.DuckDBPyConnection, topic: str, chosen: str | None, sig: str
+) -> _Answer:
+    """The answer for `chosen`: the current one, else the last one saved for it.
+
+    New or changed notes move the claim set on, but the last summary stays readable until a
+    run replaces it. Without a saved summary only current stances count, as before.
+    """
+    if chosen is None:
+        return _Answer(None, None, True)
+    stances = load_analysis(con, topic, STANCES_KIND, chosen)
+    summary = load_analysis(con, topic, SUMMARY_KIND, chosen)
+    current = stances is not None and summary is not None and stances[0] == summary[0] == sig
+    if summary is None:
+        fresh = stances[1] if stances is not None and stances[0] == sig else None
+        return _Answer(fresh, None, False)
+    return _Answer(stances[1] if stances is not None else None, summary[1], current)
+
+
 def _next_step(*, pending: int, has_claims: bool, analysed: bool, sorted_: bool) -> NextStep:
     if pending or not has_claims:
         return "read"
@@ -480,15 +510,16 @@ def build_claims_view(
     evergreens = evergreen_notes(con, topic, definitions)
     agreement_sig = agreement_signature(con, claims, evergreens[:MAX_EVERGREENS])
     shared_raw = cached_for(con, topic, AGREEMENT_KIND, "", agreement_sig)
-    stances = cached_for(con, topic, STANCES_KIND, chosen, sig) if chosen else None
-    summary = cached_for(con, topic, SUMMARY_KIND, chosen, sig) if chosen else None
-    supporting, pushing, unrelated = _split_stances(claims, stances or {})
+    stances, summary, answer_current = _saved_answer(con, topic, chosen or None, sig)
+    # Only claims that were sorted count: a claim read since the answer is not "unrelated".
+    sorted_claims = [c for c in claims if c.id in stances] if stances is not None else claims
+    supporting, pushing, unrelated = _split_stances(sorted_claims, stances or {})
     shared = _shared_view(con, shared_raw or [], claims, evergreens)
     next_step = _next_step(
         pending=len(unread),
         has_claims=bool(claims),
         analysed=has_questions and shared_raw is not None,
-        sorted_=chosen is None or (stances is not None and summary is not None),
+        sorted_=answer_current,
     )
     return ClaimsView(
         topic=topic,
@@ -504,4 +535,5 @@ def build_claims_view(
         shared=shared,
         stale=next_step != "done",
         next_step=next_step,
+        answer_outdated=summary is not None and (not answer_current or bool(unread)),
     )
