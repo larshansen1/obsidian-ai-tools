@@ -67,10 +67,38 @@ describe("ChangesScreen", () => {
     render(<ChangesScreen />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, undo" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent("Undone: Topic Big: add sleep");
     await waitFor(() => expect(screen.queryByRole("button", { name: "Undo" })).toBeNull());
+    expect(screen.queryByRole("group", { name: "Undo this change" })).toBeNull();
     expect(fetchMock).toHaveBeenCalledWith("/api/writes/l2/undo", { method: "POST", headers: undefined, body: undefined });
+  });
+
+  it("asks before it undoes, and changes nothing until the answer", async () => {
+    respond(WRITES);
+    render(<ChangesScreen />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+
+    expect(screen.getByRole("group", { name: "Undo this change" }).textContent).toBe(
+      "Undo this change? Yes, undo Cancel",
+    );
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    // Only the two reads so far: the writes and the kai log.
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/writes", "/api/ingests"]);
+  });
+
+  it("keeps the change when the undo question is cancelled", async () => {
+    respond(WRITES);
+    render(<ChangesScreen />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
+    expect(screen.queryByRole("group", { name: "Undo this change" })).toBeNull();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/writes", "/api/ingests"]);
   });
 
   it("shows an undo error", async () => {
@@ -79,6 +107,7 @@ describe("ChangesScreen", () => {
     render(<ChangesScreen />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, undo" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent("This write was already undone.");
   });

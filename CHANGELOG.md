@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Vault Compass styled buttons and a confirm on Undo (#188): every button now uses the app's
+  own style in place of the browser default ("Edit topic", "Change question", "Undo" and the
+  rest), with the filled accent style for the one to click next. "Undo" on Recent changes asks
+  "Undo this change?" before it touches the vault.
 - Vault Compass chat dock fixes (#187): "Close chat" now sits in the panel's own header beside
   the model and spend line, not on top of it; an empty chat offers three starter questions (for
   the open topic, or for the whole vault) that are sent on a click; and "Clear chat" empties
