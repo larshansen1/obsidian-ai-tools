@@ -48,6 +48,8 @@ export type ClaimsView = {
   shared: SharedClaim[];
   stale: boolean;
   next_step: NextStep;
+  // The answer shown was made before notes were added or changed; a run updates it.
+  answer_outdated: boolean;
 };
 
 export type RunStatus = "done" | "needs_approval" | "not_configured" | "failed";
@@ -100,6 +102,14 @@ export function runLabel(view: ClaimsView): string | null {
   if (view.next_step === "analyse") return "Suggest questions and find agreement";
   if (view.next_step === "sort") return "Sort and summarise";
   return null;
+}
+
+/** The line over an answer made before notes were added or changed; null while it is current. */
+export function outdatedText(view: ClaimsView): string | null {
+  if (!view.answer_outdated) return null;
+  const n = view.pending_notes;
+  if (n === 0) return "Your notes changed since this answer.";
+  return `${n} new or changed ${n === 1 ? "note" : "notes"} since this answer.`;
 }
 
 export type StepState = "done" | "next" | "waiting";

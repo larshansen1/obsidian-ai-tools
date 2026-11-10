@@ -572,6 +572,7 @@ def test_view_before_any_run_is_empty_and_stale(vault: Path) -> None:
         "shared": [],
         "stale": True,
         "next_step": "read",
+        "answer_outdated": False,
     }
 
 
@@ -921,6 +922,94 @@ def test_choosing_a_question_summarises_the_split(vault: Path) -> None:
     }
     assert (view["next_step"], view["stale"]) == ("done", False)
     assert _run(_client(None))["view"] == view  # cached: no model is even created
+
+
+def _answered(client: TestClient) -> dict[str, Any]:
+    """Read, choose "Q?", sort and summarise: the view with a current answer."""
+    _run(client)
+    client.put("/topics/big/claims/question", json={"question": "Q?"})
+    return _run(client)["view"]  # type: ignore[no-any-return]
+
+
+def _sides(view: dict[str, Any]) -> tuple[list[str], list[str]]:
+    return (
+        sorted(c["text"] for c in view["supporting"]),
+        sorted(c["text"] for c in view["pushing_back"]),
+    )
+
+
+def test_a_current_answer_is_not_outdated(vault: Path) -> None:
+    view = _answered(_client(AutoModel()))
+    assert (view["answer_outdated"], view["next_step"]) == (False, "done")
+
+
+def test_a_new_note_keeps_the_answer_and_marks_it_outdated(vault: Path) -> None:
+    model = AutoModel()
+    client = _client(model)
+    answered = _answered(client)
+    _write(vault, "notes/new.md", "Agents again.")
+    _rescan(vault)
+    model.calls.clear()
+    kept = _view(client)
+    assert model.calls == []
+    assert (kept["next_step"], kept["pending_notes"], kept["read_notes"]) == ("read", 1, 3)
+    assert kept["answer_outdated"] is True
+    assert kept["summary"] == answered["summary"]
+    assert _sides(kept) == _sides(answered)
+    assert kept["unrelated"] == 4
+
+
+def test_a_changed_note_keeps_the_answer_until_a_run_updates_it(vault: Path) -> None:
+    model = AutoModel()
+    client = _client(model)
+    _answered(client)
+    _write(vault, A, "Agents plan differently now.", links="See [[ev]].")
+    _rescan(vault)
+    kept = _view(client)
+    assert (kept["next_step"], kept["pending_notes"], kept["answer_outdated"]) == ("read", 1, True)
+    assert kept["summary"]["bottom_line"] == "Split on 6 claims."
+    # The changed note's claims wait for the next read; the other notes' keep their sides.
+    assert _sides(kept) == (
+        sorted([f"{B} claim 1", "Tools help."]),
+        sorted([f"{B} claim 2", "Plans fail."]),
+    )
+    assert kept["unrelated"] == 2
+    model.calls.clear()
+    fresh = _run(client)["view"]
+    assert model.kinds() == ["extract", "questions", "agree", "confirm", "stances", "summary"]
+    assert (fresh["next_step"], fresh["answer_outdated"], fresh["pending_notes"]) == (
+        "done",
+        False,
+        0,
+    )
+    assert _sides(fresh) == (
+        sorted([f"{A} v2 claim 1", f"{B} claim 1", "Tools help."]),
+        sorted([f"{A} v2 claim 2", f"{B} claim 2", "Plans fail."]),
+    )
+
+
+def test_claims_read_after_the_answer_are_not_counted_as_unrelated(vault: Path) -> None:
+    _answered(_client(AutoModel()))
+    _write(vault, "notes/new.md", "Agents again.")
+    _rescan(vault)
+    # The new note is read, then the sort fails: 14 claims, 10 of them sorted earlier.
+    body = _run(_client(AutoModel(fail_when=lambda kind, _n: kind == "stances")))
+    view = body["view"]
+    assert body["status"] == "failed"
+    assert (view["claim_count"], view["pending_notes"], view["next_step"]) == (14, 0, "sort")
+    assert (view["unrelated"], view["answer_outdated"]) == (4, True)
+    assert view["summary"]["bottom_line"] == "Split on 6 claims."
+
+
+def test_a_question_without_a_saved_answer_shows_none_while_notes_wait(vault: Path) -> None:
+    client = _client(AutoModel())
+    _run(client)
+    client.put("/topics/big/claims/question", json={"question": "Q?"})
+    _write(vault, "notes/new.md", "Agents again.")
+    _rescan(vault)
+    view = _view(client)
+    assert (view["summary"], view["answer_outdated"], view["next_step"]) == (None, False, "read")
+    assert _sides(view) == ([], [])
 
 
 def test_a_question_no_claim_bears_on_is_summarised_without_a_model_call(vault: Path) -> None:

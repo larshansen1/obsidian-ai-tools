@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   answerClaimIds,
   fetchClaims,
+  outdatedText,
   progressText,
   runClaims,
   runLabel,
@@ -203,5 +204,26 @@ describe("answerClaimIds", () => {
 
   it("is empty with no sorted claims", () => {
     expect(answerClaimIds(view([], []))).toEqual([]);
+  });
+});
+
+describe("outdatedText", () => {
+  it("is null while the answer is current", () => {
+    expect(outdatedText({ ...CLAIMS, answer_outdated: false, pending_notes: 3 })).toBeNull();
+  });
+
+  it("counts the notes waiting to be read, singular and plural", () => {
+    expect(outdatedText({ ...CLAIMS, answer_outdated: true, pending_notes: 1 })).toBe(
+      "1 new or changed note since this answer.",
+    );
+    expect(outdatedText({ ...CLAIMS, answer_outdated: true, pending_notes: 3 })).toBe(
+      "3 new or changed notes since this answer.",
+    );
+  });
+
+  it("says the notes changed when all are read but the answer is older", () => {
+    expect(outdatedText({ ...CLAIMS, answer_outdated: true, pending_notes: 0 })).toBe(
+      "Your notes changed since this answer.",
+    );
   });
 });

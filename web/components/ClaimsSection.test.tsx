@@ -296,8 +296,53 @@ describe("ClaimsSection steps", () => {
     expect(onAnswerFirst).toHaveBeenLastCalledWith(true);
   });
 
+  it("keeps the answer on screen when notes were added, with one line and one update button", async () => {
+    const OUTDATED: ClaimsView = { ...CLAIMS, pending_notes: 2, stale: true, next_step: "read", answer_outdated: true };
+    api(OUTDATED, { view: CLAIMS });
+    const onAnswerFirst = vi.fn();
+    render(<ClaimsSection topic="big" onAnswerFirst={onAnswerFirst} />);
+
+    const answer = within(await screen.findByTestId("answer"));
+    expect(onAnswerFirst).toHaveBeenLastCalledWith(true);
+    expect(answer.getByRole("heading", { level: 2 }).textContent).toBe("Do agents need plans?");
+    expect(answer.getByTestId("answer-outdated").textContent).toBe(
+      "2 new or changed notes since this answer. Update the answer to include them.",
+    );
+    expect(answer.getByTestId("split-summary")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Read your notes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Read|Suggest|Sort/ })).toBeNull();
+    const done = screen.getByRole("list", { name: "Finished steps" });
+    expect(within(done).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "3 of 5 notes read · 3 claims",
+      "✓ Question chosen",
+    ]);
+    expect((await step("Where they agree")).getByText(/^Runs with/).textContent).toBe(
+      "Runs with Update answer. It finds claims several notes make that match your evergreens.",
+    );
+
+    fireEvent.click(answer.getByRole("button", { name: "Update answer" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith("/api/topics/big/claims/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved: false }),
+      }),
+    );
+    await waitFor(() => expect(screen.queryByTestId("answer-outdated")).toBeNull());
+    expect(screen.queryByRole("button", { name: "Update answer" })).toBeNull();
+  });
+
+  it("shows no out-of-date line over a current answer", async () => {
+    api(CLAIMS);
+    render(<ClaimsSection topic="big" />);
+
+    await screen.findByTestId("answer");
+    expect(screen.queryByTestId("answer-outdated")).toBeNull();
+  });
+
   it("offers Read more notes when notes were added after the first read", async () => {
-    api({ ...CLAIMS, pending_notes: 2, next_step: "read" });
+    api({ ...CHOSEN, pending_notes: 2, next_step: "read" });
     render(<ClaimsSection topic="big" />);
 
     expect(await (await step("Read your notes")).findByRole("button", { name: "Read more notes" })).toBeEnabled();
