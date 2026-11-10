@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Vault Compass topic map that reads at a glance (#184): numbers on both axes (momentum in
+  round percent steps with a solid zero line, evergreens in whole counts), bubbles whose area
+  follows the note count (radius 5 to 30, so a topic with a quarter of the notes has half the
+  radius), a size legend, and one line that says why the "Notes, last 30 days" tile can be up
+  while most topics slow. The momentum axis now ends on a multiple of 50%.
 - Vault Compass says why a run is still offered next to a finished answer (#183). When the
   answer is up to date but the suggested questions or "Where they agree" are behind, the button
   is named after that step ("Find agreement", "Suggest questions") and one line above it says
