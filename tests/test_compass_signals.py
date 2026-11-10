@@ -6,6 +6,7 @@ import pytest
 
 from vault_compass.signals import (
     MAX_SIGNALS,
+    SIGNAL_RULES,
     Signal,
     find_signals,
     topic_signal_notes,
@@ -84,6 +85,79 @@ def test_new_and_growing_ignores_undated_notes() -> None:
         "c",
         "d",
     ]
+
+
+def test_reading_without_writing_fires_at_min_notes_with_no_evergreens() -> None:
+    # Old and undated notes count too: the rule is about the whole topic, not the last 30 days.
+    notes = [_n("a", date(2020, 1, 1)), _n("b", None), _n("c")]
+
+    assert _paths(topic_signal_notes("reading_without_writing", notes, _defs("t"), TODAY)) == [
+        "a",
+        "b",
+        "c",
+    ]
+
+
+def test_reading_without_writing_needs_min_notes() -> None:
+    notes = [_n("a"), _n("b")]
+
+    assert topic_signal_notes("reading_without_writing", notes, _defs("t"), TODAY) == []
+
+
+def test_reading_without_writing_stops_at_the_first_evergreen() -> None:
+    notes = [_n("a"), _n("b"), _n("c"), _n("e", date(2020, 1, 1), evergreen=True)]
+
+    assert topic_signal_notes("reading_without_writing", notes, _defs("t"), TODAY) == []
+
+
+def test_find_signals_reading_without_writing_message_and_rank() -> None:
+    by_topic = {
+        "read": [
+            _n("r1", date(2026, 1, 1)),
+            _n("r2", date(2026, 1, 2)),
+            _n("r3", date(2026, 1, 3)),
+        ],
+        "wrote": [_n(f"w{i}", evergreen=True) for i in range(3)] + [_n("wx", date(2026, 1, 1))],
+        "fresh": [_n(f"f{i}", date(2026, 9, 7 + i), evergreen=True) for i in range(3)],
+    }
+
+    signals = find_signals(by_topic, _defs("read", "wrote", "fresh"), TODAY)
+
+    assert signals == [
+        Signal(
+            topic_id="fresh",
+            topic_name="FRESH",
+            kind="new_and_growing",
+            message="New and growing fast: 3 notes in the last 30 days.",
+            note_count=3,
+        ),
+        Signal(
+            topic_id="read",
+            topic_name="READ",
+            kind="reading_without_writing",
+            message="Reading without writing: 3 notes and no evergreens.",
+            note_count=3,
+        ),
+        Signal(
+            topic_id="wrote",
+            topic_name="WROTE",
+            kind="writing_more_than_reading",
+            message="Writing more than reading: 3 evergreens in the last 30 days.",
+            note_count=3,
+        ),
+    ]
+
+
+def test_signal_rules_text_names_all_four_rules() -> None:
+    assert SIGNAL_RULES == (
+        "New and growing fast: the topic's first note is under 90 days old and it has at least "
+        "the minimum number of notes in the last 30 days. "
+        "Reading without writing: the topic has at least the minimum number of notes and no "
+        "evergreens. "
+        "Writing more than reading: in the last 30 days you wrote more evergreens than you "
+        "saved notes from a source. "
+        "Source concentration: at least half of the notes with a known source come from one source."
+    )
 
 
 def test_writing_more_than_reading_needs_strictly_more_evergreens() -> None:

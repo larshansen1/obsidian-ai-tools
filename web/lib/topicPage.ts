@@ -1,6 +1,10 @@
 import type { TopicStats, Window } from "./topicMap";
 
-export type SignalKind = "new_and_growing" | "writing_more_than_reading" | "source_concentration";
+export type SignalKind =
+  | "new_and_growing"
+  | "reading_without_writing"
+  | "writing_more_than_reading"
+  | "source_concentration";
 
 export type Signal = {
   topic_id: string;
@@ -25,7 +29,12 @@ export type TopicPage = {
   signal: { kind: SignalKind; rules: string; notes: NoteRef[] } | null;
 };
 
-export const SIGNAL_KINDS: SignalKind[] = ["new_and_growing", "writing_more_than_reading", "source_concentration"];
+export const SIGNAL_KINDS: SignalKind[] = [
+  "new_and_growing",
+  "reading_without_writing",
+  "writing_more_than_reading",
+  "source_concentration",
+];
 
 export const DUPLICATE_REASONS: Record<string, string> = {
   source_url: "same source link",
