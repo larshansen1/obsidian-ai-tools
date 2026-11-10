@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   answerClaimIds,
   fetchClaims,
+  openWork,
   outdatedText,
   progressText,
   runClaims,
@@ -204,6 +205,39 @@ describe("answerClaimIds", () => {
 
   it("is empty with no sorted claims", () => {
     expect(answerClaimIds(view([], []))).toEqual([]);
+  });
+});
+
+describe("openWork", () => {
+  const open = { ...CLAIMS, next_step: "analyse" as const, stale: true, claim_count: 1234 };
+
+  it("is null when nothing is open, the answer is outdated, or there is no answer", () => {
+    expect(openWork(CLAIMS)).toBeNull();
+    expect(openWork({ ...open, answer_outdated: true })).toBeNull();
+    expect(openWork({ ...open, summary: null })).toBeNull();
+    expect(openWork({ ...open, next_step: "sort" })).toBeNull();
+    expect(openWork({ ...open, next_step: "read" })).toBeNull();
+  });
+
+  it("names the agreement check when only that is behind", () => {
+    expect(openWork({ ...open, agreement_current: false })).toEqual({
+      label: "Find agreement",
+      why: "Your answer is up to date. “Where they agree” has not been checked against your current claims and evergreens. It goes through 1,234 claims.",
+    });
+  });
+
+  it("names the questions when only they are behind", () => {
+    expect(openWork({ ...open, questions_current: false, claim_count: 1 })).toEqual({
+      label: "Suggest questions",
+      why: "Your answer is up to date. The suggested questions are older than your notes. It goes through 1 claim.",
+    });
+  });
+
+  it("names both when both are behind", () => {
+    expect(openWork({ ...open, questions_current: false, agreement_current: false })).toEqual({
+      label: "Suggest questions and find agreement",
+      why: "Your answer is up to date. The suggested questions and “Where they agree” are older than your notes. It goes through 1,234 claims.",
+    });
   });
 });
 

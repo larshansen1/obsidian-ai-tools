@@ -197,6 +197,28 @@ describe("ClaimsSection steps", () => {
     expect(answer.getByRole("button", { name: "Sort and summarise" })).toBeEnabled();
   });
 
+  it("says why a button is still offered next to an answer that is up to date", async () => {
+    api({ ...CLAIMS, next_step: "analyse", stale: true, agreement_current: false });
+    render(<ClaimsSection topic="big" />);
+
+    const work = within(await screen.findByTestId("answer-work"));
+    expect(work.getByTestId("answer-open-step").textContent).toBe(
+      `Your answer is up to date. “Where they agree” has not been checked against your current claims and evergreens. It goes through ${CLAIMS.claim_count} claims.`,
+    );
+    expect(work.getByRole("button", { name: "Find agreement" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Sort and summarise" })).toBeNull();
+    expect(screen.queryByTestId("answer-outdated")).toBeNull();
+  });
+
+  it("shows no button and no line when every step is done", async () => {
+    api(CLAIMS);
+    render(<ClaimsSection topic="big" />);
+
+    await screen.findByTestId("answer");
+    expect(screen.queryByTestId("answer-work")).toBeNull();
+    expect(screen.queryByTestId("answer-open-step")).toBeNull();
+  });
+
   it("runs the open steps when a question is chosen while the analysis is out of date", async () => {
     api({ ...ASKED, next_step: "analyse" }, { view: CLAIMS });
     render(<ClaimsSection topic="big" />);
