@@ -573,6 +573,8 @@ def test_view_before_any_run_is_empty_and_stale(vault: Path) -> None:
         "stale": True,
         "next_step": "read",
         "answer_outdated": False,
+        "questions_current": False,
+        "agreement_current": False,
     }
 
 
@@ -941,6 +943,31 @@ def _sides(view: dict[str, Any]) -> tuple[list[str], list[str]]:
 def test_a_current_answer_is_not_outdated(vault: Path) -> None:
     view = _answered(_client(AutoModel()))
     assert (view["answer_outdated"], view["next_step"]) == (False, "done")
+
+
+def _open_work(view: dict[str, Any]) -> tuple[bool, bool, bool, str]:
+    return (
+        view["answer_outdated"],
+        view["questions_current"],
+        view["agreement_current"],
+        view["next_step"],
+    )
+
+
+def test_a_finished_topic_has_current_questions_and_agreement(vault: Path) -> None:
+    assert _open_work(_answered(_client(AutoModel()))) == (False, True, True, "done")
+
+
+def test_a_new_evergreen_leaves_the_answer_current_and_only_agreement_open(vault: Path) -> None:
+    client = _client(AutoModel())
+    answered = _answered(client)
+    _write(vault, "notes/evergreen/ev2.md", "Agents need memory.")
+    _rescan(vault)
+
+    view = _view(client)
+
+    assert _open_work(view) == (False, True, False, "analyse")
+    assert (view["summary"], _sides(view)) == (answered["summary"], _sides(answered))
 
 
 def test_a_new_note_keeps_the_answer_and_marks_it_outdated(vault: Path) -> None:

@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Vault Compass says why a run is still offered next to a finished answer (#183). When the
+  answer is up to date but the suggested questions or "Where they agree" are behind, the button
+  is named after that step ("Find agreement", "Suggest questions") and one line above it says
+  what is behind and how many claims the run goes through. The claims view reports this as
+  `questions_current` and `agreement_current`.
 - Vault Compass signal "Reading without writing" (#185): the topic map now flags a topic that
   has at least the minimum number of notes and no evergreens, and links to its notes. It ranks
   after "New and growing fast". Before, a 425-note topic with nothing written raised no signal.

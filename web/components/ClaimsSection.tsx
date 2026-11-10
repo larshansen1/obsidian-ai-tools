@@ -5,6 +5,7 @@ import { fetchAiStatus } from "../lib/chat";
 import {
   answerClaimIds,
   fetchClaims,
+  openWork,
   outdatedText,
   progressText,
   runClaims,
@@ -240,7 +241,9 @@ export function ClaimsSection({
 
   // Over an answer that new or changed notes have overtaken: say so, and offer one update.
   const outdated = view.summary !== null ? outdatedText(view) : null;
-  const workLabel = outdated ? "Update answer" : "Sort and summarise";
+  // Next to an answer that is up to date, the button is named after the step still open (#183).
+  const open = openWork(view);
+  const workLabel = outdated ? "Update answer" : (open?.label ?? "Sort and summarise");
 
   const agreeStep = (
     <Step number={4} title="Where they agree" state={states.agree}>
@@ -383,6 +386,11 @@ export function ClaimsSection({
           ) : null}
           {view.next_step !== "done" ? (
             <div className="step-action" data-testid="answer-work">
+              {open ? (
+                <p className="hint" data-testid="answer-open-step">
+                  {open.why}
+                </p>
+              ) : null}
               <button type="button" className="primary" disabled={busy} onClick={() => void run(false)}>
                 {busy ? "Working…" : workLabel}
               </button>

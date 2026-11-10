@@ -44,4 +44,6 @@ export const CLAIMS: ClaimsView = {
   stale: false,
   next_step: "done",
   answer_outdated: false,
+  questions_current: true,
+  agreement_current: true,
 };

@@ -174,6 +174,10 @@ class ClaimsView(BaseModel):
     next_step: NextStep
     # True when the answer shown was made before notes were added or changed; a run updates it.
     answer_outdated: bool = False
+    # False when the suggested questions, or "Where they agree", were made before the claims or
+    # evergreens changed. The page names the one that is behind when it offers a run.
+    questions_current: bool = True
+    agreement_current: bool = True
 
 
 class EligibleNote(NamedTuple):
@@ -536,4 +540,6 @@ def build_claims_view(
         stale=next_step != "done",
         next_step=next_step,
         answer_outdated=summary is not None and (not answer_current or bool(unread)),
+        questions_current=has_questions,
+        agreement_current=shared_raw is not None,
     )

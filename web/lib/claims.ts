@@ -50,6 +50,9 @@ export type ClaimsView = {
   next_step: NextStep;
   // The answer shown was made before notes were added or changed; a run updates it.
   answer_outdated: boolean;
+  // False when the suggested questions, or "Where they agree", are older than the claims or evergreens.
+  questions_current: boolean;
+  agreement_current: boolean;
 };
 
 export type RunStatus = "done" | "needs_approval" | "not_configured" | "failed";
@@ -110,6 +113,34 @@ export function outdatedText(view: ClaimsView): string | null {
   const n = view.pending_notes;
   if (n === 0) return "Your notes changed since this answer.";
   return `${n} new or changed ${n === 1 ? "note" : "notes"} since this answer.`;
+}
+
+export type OpenWork = { label: string; why: string };
+
+/**
+ * What is still open next to an answer that is up to date (#183): the button's name and one
+ * line on why it is there. Null when the answer itself needs work, or nothing is open.
+ */
+export function openWork(view: ClaimsView): OpenWork | null {
+  if (view.summary === null || view.answer_outdated || view.next_step !== "analyse") return null;
+  const size = `It goes through ${view.claim_count.toLocaleString("en-US")} ${view.claim_count === 1 ? "claim" : "claims"}.`;
+  const lead = "Your answer is up to date.";
+  if (view.questions_current) {
+    return {
+      label: "Find agreement",
+      why: `${lead} “Where they agree” has not been checked against your current claims and evergreens. ${size}`,
+    };
+  }
+  if (view.agreement_current) {
+    return {
+      label: "Suggest questions",
+      why: `${lead} The suggested questions are older than your notes. ${size}`,
+    };
+  }
+  return {
+    label: "Suggest questions and find agreement",
+    why: `${lead} The suggested questions and “Where they agree” are older than your notes. ${size}`,
+  };
 }
 
 export type StepState = "done" | "next" | "waiting";
