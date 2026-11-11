@@ -62,6 +62,7 @@ def flow_list(tags: list[str], column: int) -> str:
 
 
 def _child(node: yaml.Node | None, key: str) -> yaml.Node:
+    # None is what yaml.compose gives for an empty file: no mapping, so no key.
     if not isinstance(node, yaml.MappingNode):
         raise KeyError(key)
     for k, v in node.value:
