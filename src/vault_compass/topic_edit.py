@@ -61,7 +61,7 @@ def flow_list(tags: list[str], column: int) -> str:
     return "\n".join(lines)
 
 
-def _child(node: yaml.Node, key: str) -> yaml.Node:
+def _child(node: yaml.Node | None, key: str) -> yaml.Node:
     if not isinstance(node, yaml.MappingNode):
         raise KeyError(key)
     for k, v in node.value:
