@@ -34,6 +34,7 @@ function reply(body: unknown, ok = true, status = 200): Reply {
 // Answers in order, except the kai log, which has its own answer.
 let queue: Reply[] = [];
 let ingests: Reply = reply({ jobs: [], per_month: [] });
+let aiStatus: Reply = reply({ vault_name: "My Vault" });
 
 function respond(body: unknown, ok = true, status = 200) {
   queue.push(reply(body, ok, status));
@@ -42,8 +43,12 @@ function respond(body: unknown, ok = true, status = 200) {
 beforeEach(() => {
   queue = [];
   ingests = reply({ jobs: [], per_month: [] });
+  aiStatus = reply({ vault_name: "My Vault" });
   fetchMock.mockReset();
-  fetchMock.mockImplementation((url: string) => Promise.resolve(url === "/api/ingests" ? ingests : queue.shift()));
+  fetchMock.mockImplementation((url: string) => {
+    if (url === "/api/ai/status") return Promise.resolve(aiStatus);
+    return Promise.resolve(url === "/api/ingests" ? ingests : queue.shift());
+  });
   vi.stubGlobal("fetch", fetchMock);
 });
 
@@ -85,8 +90,34 @@ describe("ChangesScreen", () => {
       "Undo this change? Yes, undo Cancel",
     );
     expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
-    // Only the two reads so far: the writes and the kai log.
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/writes", "/api/ingests"]);
+    // Only the reads so far: the writes, the kai log and the vault name.
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/writes", "/api/ingests", "/api/ai/status"]);
+  });
+
+  it("links each changed note to Obsidian, but not settings files", async () => {
+    respond(WRITES);
+    render(<ChangesScreen />);
+
+    const changes = within(await screen.findByTestId("changes"));
+    await waitFor(() => expect(changes.getAllByRole("link")).toHaveLength(2));
+
+    const links = changes.getAllByRole("link");
+    expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+      ["notes/a.md", "obsidian://open?vault=My%20Vault&file=notes%2Fa"],
+      ["notes/b.md", "obsidian://open?vault=My%20Vault&file=notes%2Fb"],
+    ]);
+    expect(screen.getByText(/\.kai\/topics\.yaml/).closest("a")).toBeNull();
+  });
+
+  it("shows plain file names when the vault name is not known", async () => {
+    aiStatus = reply({ detail: "no" }, false, 500);
+    respond(WRITES);
+    render(<ChangesScreen />);
+
+    const changes = within(await screen.findByTestId("changes"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/ai/status"));
+
+    expect(changes.queryAllByRole("link")).toHaveLength(0);
   });
 
   it("keeps the change when the undo question is cancelled", async () => {
@@ -98,7 +129,7 @@ describe("ChangesScreen", () => {
 
     expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
     expect(screen.queryByRole("group", { name: "Undo this change" })).toBeNull();
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/writes", "/api/ingests"]);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/writes", "/api/ingests", "/api/ai/status"]);
   });
 
   it("shows an undo error", async () => {
@@ -147,6 +178,27 @@ describe("ChangesScreen", () => {
     ]);
     expect(fetchMock).toHaveBeenCalledWith("/api/ingests", { method: "GET", headers: undefined, body: undefined });
     vi.useRealTimers();
+  });
+
+  it("links an ingested title to its note, and leaves a failed one as text", async () => {
+    ingests = reply({
+      jobs: [
+        job({ id: "j2", title: "Talk", status: "failed", message: "kai could not ingest it: 404" }),
+        job({ id: "j1", title: "Paper", status: "done", message: "Added", note_path: "inbox/Paper.md" }),
+      ],
+      per_month: [],
+    });
+    respond([]);
+    render(<ChangesScreen />);
+
+    const sent = within(await screen.findByTestId("ingests"));
+    await waitFor(() => expect(sent.getAllByRole("link")).toHaveLength(1));
+
+    expect(sent.getByRole("link", { name: "Paper" })).toHaveAttribute(
+      "href",
+      "obsidian://open?vault=My%20Vault&file=inbox%2FPaper",
+    );
+    expect(sent.queryByRole("link", { name: "Talk" })).toBeNull();
   });
 
   it("counts zero in a month with no new notes, and says when nothing was sent", async () => {

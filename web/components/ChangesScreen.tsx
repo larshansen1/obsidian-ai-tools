@@ -1,14 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import { fetchAiStatus, noteUrl } from "../lib/chat";
 import { fetchIngests, monthCount, thisMonth, type IngestLog } from "../lib/ingest";
 import { fetchWrites, formatWhen, undoWrite, type LoggedWrite } from "../lib/writes";
 
 const STATUS = { queued: "Queued", done: "Done", failed: "Failed" } as const;
 
+// A vault note opens in Obsidian. Settings files under .kai are not notes, and without the vault
+// name there is nowhere to link to, so both stay plain text.
+function isNote(path: string): boolean {
+  return path.endsWith(".md") && !path.startsWith(".kai/");
+}
+
+function NoteLink({ path, text, vault }: { path: string; text: string; vault: string }) {
+  return vault && isNote(path) ? <a href={noteUrl(vault, path)}>{text}</a> : <>{text}</>;
+}
+
 // Sources sent to kai (W3), with the "ingested from app suggestions per month" measure.
-function SentToKai({ log }: { log: IngestLog }) {
+function SentToKai({ log, vault }: { log: IngestLog; vault: string }) {
   const count = monthCount(log, thisMonth());
   return (
     <section className="card" aria-label="Sent to kai">
@@ -27,7 +38,7 @@ function SentToKai({ log }: { log: IngestLog }) {
         <ul className="list" data-testid="ingests">
           {log.jobs.map((j) => (
             <li key={j.id}>
-              <strong>{j.title}</strong>{" "}
+              <strong>{j.note_path ? <NoteLink path={j.note_path} text={j.title} vault={vault} /> : j.title}</strong>{" "}
               <span className={j.status === "failed" ? "warn" : "muted"}>
                 {STATUS[j.status]}: {j.message} · {formatWhen(j.requested_at)}
               </span>
@@ -49,6 +60,7 @@ export function ChangesScreen() {
   // Bumped after an undo so the list is read again.
   const [version, setVersion] = useState(0);
   const [ingests, setIngests] = useState<IngestLog | null>(null);
+  const [vault, setVault] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +81,18 @@ export function ChangesScreen() {
     fetchIngests()
       .then((next) => {
         if (!cancelled) setIngests(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAiStatus()
+      .then((status) => {
+        if (!cancelled) setVault(status.vault_name);
       })
       .catch(() => undefined);
     return () => {
@@ -106,7 +130,13 @@ export function ChangesScreen() {
             <li key={w.id} className="change">
               <strong>{w.summary}</strong>{" "}
               <span className="muted">
-                {formatWhen(w.written_at)} · {w.files.join(", ")}
+                {formatWhen(w.written_at)} ·{" "}
+                {w.files.map((file, i) => (
+                  <Fragment key={file}>
+                    {i > 0 ? ", " : ""}
+                    <NoteLink path={file} text={file} vault={vault} />
+                  </Fragment>
+                ))}
               </span>{" "}
               {w.undone ? (
                 <span className="muted">(undone)</span>
@@ -129,7 +159,7 @@ export function ChangesScreen() {
           ))}
         </ul>
       )}
-      {ingests ? <SentToKai log={ingests} /> : null}
+      {ingests ? <SentToKai log={ingests} vault={vault} /> : null}
     </main>
   );
 }
