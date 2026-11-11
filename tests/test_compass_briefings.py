@@ -19,11 +19,13 @@ from vault_compass import cli as compass_cli
 from vault_compass.app import create_app
 from vault_compass.briefing_parse import BriefingLink
 from vault_compass.briefings import (
+    MAX_ADDED,
     MAX_CHECKS,
     OFF_MESSAGE,
     PULL_EVERY,
     PULL_TIMEOUT_S,
     RECHECK_AFTER,
+    BriefingAdded,
     BriefingGroup,
     BriefingList,
     BriefingRow,
@@ -60,6 +62,11 @@ min_notes: 1
 trend_start: 2026-04-01
 ai_exclude_folders: []
 """
+# The columns of kai's ingest_jobs table that the list reads.
+INGEST_JOBS_DDL = (
+    "CREATE TABLE ingest_jobs (url VARCHAR, status VARCHAR, message VARCHAR, "
+    "note_path VARCHAR, finished_at TIMESTAMP)"
+)
 RESPONSE = "# Briefing\n\nPrompt link: https://prompt.example.org/x\n\n## Response\n\n"
 
 
@@ -410,10 +417,10 @@ def test_a_link_kai_finished_ingesting_leaves_the_list(paths: SimpleNamespace) -
     )
     _refresh(paths.db, paths.folder, Checker())
     con = duckdb.connect(str(paths.db))
-    con.execute("CREATE TABLE ingest_jobs (url VARCHAR, status VARCHAR)")
+    con.execute(INGEST_JOBS_DDL)
     con.execute(
-        "INSERT INTO ingest_jobs VALUES ('https://example.com/a', 'done'), "
-        "('https://example.com/b', 'failed')"
+        "INSERT INTO ingest_jobs (url, status, message) VALUES "
+        "('https://example.com/a', 'done', 'Added'), ('https://example.com/b', 'failed', 'No')"
     )
     con.close()
 
@@ -425,6 +432,73 @@ def test_a_link_kai_finished_ingesting_leaves_the_list(paths: SimpleNamespace) -
         ("https://example.com/a", "ingested"),
         ("https://example.com/b", "new"),
     ]
+
+
+def test_links_kai_added_stay_in_the_list_response_with_their_note(
+    paths: SimpleNamespace,
+) -> None:
+    _write(
+        paths.folder,
+        "2026-11-01.md",
+        "[Older](https://example.com/a)",
+        "[Newer](https://example.com/b)",
+        "[Never](https://example.com/c)",
+    )
+    _refresh(paths.db, paths.folder, Checker())
+    con = duckdb.connect(str(paths.db))
+    con.execute(INGEST_JOBS_DDL)
+    con.execute(
+        "INSERT INTO ingest_jobs VALUES "
+        "('https://example.com/a', 'done', 'Added A', 'inbox/a.md', '2026-11-10 10:00:00'), "
+        "('https://example.com/a', 'done', 'Added A again', 'inbox/a2.md', '2026-11-10 11:00:00'), "
+        "('https://example.com/b', 'done', 'Added B', NULL, '2026-11-10 12:00:00'), "
+        "('https://example.com/c', 'failed', 'Could not read it', NULL, '2026-11-10 13:00:00'), "
+        "('https://example.com/other', 'done', 'Not from a briefing', 'x.md', "
+        "'2026-11-10 14:00:00')"
+    )
+    con.close()
+
+    added = build_list(paths.db, _topics()).added
+
+    assert added == [
+        BriefingAdded(
+            id=link_id("https://example.com/b"),
+            title="Newer",
+            message="Added B",
+            note_path=None,
+            finished_at=datetime(2026, 11, 10, 12, 0, 0, tzinfo=UTC),
+        ),
+        BriefingAdded(
+            id=link_id("https://example.com/a"),
+            title="Older",
+            message="Added A again",
+            note_path="inbox/a2.md",
+            finished_at=datetime(2026, 11, 10, 11, 0, 0, tzinfo=UTC),
+        ),
+    ]
+
+
+def test_no_links_were_added_without_an_ingest_table(paths: SimpleNamespace) -> None:
+    _write(paths.folder, "2026-11-01.md", "[A](https://example.com/a)")
+    _refresh(paths.db, paths.folder, Checker())
+
+    assert build_list(paths.db, _topics()).added == []
+
+
+def test_the_added_list_is_cut_at_its_limit(paths: SimpleNamespace) -> None:
+    lines = [f"[L{i}](https://example.com/{i})" for i in range(MAX_ADDED + 2)]
+    _write(paths.folder, "2026-11-01.md", *lines)
+    _refresh(paths.db, paths.folder, Checker())
+    con = duckdb.connect(str(paths.db))
+    con.execute(INGEST_JOBS_DDL)
+    for i in range(MAX_ADDED + 2):
+        con.execute(
+            "INSERT INTO ingest_jobs VALUES (?, 'done', 'Added', NULL, '2026-11-10 10:00:00')",
+            [f"https://example.com/{i}"],
+        )
+    con.close()
+
+    assert len(build_list(paths.db, _topics()).added) == MAX_ADDED
 
 
 def test_the_list_is_empty_without_a_database_or_table(paths: SimpleNamespace) -> None:
@@ -848,7 +922,12 @@ def test_api_dismiss_of_an_unknown_link_is_404(vault: Path, tmp_path: Path) -> N
 def test_api_list_is_empty_before_any_pull(vault: Path, tmp_path: Path) -> None:
     api = _api(_settings(vault, tmp_path / "briefings"))
 
-    assert api.get("/briefings").json() == {"groups": [], "pending_checks": 0, "last_pull": None}
+    assert api.get("/briefings").json() == {
+        "groups": [],
+        "added": [],
+        "pending_checks": 0,
+        "last_pull": None,
+    }
 
 
 def test_api_list_reports_a_broken_topics_file(vault: Path, tmp_path: Path) -> None:

@@ -227,6 +227,9 @@ One-way flow: this machine pulls, the server gets no access and nothing from the
 - Topics: a link joins the topic with the most tags found as whole words in its title; no match
   puts it in "No topic". Rough on purpose. Measure how many land in "No topic" on real data before
   asking for a model.
+- Added links: `GET /briefings` also returns `added`, the list's links that kai finished
+  ingesting (newest first, up to 100, from `ingest_jobs`), so the "Added to the vault" box with its
+  "Open note" links survives a page refresh. The page merges this visit's links with these.
 - Online check: a link is shown only after `url_exists` passes. Up to 500 links are checked per
   run, newest first; the rest wait for the next run. A failed check is repeated after 7 days.
 - **What is untrusted and what leaves the machine.** Briefing text is untrusted: the agent reads

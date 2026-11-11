@@ -26,6 +26,7 @@ const LIST: BriefingList = {
     { topic_id: "ai", topic_name: "AI", links: [row("a"), row("b", { section: null, times_seen: 1 })] },
     { topic_id: null, topic_name: null, links: [row("c")] },
   ],
+  added: [],
   pending_checks: 0,
   last_pull: "2026-11-10T12:00:00Z",
 };
@@ -157,6 +158,27 @@ describe("BriefingsScreen", () => {
     expect(usage()).toContainEqual({ kind: "action", name: "briefing_ingest", detail: "https://example.com/a" });
   });
 
+  it("shows the links added earlier, with their notes, after a refresh", async () => {
+    const earlier = [
+      { id: "z", title: "Old one", message: "Added to the vault: Old one", note_path: "inbox/Old one.md", finished_at: "2026-11-10T10:00:00Z" },
+      { id: "y", title: "No note", message: "Already in the vault", note_path: null, finished_at: null },
+    ];
+    on("/api/briefings", reply({ ...LIST, added: earlier }));
+    render(<BriefingsScreen />);
+
+    const added = await screen.findByRole("list", { name: "Added to the vault" });
+    await waitFor(() => expect(within(added).getAllByRole("link", { name: "Open note" })).toHaveLength(1));
+
+    expect(within(added).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Old one Added to the vault: Old one Open note",
+      "No note Already in the vault ",
+    ]);
+    expect(within(added).getByRole("link", { name: "Open note" })).toHaveAttribute(
+      "href",
+      "obsidian://open?vault=My%20Vault&file=inbox%2FOld%20one",
+    );
+  });
+
   it("sends no topic for the no-topic group", async () => {
     on("/api/briefings", reply(LIST));
     on("/api/ingests", reply(job({ status: "queued" })));
@@ -177,7 +199,7 @@ describe("BriefingsScreen", () => {
   });
 
   it("says what to do when the list is empty", async () => {
-    on("/api/briefings", reply({ groups: [], pending_checks: 0, last_pull: null }));
+    on("/api/briefings", reply({ groups: [], added: [], pending_checks: 0, last_pull: null }));
     render(<BriefingsScreen />);
 
     expect(await screen.findByText(/Nothing to read\./)).toHaveTextContent(

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { dismissBriefing, fetchBriefings, mentions, withoutLink, type BriefingList, type BriefingRow } from "./briefings";
+import { dismissBriefing, fetchBriefings, mentions, mergeAdded, withoutLink, type BriefingAdded, type BriefingList, type BriefingRow } from "./briefings";
 
 const fetchMock = vi.fn();
 
@@ -13,6 +13,7 @@ function row(id: string): BriefingRow {
 }
 
 const LIST: BriefingList = {
+  added: [],
   groups: [
     { topic_id: "a", topic_name: "A", links: [row("1"), row("2")] },
     { topic_id: null, topic_name: null, links: [row("3")] },
@@ -91,5 +92,21 @@ describe("withoutLink", () => {
 
   it("leaves the list as it was for an unknown id", () => {
     expect(withoutLink(LIST, "9")).toEqual(LIST);
+  });
+});
+
+function added(id: string, message = "m"): BriefingAdded {
+  return { id, title: id, message, note_path: null, finished_at: null };
+}
+
+describe("mergeAdded", () => {
+  it("puts this visit's links first and keeps each link once", () => {
+    const merged = mergeAdded([added("a", "server"), added("b", "server")], [added("c", "local"), added("b", "local")]);
+
+    expect(merged.map((a) => `${a.id}:${a.message}`)).toEqual(["c:local", "b:local", "a:server"]);
+  });
+
+  it("is the server list when nothing was added this visit", () => {
+    expect(mergeAdded([added("a")], [])).toEqual([added("a")]);
   });
 });

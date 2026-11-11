@@ -84,6 +84,14 @@ ON CONFLICT (id) DO UPDATE SET
     times_seen = excluded.times_seen
 """
 _DONE_URLS_SQL = "SELECT url FROM ingest_jobs WHERE status = 'done'"
+# Links from the list that kai added to the vault, newest first, one per link.
+MAX_ADDED = 100
+_ADDED_SQL = (
+    "SELECT b.id, b.title, j.message, j.note_path, j.finished_at "
+    "FROM briefing_links b JOIN ingest_jobs j ON j.url = b.url WHERE j.status = 'done' "
+    "QUALIFY ROW_NUMBER() OVER (PARTITION BY b.id ORDER BY j.finished_at DESC) = 1 "
+    "ORDER BY j.finished_at DESC, b.id LIMIT ?"
+)
 
 
 class BriefingsError(Exception):
@@ -375,8 +383,19 @@ class BriefingGroup(BaseModel):
     links: list[BriefingRow]
 
 
+class BriefingAdded(BaseModel):
+    """A link from the list that kai added to the vault, kept so a refresh still shows it."""
+
+    id: str
+    title: str
+    message: str
+    note_path: str | None
+    finished_at: datetime | None
+
+
 class BriefingList(BaseModel):
     groups: list[BriefingGroup]
+    added: list[BriefingAdded] = []
     # New links not yet checked online: they appear once the check passes.
     pending_checks: int
     last_pull: datetime | None
@@ -402,6 +421,25 @@ def match_topic(title: str, definitions: TopicsFile) -> str | None:
     return best
 
 
+def _added(con: duckdb.DuckDBPyConnection) -> list[BriefingAdded]:
+    try:
+        rows = con.execute(_ADDED_SQL, [MAX_ADDED]).fetchall()
+    except duckdb.CatalogException:
+        return []
+    return [
+        BriefingAdded(
+            id=link_key,
+            title=title,
+            message=message,
+            note_path=note_path,
+            finished_at=done.replace(tzinfo=UTC)
+            if done is not None and done.tzinfo is None
+            else done,
+        )
+        for link_key, title, message, note_path, done in rows
+    ]
+
+
 def _site(url: str) -> str:
     return (urlparse(url).hostname or "").lower().removeprefix("www.")
 
@@ -424,6 +462,7 @@ def build_list(db_path: Path, definitions: TopicsFile) -> BriefingList:
         except duckdb.CatalogException:
             return empty
         vault, done = _vault_keys(con), _done_urls(con)
+        added = _added(con)
     by_topic: dict[str | None, list[BriefingRow]] = defaultdict(list)
     pending = 0
     for link_key, key, url, title, section, seen, times, ok in rows:
@@ -450,7 +489,9 @@ def build_list(db_path: Path, definitions: TopicsFile) -> BriefingList:
     ]
     if by_topic.get(None):
         groups.append(BriefingGroup(topic_id=None, topic_name=None, links=by_topic[None]))
-    return BriefingList(groups=groups, pending_checks=pending, last_pull=empty.last_pull)
+    return BriefingList(
+        groups=groups, added=added, pending_checks=pending, last_pull=empty.last_pull
+    )
 
 
 def dismiss(db_path: Path, link_id_: str) -> bool:

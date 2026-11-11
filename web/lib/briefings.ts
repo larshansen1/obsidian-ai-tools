@@ -18,8 +18,18 @@ export type BriefingGroup = {
   links: BriefingRow[];
 };
 
+// A link kai added to the vault. The server keeps these, so a refresh still shows them.
+export type BriefingAdded = {
+  id: string;
+  title: string;
+  message: string;
+  note_path: string | null;
+  finished_at: string | null;
+};
+
 export type BriefingList = {
   groups: BriefingGroup[];
+  added: BriefingAdded[];
   pending_checks: number;
   last_pull: string | null;
 };
@@ -51,4 +61,10 @@ export function withoutLink(list: BriefingList, id: string): BriefingList {
     .map((g) => ({ ...g, links: g.links.filter((l) => l.id !== id) }))
     .filter((g) => g.links.length > 0);
   return { ...list, groups };
+}
+
+// Added this visit first (newest first), then the ones the server remembers; each link once.
+export function mergeAdded(server: BriefingAdded[], local: BriefingAdded[]): BriefingAdded[] {
+  const seen = new Set(local.map((a) => a.id));
+  return [...local, ...server.filter((a) => !seen.has(a.id))];
 }

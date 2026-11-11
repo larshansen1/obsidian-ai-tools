@@ -4,12 +4,19 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { IngestButton } from "./IngestButton";
 import { fetchAiStatus, noteUrl } from "../lib/chat";
-import { dismissBriefing, fetchBriefings, mentions, withoutLink, type BriefingList, type BriefingRow } from "../lib/briefings";
+import {
+  dismissBriefing,
+  fetchBriefings,
+  mentions,
+  mergeAdded,
+  withoutLink,
+  type BriefingAdded,
+  type BriefingList,
+  type BriefingRow,
+} from "../lib/briefings";
 import type { IngestJob } from "../lib/ingest";
 import { logUsage } from "../lib/topicMap";
 import { formatWhen } from "../lib/writes";
-
-type Added = { id: string; title: string; notePath: string | null; message: string };
 
 // The reading list from the daily briefings (#197). Every title is shown as plain text: it comes
 // from an agent that reads the open web, so it is never rendered as Markdown or HTML.
@@ -73,7 +80,7 @@ export function BriefingsScreen() {
   const [list, setList] = useState<BriefingList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [vault, setVault] = useState("");
-  const [added, setAdded] = useState<Added[]>([]);
+  const [added, setAdded] = useState<BriefingAdded[]>([]);
 
   useEffect(() => {
     logUsage("screen_view", "briefings");
@@ -102,12 +109,17 @@ export function BriefingsScreen() {
   function ingested(row: BriefingRow, job: IngestJob) {
     logUsage("action", "briefing_ingest", row.url);
     setList((current) => (current === null ? current : withoutLink(current, row.id)));
-    setAdded((current) => [...current, { id: row.id, title: row.title, notePath: job.note_path, message: job.message }]);
+    setAdded((current) => [
+      { id: row.id, title: row.title, message: job.message, note_path: job.note_path, finished_at: null },
+      ...current,
+    ]);
   }
 
   function dismissed(row: BriefingRow) {
     setList((current) => (current === null ? current : withoutLink(current, row.id)));
   }
+
+  const shownAdded = mergeAdded(list?.added ?? [], added);
 
   return (
     <main className="page">
@@ -117,12 +129,12 @@ export function BriefingsScreen() {
       <h1 className="page-title">Reading list</h1>
       {error ? <p role="alert">{error}</p> : null}
       {list === null && !error ? <p>Loading…</p> : null}
-      {added.length > 0 ? (
+      {shownAdded.length > 0 ? (
         <ul className="list card" data-testid="added" aria-label="Added to the vault">
-          {added.map((a) => (
+          {shownAdded.map((a) => (
             <li key={a.id}>
               <strong>{a.title}</strong> <span className="muted">{a.message}</span>{" "}
-              {a.notePath && vault ? <a href={noteUrl(vault, a.notePath)}>Open note</a> : null}
+              {a.note_path && vault ? <a href={noteUrl(vault, a.note_path)}>Open note</a> : null}
             </li>
           ))}
         </ul>
