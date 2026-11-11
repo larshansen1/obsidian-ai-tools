@@ -69,10 +69,78 @@ def test_a_word_response_inside_a_sentence_is_not_the_heading() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_link_text_is_the_title() -> None:
-    links = _parse("1. **Bold item** [Link title](https://example.com/a)\n")
+def test_the_link_text_is_the_title_when_the_item_has_no_headline() -> None:
+    links = _parse("- [Link title](https://example.com/a) and more text\n")
 
     assert [x.title for x in links] == ["Link title"]
+
+
+def test_the_item_headline_beats_a_link_text_that_names_the_source() -> None:
+    links = _parse(
+        "1. **Goldman pulls Claude Code** (Bloomberg) - text [InfoQ](https://example.com/a)\n"
+    )
+
+    assert [x.title for x in links] == ["Goldman pulls Claude Code"]
+
+
+def test_a_numbered_headline_loses_its_number() -> None:
+    links = _parse(
+        "**2. Cloudflare OS launch** - text\n🔗 [Cloudflare Blog](https://example.com/a)\n"
+    )
+
+    assert [x.title for x in links] == ["Cloudflare OS launch"]
+
+
+def test_the_headline_covers_the_link_lines_that_follow_it() -> None:
+    answer = (
+        "- **Agents ship faster** (InfoQ) - text\n"
+        "  📎 [Blog](https://example.com/a) | [HN](https://example.com/b)\n"
+        "- **Second item here** - text [Src](https://example.com/c)\n"
+    )
+
+    links = _parse(answer)
+
+    assert [(x.url, x.title) for x in links] == [
+        ("https://example.com/a", "Agents ship faster"),
+        ("https://example.com/b", "Agents ship faster"),
+        ("https://example.com/c", "Second item here"),
+    ]
+
+
+def test_a_heading_ends_the_headline() -> None:
+    answer = "- **Agents ship faster** - text\n## Next\n[Blog](https://example.com/a)\n"
+
+    assert [x.title for x in _parse(answer)] == ["Blog"]
+
+
+def test_a_short_bold_label_on_its_own_is_not_a_headline() -> None:
+    answer = "- **Agents ship faster** - text\n**Security**\n[Blog](https://example.com/a)\n"
+
+    assert [x.title for x in _parse(answer)] == ["Blog"]
+
+
+def test_a_bold_line_above_a_list_is_a_group_label() -> None:
+    answer = "**Software Delivery & Engineering**\n- [Blog](https://example.com/a)\n"
+
+    assert [x.title for x in _parse(answer)] == ["Blog"]
+
+
+def test_a_bold_text_ending_in_a_colon_is_a_label() -> None:
+    links = _parse("- **Also Notable:** more text [Blog](https://example.com/a)\n")
+
+    assert [x.title for x in links] == ["Blog"]
+
+
+def test_a_short_bold_headline_with_text_after_it_is_kept() -> None:
+    links = _parse("- **Two words** - text [Blog](https://example.com/a)\n")
+
+    assert [x.title for x in links] == ["Two words"]
+
+
+def test_a_long_bold_line_on_its_own_is_a_headline() -> None:
+    answer = "**Anthropic discloses unintended actions**\ntext\n[Blog](https://example.com/a)\n"
+
+    assert [x.title for x in _parse(answer)] == ["Anthropic discloses unintended actions"]
 
 
 @pytest.mark.parametrize("text", ["source", "Read more", "here", "ab", "", "https://example.com/a"])
@@ -95,7 +163,7 @@ def test_without_a_bold_title_a_generic_text_is_kept() -> None:
 
 
 def test_a_bare_url_is_titled_by_the_bold_text_or_else_its_host() -> None:
-    links = _parse("**Bold item** https://example.com/a\nplain https://www.other.org/b\n")
+    links = _parse("**Bold item** https://example.com/a\n## Next\nplain https://www.other.org/b\n")
 
     assert [(x.url, x.title) for x in links] == [
         ("https://example.com/a", "Bold item"),

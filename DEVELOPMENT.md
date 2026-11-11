@@ -217,8 +217,13 @@ One-way flow: this machine pulls, the server gets no access and nothing from the
   a day (and a remote is set). Run `compass briefings pull` yourself any time.
 - Format: a briefing holds the job's prompt, then `## Response`, then the answer. Only the answer
   is read, so a file without that heading has no links. The date is in the file name
-  (`2026-11-10-...md`, else the file's modified date). A link's title is its text, or the bold item
-  title when the text is generic ("source"). Google News redirect links are dropped.
+  (`2026-11-10-...md`, else the file's modified date). A link's title is the bold headline that opens
+  its item (`- **Headline** (source) - text [InfoQ](url)`), also for link lines under it, because
+  the link text is only the source name. Without a headline the link text is used. A short bold
+  line on its own, a bold text ending in a colon, or a bold line above a list is a group label,
+  not a headline. Google News redirect links are dropped.
+- Real data (2026-11-11, 138 files, 2,004 links): the first version used the link text and put
+  84% of links in "No topic"; with headlines it is 39% (785 links).
 - Topics: a link joins the topic with the most tags found as whole words in its title; no match
   puts it in "No topic". Rough on purpose. Measure how many land in "No topic" on real data before
   asking for a model.

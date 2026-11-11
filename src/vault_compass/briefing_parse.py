@@ -32,6 +32,10 @@ _MD_LINK = re.compile(
 _IMAGE = re.compile(r"!\[[^\]]*\]\([^\s()]*(?:\([^\s()]*\)[^\s()]*)*\)")
 _BARE_URL = re.compile(r"https?://[^\s<>\"'`)\]]+", re.I)
 _BOLD = re.compile(r"(?:\*\*|__)(.+?)(?:\*\*|__)")
+# The item headline: bold text at the start of a line, after an optional list marker or number.
+_LEAD_BOLD = re.compile(r"^\s*(?:[-*+]|\d+[.)])?\s*(?:\*\*|__)(.+?)(?:\*\*|__)(.*)$")
+_NUMBER = re.compile(r"^\d+[.)]\s*")
+_LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s")
 _FILE_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]+")
 _TRACKING = ("utm_", "fbclid", "gclid", "mc_cid", "mc_eid")
@@ -129,13 +133,39 @@ def _generic(text: str, url: str) -> bool:
     )
 
 
-def _title(link_text: str, line: str, url: str) -> str:
+def _title(link_text: str, headline: str | None, line: str, url: str) -> str:
+    """The item headline when there is one, else the link text, else a bold text, else the host.
+
+    In the real briefings the link text is the source ("InfoQ", "HN") and the headline is the bold
+    text that opens the item, so the headline wins.
+    """
+    if headline and not _generic(headline, url):
+        return headline
+    text = _text(link_text, MAX_TITLE)
+    if not _generic(text, url):
+        return text
     bold = _BOLD.search(line)
-    if not _generic(_text(link_text, MAX_TITLE), url):
-        return _text(link_text, MAX_TITLE)
     if bold and not _generic(_text(bold.group(1), MAX_TITLE), url):
         return _text(bold.group(1), MAX_TITLE)
-    return _text(link_text, MAX_TITLE) or (urlparse(url).hostname or "").removeprefix("www.")
+    return text or (urlparse(url).hostname or "").removeprefix("www.")
+
+
+def _headline(line: str, following: str) -> tuple[bool, str | None]:
+    """(starts a new item, its headline).
+
+    A bold line on its own is a group label, not a headline, when it is short, ends with a colon,
+    or the next line is a list item ("**Software Delivery**" above a list).
+    """
+    match = _LEAD_BOLD.match(line)
+    if match is None:
+        return False, None
+    text = _text(_NUMBER.sub("", match.group(1)), MAX_TITLE)
+    alone = not match.group(2).strip()
+    if not text or text.endswith(":"):
+        return True, None
+    if alone and (len(text.split()) < 3 or _LIST_ITEM.match(following)):
+        return True, None
+    return True, text
 
 
 def _line_links(line: str) -> list[tuple[str, str]]:
@@ -154,15 +184,22 @@ def parse_briefing(text: str, briefing_date: date, file: str) -> list[BriefingLi
         return []
     links: list[BriefingLink] = []
     section: str | None = None
-    for line in text[marker.end() :].splitlines():
+    headline: str | None = None
+    lines = text[marker.end() :].splitlines()
+    for index, line in enumerate(lines):
         heading = _HEADING.match(line)
         if heading:
             section = _text(heading.group(1), MAX_SECTION) or None
+            headline = None
             continue
+        following = next((x for x in lines[index + 1 :] if x.strip()), "")
+        starts_item, found = _headline(line, following)
+        if starts_item:
+            headline = found
         for link_text, raw in _line_links(line):
             url = clean_url(raw)
             if url is not None:
-                title = _title(link_text, line, url)
+                title = _title(link_text, headline, line, url)
                 links.append(BriefingLink(url, title, section, briefing_date, file))
     return links
 
