@@ -20,8 +20,10 @@ from .ai_cost import month_spend
 from .briefings import (
     BriefingList,
     BriefingsError,
+    BriefingsProcessed,
     build_list,
     dismiss,
+    mark_all_processed,
     pull_and_refresh,
     pull_due,
 )
@@ -584,6 +586,10 @@ def create_app(
         if not dismiss(current().compass_db_path, link_id):
             raise HTTPException(status_code=404, detail="No such link.")
         return Response(status_code=204)
+
+    @app.post("/briefings/process-all")
+    def process_all_briefings() -> BriefingsProcessed:
+        return BriefingsProcessed(count=mark_all_processed(current().compass_db_path))
 
     @app.post("/topics/{topic_id}/evergreen-draft")
     def start_draft(topic_id: str, request: DraftRequest) -> Draft:

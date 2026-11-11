@@ -393,6 +393,10 @@ class BriefingAdded(BaseModel):
     finished_at: datetime | None
 
 
+class BriefingsProcessed(BaseModel):
+    count: int
+
+
 class BriefingList(BaseModel):
     groups: list[BriefingGroup]
     added: list[BriefingAdded] = []
@@ -507,3 +511,19 @@ def dismiss(db_path: Path, link_id_: str) -> bool:
             return False
         con.execute("UPDATE briefing_links SET status = 'dismissed' WHERE id = ?", [link_id_])
     return True
+
+
+def mark_all_processed(db_path: Path) -> int:
+    """Take every link still on the list off it for good, so the list starts clean.
+
+    Links in later briefings still show up. Returns how many links were marked.
+    """
+    if not db_path.exists():
+        return 0
+    with writable(db_path) as con:
+        try:
+            row = con.execute("SELECT COUNT(*) FROM briefing_links WHERE status = 'new'").fetchone()
+        except duckdb.CatalogException:
+            return 0
+        con.execute("UPDATE briefing_links SET status = 'processed' WHERE status = 'new'")
+    return int(row[0]) if row else 0

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { dismissBriefing, fetchBriefings, mentions, mergeAdded, withoutLink, type BriefingAdded, type BriefingList, type BriefingRow } from "./briefings";
+import { dismissBriefing, fetchBriefings, linkCount, mentions, processAllBriefings, mergeAdded, withoutLink, type BriefingAdded, type BriefingList, type BriefingRow } from "./briefings";
 
 const fetchMock = vi.fn();
 
@@ -108,5 +108,31 @@ describe("mergeAdded", () => {
 
   it("is the server list when nothing was added this visit", () => {
     expect(mergeAdded([added("a")], [])).toEqual([added("a")]);
+  });
+});
+
+describe("linkCount", () => {
+  it("counts the links in every group", () => {
+    expect(linkCount(LIST)).toBe(3);
+    expect(linkCount({ ...LIST, groups: [] })).toBe(0);
+  });
+});
+
+describe("processAllBriefings", () => {
+  it("posts and returns the count", async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({ count: 4 }) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await processAllBriefings()).toBe(4);
+    expect(fetchMock).toHaveBeenCalledWith("/api/briefings/process-all", { method: "POST" });
+  });
+
+  it("throws the server's message, or the status when there is none", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, json: () => Promise.resolve({ detail: "Disk full." }) });
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 502, json: () => Promise.reject(new Error("x")) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(processAllBriefings()).rejects.toThrow("Disk full.");
+    await expect(processAllBriefings()).rejects.toThrow("Request failed (502)");
   });
 });

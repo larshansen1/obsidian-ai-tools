@@ -51,6 +51,16 @@ export async function dismissBriefing(id: string): Promise<void> {
   }
 }
 
+// Takes every link off the list for good. Returns how many links were marked.
+export async function processAllBriefings(): Promise<number> {
+  const response = await fetch("/api/briefings/process-all", { method: "POST" });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(typeof detail.detail === "string" ? detail.detail : `Request failed (${response.status})`);
+  }
+  return ((await response.json()) as { count: number }).count;
+}
+
 export function mentions(count: number): string {
   return count === 1 ? "1 briefing" : `${count} briefings`;
 }
@@ -67,4 +77,8 @@ export function withoutLink(list: BriefingList, id: string): BriefingList {
 export function mergeAdded(server: BriefingAdded[], local: BriefingAdded[]): BriefingAdded[] {
   const seen = new Set(local.map((a) => a.id));
   return [...local, ...server.filter((a) => !seen.has(a.id))];
+}
+
+export function linkCount(list: BriefingList): number {
+  return list.groups.reduce((total, g) => total + g.links.length, 0);
 }

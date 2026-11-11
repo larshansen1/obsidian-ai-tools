@@ -230,6 +230,9 @@ One-way flow: this machine pulls, the server gets no access and nothing from the
 - Added links: `GET /briefings` also returns `added`, the list's links that kai finished
   ingesting (newest first, up to 100, from `ingest_jobs`), so the "Added to the vault" box with its
   "Open note" links survives a page refresh. The page merges this visit's links with these.
+- Start from scratch: the page has "Mark all as processed" (with a confirm step). It calls
+  `POST /briefings/process-all`, which sets every link still `new` to `processed`, checked or not.
+  Dismissed links stay dismissed. Links in later briefings still show up.
 - Online check: a link is shown only after `url_exists` passes. Up to 500 links are checked per
   run, newest first; the rest wait for the next run. A failed check is repeated after 7 days.
 - **What is untrusted and what leaves the machine.** Briefing text is untrusted: the agent reads

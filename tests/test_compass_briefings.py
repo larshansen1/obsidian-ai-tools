@@ -36,6 +36,7 @@ from vault_compass.briefings import (
     fetch,
     last_pull,
     link_id,
+    mark_all_processed,
     match_topic,
     merge,
     pull_and_refresh,
@@ -872,6 +873,68 @@ def _settings(vault: Path, folder: Path, remote: str = "") -> CompassSettings:
 
 def _api(settings: CompassSettings, **kwargs: Any) -> TestClient:
     return TestClient(create_app(settings, **kwargs))
+
+
+def test_marking_all_processed_clears_the_list_but_not_later_briefings(
+    paths: SimpleNamespace,
+) -> None:
+    _write(
+        paths.folder,
+        "2026-11-01.md",
+        "[A](https://example.com/a)",
+        "[B](https://example.com/b)",
+        "[C](https://example.com/c)",
+    )
+    _refresh(paths.db, paths.folder, Checker(answers={"https://example.com/c": False}))
+    assert dismiss(paths.db, link_id("https://example.com/b")) is True
+
+    assert mark_all_processed(paths.db) == 2
+
+    assert build_list(paths.db, _topics()).groups == []
+    assert _rows(paths.db, "SELECT url, status FROM briefing_links ORDER BY url") == [
+        ("https://example.com/a", "processed"),
+        ("https://example.com/b", "dismissed"),
+        ("https://example.com/c", "processed"),
+    ]
+    _write(
+        paths.folder, "2026-11-05.md", "[A](https://example.com/a)", "[D](https://example.com/d)"
+    )
+    check = Checker()
+    _refresh(paths.db, paths.folder, check, NOW + timedelta(days=1))
+    assert check.asked == ["https://example.com/d"]
+    assert [r.url for g in build_list(paths.db, _topics()).groups for r in g.links] == [
+        "https://example.com/d"
+    ]
+
+
+def test_marking_all_processed_counts_links_not_yet_checked(paths: SimpleNamespace) -> None:
+    _write(
+        paths.folder, "2026-11-01.md", "[A](https://example.com/a)", "[B](https://example.com/b)"
+    )
+    _refresh(paths.db, paths.folder, Checker(), max_checks=1)
+
+    assert mark_all_processed(paths.db) == 2
+    assert mark_all_processed(paths.db) == 0
+
+
+def test_marking_all_processed_without_a_database_or_table_is_zero(paths: SimpleNamespace) -> None:
+    assert mark_all_processed(paths.db) == 0
+    duckdb.connect(str(paths.db)).close()
+    assert mark_all_processed(paths.db) == 0
+
+
+def test_api_process_all_clears_the_list_and_says_how_many(vault: Path, tmp_path: Path) -> None:
+    folder = tmp_path / "briefings"
+    settings = _settings(vault, folder)
+    _write(folder, "2026-11-01.md", "[A](https://example.com/a)", "[B](https://example.com/b)")
+    refresh_links(settings.compass_db_path, folder, check=Checker(), clock=lambda: NOW)
+    api = _api(settings)
+
+    response = api.post("/briefings/process-all")
+
+    assert (response.status_code, response.json()) == (200, {"count": 2})
+    assert api.get("/briefings").json()["groups"] == []
+    assert api.post("/briefings/process-all").json() == {"count": 0}
 
 
 def test_api_lists_the_reading_list_and_dismiss_removes_a_row(vault: Path, tmp_path: Path) -> None:

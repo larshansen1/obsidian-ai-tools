@@ -179,6 +179,51 @@ describe("BriefingsScreen", () => {
     );
   });
 
+  it("marks every link processed after a confirm step, and Cancel changes nothing", async () => {
+    on("/api/briefings", reply({ ...LIST, pending_checks: 3 }));
+    on("/api/briefings/process-all", reply({ count: 7 }));
+    render(<BriefingsScreen />);
+    await screen.findByRole("region", { name: "AI" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark all as processed" }));
+    expect(screen.getByText(/Mark all 3 links as processed\?/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Mark all as processed" })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/briefings/process-all", { method: "POST" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark all as processed" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, mark them" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Marked 7 links as processed.");
+    expect(fetchMock).toHaveBeenCalledWith("/api/briefings/process-all", { method: "POST" });
+    expect(screen.queryAllByTestId("briefing")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Mark all as processed" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Nothing to read/)).toBeInTheDocument();
+    expect(usage()).toContainEqual({ kind: "action", name: "briefing_process_all", detail: "7" });
+  });
+
+  it("shows the error and keeps the list when marking fails", async () => {
+    on("/api/briefings", reply(LIST));
+    on("/api/briefings/process-all", reply({ detail: "Disk full." }, false, 500));
+    render(<BriefingsScreen />);
+    await screen.findByRole("region", { name: "AI" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark all as processed" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yes, mark them" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Disk full.");
+    expect(screen.getAllByTestId("briefing")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Yes, mark them" })).toBeEnabled();
+  });
+
+  it("has no mark-all button when the list is empty", async () => {
+    on("/api/briefings", reply({ groups: [], added: [], pending_checks: 0, last_pull: null }));
+    render(<BriefingsScreen />);
+    await screen.findByText(/Nothing to read/);
+
+    expect(screen.queryByRole("button", { name: "Mark all as processed" })).not.toBeInTheDocument();
+  });
+
   it("sends no topic for the no-topic group", async () => {
     on("/api/briefings", reply(LIST));
     on("/api/ingests", reply(job({ status: "queued" })));

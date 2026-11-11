@@ -7,8 +7,10 @@ import { fetchAiStatus, noteUrl } from "../lib/chat";
 import {
   dismissBriefing,
   fetchBriefings,
+  linkCount,
   mentions,
   mergeAdded,
+  processAllBriefings,
   withoutLink,
   type BriefingAdded,
   type BriefingList,
@@ -81,6 +83,10 @@ export function BriefingsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [vault, setVault] = useState("");
   const [added, setAdded] = useState<BriefingAdded[]>([]);
+  const [confirming, setConfirming] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [processError, setProcessError] = useState<string | null>(null);
+  const [processed, setProcessed] = useState<number | null>(null);
 
   useEffect(() => {
     logUsage("screen_view", "briefings");
@@ -115,6 +121,21 @@ export function BriefingsScreen() {
     ]);
   }
 
+  async function processAll() {
+    setProcessing(true);
+    setProcessError(null);
+    try {
+      const count = await processAllBriefings();
+      logUsage("action", "briefing_process_all", String(count));
+      setList((current) => (current === null ? current : { ...current, groups: [], pending_checks: 0 }));
+      setProcessed(count);
+      setConfirming(false);
+    } catch (e) {
+      setProcessError((e as Error).message);
+    }
+    setProcessing(false);
+  }
+
   function dismissed(row: BriefingRow) {
     setList((current) => (current === null ? current : withoutLink(current, row.id)));
   }
@@ -147,6 +168,30 @@ export function BriefingsScreen() {
               ? ` · ${list.pending_checks} new links are still being checked and show up after the next pull.`
               : ""}
           </p>
+          {processed !== null ? <p role="status">Marked {processed} links as processed.</p> : null}
+          {list.groups.length > 0 ? (
+            <div className="card">
+              {confirming ? (
+                <>
+                  <p>
+                    Mark all {linkCount(list)} links as processed? They leave the list for good. New links from later
+                    briefings still show up.
+                  </p>
+                  <button type="button" disabled={processing} onClick={() => void processAll()}>
+                    Yes, mark them
+                  </button>{" "}
+                  <button type="button" disabled={processing} onClick={() => setConfirming(false)}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={() => setConfirming(true)}>
+                  Mark all as processed
+                </button>
+              )}
+              {processError ? <p role="alert">{processError}</p> : null}
+            </div>
+          ) : null}
           {list.groups.length === 0 ? (
             <p className="hint">
               Nothing to read. Run <code>compass briefings pull</code> to fetch your briefings.
