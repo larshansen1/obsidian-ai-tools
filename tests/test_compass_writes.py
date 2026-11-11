@@ -595,7 +595,7 @@ def test_replace_tags_turns_a_block_list_into_a_flow_list() -> None:
 
 @pytest.mark.parametrize(
     "text",
-    ["topics: [", "topics:\n  big: [1]\n", "other: 1\n", "topics:\n  other:\n    tags: [a]\n"],
+    ["", "topics: [", "topics:\n  big: [1]\n", "other: 1\n", "topics:\n  other:\n    tags: [a]\n"],
 )
 def test_replace_tags_without_the_list_is_none(text: str) -> None:
     assert replace_tags(text, "big", ["a"]) is None
@@ -783,7 +783,9 @@ def test_plan_topic_notes_keeps_a_hand_written_flow_list_in_flow_style(tmp_path:
     assert edit.after.decode() == listed.replace("exclude: [a.md]", 'exclude: ["b.md"]')
 
 
-@pytest.mark.parametrize("text", ["topics: [", "other: 1\n", "topics:\n  other:\n    tags: [a]\n"])
+@pytest.mark.parametrize(
+    "text", ["", "topics: [", "other: 1\n", "topics:\n  other:\n    tags: [a]\n"]
+)
 def test_replace_exclude_without_the_topic_is_none(text: str) -> None:
     assert replace_exclude(text, "big", ["a.md"]) is None
 
