@@ -1,9 +1,10 @@
 """Tests for claims across sources and where they agree (T3, T4, Q6, Q7, N4)."""
 
+import asyncio
 import json
 import os
 import re
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -44,6 +45,7 @@ from vault_compass.claims_run import (
     UNREADABLE,
     _by_note,
     _chunks,
+    _concurrently,
     _fit,
     _numbered,
     finalize_shared,
@@ -1164,6 +1166,7 @@ def test_a_run_stopped_by_the_limit_resumes_without_repeating_work(
     big_vault: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("COMPASS_AI_ACTION_LIMIT_USD", "0.08")
+    monkeypatch.setenv("COMPASS_AI_CLAIMS_CONCURRENCY", "1")
     model = AutoModel()
     client = _client(model)
     first = _run(client)
@@ -1440,7 +1443,10 @@ def test_the_questions_prompt_holds_every_claim_grouped_by_note(big_vault: Path)
     assert headers[0] == "N1 a"
 
 
-def test_a_stopped_sort_resumes_at_the_chunk_it_stopped_on(big_vault: Path) -> None:
+def test_a_stopped_sort_resumes_at_the_chunk_it_stopped_on(
+    big_vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("COMPASS_AI_CLAIMS_CONCURRENCY", "1")
     client = _client(AutoModel())
     _finish_reading(client)
     client.put("/topics/big/claims/question", json={"question": "Q?"})
@@ -2007,3 +2013,135 @@ def test_claims_from_a_newly_excluded_folder_are_hidden(vault: Path) -> None:
     view = _view(client)
     assert view["claim_count"] == 8
     assert KEY not in json.dumps(view)
+
+
+# ---------------------------------------------------------------------------
+# Calls that run side by side
+# ---------------------------------------------------------------------------
+
+
+class SlowModel(AutoModel):
+    """An AutoModel whose answers take a moment, recording how many calls overlap."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.active = 0
+        self.peak = 0
+
+    async def stream(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
+    ) -> AsyncIterator[ModelEvent]:
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        try:
+            await asyncio.sleep(0.01)
+            async for event in super().stream(messages, tools):
+                yield event
+        finally:
+            self.active -= 1
+
+
+@pytest.mark.parametrize(("setting", "peak"), [("1", 1), ("3", 3)])
+def test_calls_overlap_up_to_the_concurrency_setting(
+    big_vault: Path, monkeypatch: pytest.MonkeyPatch, setting: str, peak: int
+) -> None:
+    monkeypatch.setenv("COMPASS_AI_CLAIMS_CONCURRENCY", setting)
+    model = SlowModel()
+
+    view = _finish_reading(_client(model))
+
+    assert model.peak == peak
+    assert (view["read_notes"], view["claim_count"]) == (43, TOTAL_BIG)
+    assert model.kinds().count("extract") == 12
+
+
+def test_the_default_is_four_calls_at_a_time(big_vault: Path) -> None:
+    model = SlowModel()
+
+    _finish_reading(_client(model))
+
+    assert CompassSettings().compass_ai_claims_concurrency == 4
+    assert model.peak == 4
+
+
+def test_a_limit_stops_new_calls_but_running_ones_finish_and_are_kept(
+    big_vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("COMPASS_AI_ACTION_LIMIT_USD", "0.08")
+    model = SlowModel()
+    client = _client(model)
+
+    first = _run(client)
+
+    assert first["status"] == "needs_approval"
+    # The four calls that started together passed the check; the fifth was refused.
+    assert model.kinds() == ["extract"] * 4
+    assert model.active == 0
+    monkeypatch.setenv("COMPASS_AI_ACTION_LIMIT_USD", "100")
+    while _run(client)["view"]["pending_notes"]:
+        pass
+    _run(client)
+    read = re.findall(r"^### NOTE (\S+)", "\n".join(model.users("extract")), re.MULTILINE)
+    assert len(read) == len(set(read)) == 42
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_a_concurrency_below_one_is_refused(limit: int, vault: Path) -> None:
+    with pytest.raises(ValueError, match="compass_ai_claims_concurrency"):
+        CompassSettings(compass_ai_claims_concurrency=limit)
+
+
+def test_a_concurrency_above_sixteen_is_refused(vault: Path) -> None:
+    with pytest.raises(ValueError, match="compass_ai_claims_concurrency"):
+        CompassSettings(compass_ai_claims_concurrency=17)
+    assert CompassSettings(compass_ai_claims_concurrency=16).compass_ai_claims_concurrency == 16
+
+
+def test_concurrently_takes_each_job_once_in_order_within_the_limit() -> None:
+    started: list[int] = []
+    active = 0
+    peak = 0
+
+    def job(n: int) -> Callable[[], Awaitable[None]]:
+        async def run() -> None:
+            nonlocal active, peak
+            started.append(n)
+            active += 1
+            peak = max(peak, active)
+            await asyncio.sleep(0.001)
+            active -= 1
+
+        return run
+
+    asyncio.run(_concurrently(2, [job(n) for n in range(7)]))
+
+    assert started == [0, 1, 2, 3, 4, 5, 6]
+    assert peak == 2
+
+
+def test_concurrently_with_no_jobs_does_nothing() -> None:
+    asyncio.run(_concurrently(4, []))
+
+
+def test_concurrently_raises_the_first_failure_after_running_jobs_finish() -> None:
+    log: list[str] = []
+
+    def ok(name: str) -> Callable[[], Awaitable[None]]:
+        async def run() -> None:
+            log.append(f"start {name}")
+            await asyncio.sleep(0.01)
+            log.append(f"end {name}")
+
+        return run
+
+    async def fails() -> None:
+        log.append("start fails")
+        raise KeyError("first")
+
+    jobs = [ok("a"), ok("b"), fails, ok("c"), ok("d")]
+
+    with pytest.raises(KeyError, match="first"):
+        asyncio.run(_concurrently(3, jobs))
+
+    # a and b were already running when the failure came: they finish. c and d never start.
+    assert log == ["start a", "start b", "start fails", "end a", "end b"]

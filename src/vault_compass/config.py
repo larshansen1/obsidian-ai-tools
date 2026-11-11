@@ -88,6 +88,11 @@ class CompassSettings(BaseSettings):
     compass_ai_questions_max_prompt_chars: int = Field(default=600_000, gt=0)
     # Writing or revising an evergreen draft returns the whole note: more room than a chat reply.
     compass_ai_draft_max_output_tokens: int = Field(default=6000, gt=0)
+    # The claims steps make many small independent calls (one per batch of notes, per evergreen
+    # chunk, per stance chunk). This many run at the same time; 1 makes a run strictly one by one.
+    compass_ai_claims_concurrency: int = Field(
+        default=4, ge=1, le=16, description="Claims model calls at the same time"
+    )
     compass_ai_max_steps: int = Field(default=5, gt=0, description="Model calls per chat message")
 
     @field_validator("compass_briefings_dir")
