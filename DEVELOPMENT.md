@@ -162,6 +162,16 @@ optional except the key, read from the same `.env`:
   `COMPASS_AI_CLAIMS_MAX_OUTPUT_TOKENS` (default 4000), because a thinking model can spend its whole
   output budget thinking and return an empty answer. The view's `next_step` (read, analyse, sort,
   done) drives the four-step screen.
+- Calls run side by side: the many small independent calls (one per batch of notes, per
+  evergreen chunk, per stance chunk) go through `_concurrently`, at most
+  `COMPASS_AI_CLAIMS_CONCURRENCY` at a time (default 4, 1 to 16; 1 is strictly one by one).
+  After a failure or a limit stop no new call starts, but the calls already running finish and
+  are saved, so work paid for is kept. The cost check runs before each call, so at most that
+  many small calls can pass it together: the overshoot past a limit is that many calls, not more.
+  Saves of shared state go one at a time through `_Run.save_lock`, each taking its own copy.
+  Real data (2026-11-11, neurodiversity topic, 40 notes new): 34 s one at a time, 20 s with 4.
+  The questions call (one, thinking) cannot be split, so a tiny change still waits for it when
+  the saved questions no longer stand.
 - Suggested questions (#166) are anchored in specific notes, not topic-wide. The questions step
   sends every claim of the topic grouped by note (thinned evenly only past
   `COMPASS_AI_QUESTIONS_MAX_PROMPT_CHARS`, default 600,000 characters, #177) and is the one claims call that thinks first, with `COMPASS_AI_QUESTIONS_MAX_OUTPUT_TOKENS` (default

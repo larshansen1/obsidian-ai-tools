@@ -5,16 +5,20 @@ claims and stances, skipping every step whose cached result is still current.
 When only a few notes changed, earlier per-claim results are carried over and
 only the new claims go to the model (#175).
 Each model call is checked against the cost limits first (N3): over the limit
-and not approved, the run stops and reports it; what was done stays cached.
+and not approved, the run stops and reports it; what was done stays cached. Independent calls run
+a few at a time (COMPASS_AI_CLAIMS_CONCURRENCY), so calls already in flight when a limit is hit
+still finish: at most that many small calls past the check.
 Note text reaches the model only through `AiVault.body` (N4).
 """
 
 import asyncio
+import copy
 import json
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, Literal
 
 import duckdb
@@ -387,6 +391,9 @@ class _Run:
         self._models: dict[bool, ChatModel] = {}
         self._month: float | None = None
         self._spent = 0.0
+        # Saves go one after the other, each taking its snapshot inside the lock, so a slower
+        # earlier save can never overwrite a newer one.
+        self.save_lock = asyncio.Lock()
 
     async def ask(self, system: str, user: str, *, think: bool = False) -> dict[str, Any]:
         estimate = estimate_cost(self.thinking if think else self.settings, len(system) + len(user))
@@ -419,15 +426,42 @@ class _Run:
                 if isinstance(event, TextDelta):
                     text += event.text
                 elif isinstance(event, Usage):
-                    self._spent += await asyncio.to_thread(
+                    # Not `+=` across the await: calls run side by side and would lose updates.
+                    cost = await asyncio.to_thread(
                         record_call, self.settings, event, "claims", self.topic
                     )
+                    self._spent += cost
         except Exception:
             logger.exception("claims model call failed")
             raise _Stop(
                 RunOutcome("failed", "The model call failed. Check the server log, then try again.")
             ) from None
         return text
+
+
+async def _concurrently(limit: int, jobs: Sequence[Callable[[], Awaitable[None]]]) -> None:
+    """Run the jobs with at most `limit` at a time, each job taken once, in order.
+
+    After a failure no new job starts, but the jobs already running finish: their answers are
+    paid for, so they are saved. The first failure is then raised as itself, so the run's own
+    stop and unreadable-answer handling still applies.
+    """
+    queue = iter(jobs)
+    failures: list[Exception] = []
+
+    async def worker() -> None:
+        while not failures:
+            job = next(queue, None)
+            if job is None:
+                return
+            try:
+                await job()
+            except Exception as exc:
+                failures.append(exc)
+
+    await asyncio.gather(*(worker() for _ in range(min(limit, len(jobs)))))
+    if failures:
+        raise failures[0]
 
 
 def _snapshot(run: _Run) -> _Snapshot:
@@ -493,8 +527,8 @@ async def _read_notes(run: _Run, pending: list[EligibleNote]) -> None:
         else:
             free.append((note, [], MODEL_ORIGIN))
     await asyncio.to_thread(_store_claims, run, free)
-    for batch in _batches(for_model):
-        await _extract_batch(run, batch)
+    jobs = [partial(_extract_batch, run, batch) for batch in _batches(for_model)]
+    await _concurrently(run.settings.compass_ai_claims_concurrency, jobs)
 
 
 async def _extract_batch(run: _Run, batch: list[tuple[EligibleNote, str]]) -> None:
@@ -682,18 +716,9 @@ async def _agree(run: _Run, snap: _Snapshot) -> None:
         return
     state = await asyncio.to_thread(_agreement_start, run, snap)
     entries: dict[str, dict[str, Any]] = state["evergreens"]
-    for evergreen in snap.evergreens:
-        entry = entries[evergreen.path]
-        scanned = set(entry["scanned"])
-        todo = [c for c in snap.claims if c.id not in scanned]
-        for chunk in _chunks(todo):
-            user = f"EVERGREEN\n{entry['line']}\n\nCLAIMS\n{_numbered(chunk, titles=True)}"
-            matches = parse_matches(await run.ask(AGREEMENT_SYSTEM, user), chunk, evergreen)
-            if matches:
-                merge_matches(entries, matches)
-                entry["confirmed"] = False
-            entry["scanned"] += [c.id for c in chunk]
-            await _save_state(run, snap, state)
+    # One job per evergreen: its own entry is the only state it touches, so jobs do not clash.
+    jobs = [partial(_match_evergreen, run, snap, state, e) for e in snap.evergreens]
+    await _concurrently(run.settings.compass_ai_claims_concurrency, jobs)
     await _confirm(run, snap, state)
     # Also when no call was needed: dropped claims and evergreens are saved with the new sig.
     await _save_state(run, snap, state)
@@ -706,10 +731,31 @@ async def _agree(run: _Run, snap: _Snapshot) -> None:
     await asyncio.to_thread(_save_analysis, run, AGREEMENT_KIND, "", snap.agreement_sig, shared)
 
 
+async def _match_evergreen(
+    run: _Run, snap: _Snapshot, state: dict[str, Any], evergreen: NoteRef
+) -> None:
+    """Match the claims this evergreen has not seen yet, chunk by chunk."""
+    entries: dict[str, dict[str, Any]] = state["evergreens"]
+    entry = entries[evergreen.path]
+    scanned = set(entry["scanned"])
+    todo = [c for c in snap.claims if c.id not in scanned]
+    for chunk in _chunks(todo):
+        user = f"EVERGREEN\n{entry['line']}\n\nCLAIMS\n{_numbered(chunk, titles=True)}"
+        matches = parse_matches(await run.ask(AGREEMENT_SYSTEM, user), chunk, evergreen)
+        if matches:
+            merge_matches(entries, matches)
+            entry["confirmed"] = False
+        entry["scanned"] += [c.id for c in chunk]
+        await _save_state(run, snap, state)
+
+
 async def _save_state(run: _Run, snap: _Snapshot, state: dict[str, Any]) -> None:
-    await asyncio.to_thread(
-        _save_analysis, run, AGREEMENT_STATE_KIND, "", snap.agreement_sig, state
-    )
+    async with run.save_lock:
+        # A copy: the write runs in a thread while other jobs keep changing `state`.
+        saved = copy.deepcopy(state)
+        await asyncio.to_thread(
+            _save_analysis, run, AGREEMENT_STATE_KIND, "", snap.agreement_sig, saved
+        )
 
 
 async def _confirm(run: _Run, snap: _Snapshot, state: dict[str, Any]) -> None:
@@ -720,19 +766,31 @@ async def _confirm(run: _Run, snap: _Snapshot, state: dict[str, Any]) -> None:
     candidates changed are confirmed again: new candidates, or a kept claim gone (#175).
     """
     by_id = {c.id: c for c in snap.claims}
-    for entry in state["evergreens"].values():
-        if entry["confirmed"]:
-            continue
-        candidates = [by_id[i] for i in entry["claim_ids"] if i in by_id]
-        if candidates:
-            user = f"EVERGREEN\n{entry['line']}\n\nCLAIMS\n{_numbered(candidates, titles=True)}"
-            data = await run.ask(CONFIRM_SYSTEM, user)
-            kept = [candidates[n - 1].id for n in _numbers(data.get("c"), len(candidates))]
-            entry["kept"] = kept[:MAX_SHARED_CLAIMS]
-            entry["shared_text"] = _text(data.get("text")) or entry["text"]
-        # With no candidates left, `kept` is already empty: nothing to ask.
-        entry["confirmed"] = True
-        await _save_state(run, snap, state)
+    jobs = [
+        partial(_confirm_entry, run, snap, state, entry, by_id)
+        for entry in state["evergreens"].values()
+        if not entry["confirmed"]
+    ]
+    await _concurrently(run.settings.compass_ai_claims_concurrency, jobs)
+
+
+async def _confirm_entry(
+    run: _Run,
+    snap: _Snapshot,
+    state: dict[str, Any],
+    entry: dict[str, Any],
+    by_id: dict[str, ClaimItem],
+) -> None:
+    candidates = [by_id[i] for i in entry["claim_ids"] if i in by_id]
+    if candidates:
+        user = f"EVERGREEN\n{entry['line']}\n\nCLAIMS\n{_numbered(candidates, titles=True)}"
+        data = await run.ask(CONFIRM_SYSTEM, user)
+        kept = [candidates[n - 1].id for n in _numbers(data.get("c"), len(candidates))]
+        entry["kept"] = kept[:MAX_SHARED_CLAIMS]
+        entry["shared_text"] = _text(data.get("text")) or entry["text"]
+    # With no candidates left, `kept` is already empty: nothing to ask.
+    entry["confirmed"] = True
+    await _save_state(run, snap, state)
 
 
 def _carried_stances(run: _Run, question: str, ids: set[str]) -> dict[str, str]:
@@ -753,14 +811,20 @@ async def _sort(run: _Run, snap: _Snapshot) -> None:
     ids = {c.id for c in snap.claims}
     done = await asyncio.to_thread(_carried_stances, run, question, ids)
     todo = [c for c in snap.claims if c.id not in done]
-    for chunk in _chunks(todo, STANCE_CHUNK_CLAIMS):
+
+    async def sort_chunk(chunk: list[ClaimItem]) -> None:
         data = await run.ask(
             STANCE_SYSTEM, f"QUESTION\n{question}\n\nCLAIMS\n{_numbered(chunk, titles=False)}"
         )
         done.update(parse_stances(data, chunk))
-        await asyncio.to_thread(
-            _save_analysis, run, STANCES_PROGRESS_KIND, question, snap.sig, done
-        )
+        async with run.save_lock:
+            progress = dict(done)
+            await asyncio.to_thread(
+                _save_analysis, run, STANCES_PROGRESS_KIND, question, snap.sig, progress
+            )
+
+    jobs = [partial(sort_chunk, chunk) for chunk in _chunks(todo, STANCE_CHUNK_CLAIMS)]
+    await _concurrently(run.settings.compass_ai_claims_concurrency, jobs)
     await asyncio.to_thread(_save_analysis, run, STANCES_KIND, question, snap.sig, done)
 
 

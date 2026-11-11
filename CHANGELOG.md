@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Recent changes: each changed note and each note kai added now opens in Obsidian. Settings files
   under `.kai/` and failed sends stay plain text.
+- Vault Compass: the claims run makes its small model calls a few at a time
+  (`COMPASS_AI_CLAIMS_CONCURRENCY`, default 4, 1 to 16) instead of one by one. On a real topic,
+  40 new notes took 34 s before and 20 s now. Calls already running when a failure or a cost
+  limit stops the run finish and are saved.
 - Vault Compass: a reading list from my daily briefings (#197). `compass briefings pull` copies
   the briefing files from your own server over SSH, reads the links from the answer part with plain
   text rules, drops Google News redirect links, loopback and private-network URLs, and links the
