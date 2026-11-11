@@ -35,6 +35,7 @@ describe("SiteHeader", () => {
     const links = screen.getAllByRole("link");
     expect(links.map((l) => [l.textContent, l.getAttribute("href"), l.getAttribute("aria-current")])).toEqual([
       ["Topic map", "/", "page"],
+      ["Reading list", "/briefings", null],
       ["Recent changes", "/changes", null],
     ]);
   });
@@ -81,7 +82,7 @@ describe("SiteHeader", () => {
     render(<SiteHeader />);
 
     expect(await screen.findByRole("combobox", { name: "Go to topic" })).toHaveValue("tiny one");
-    expect(screen.getAllByRole("link").map((l) => l.getAttribute("aria-current"))).toEqual([null, null]);
+    expect(screen.getAllByRole("link").map((l) => l.getAttribute("aria-current"))).toEqual([null, null, null]);
   });
 
   it("shows the placeholder on a topic page that is not in the list", async () => {
@@ -97,6 +98,6 @@ describe("SiteHeader", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/topics"));
     expect(screen.queryByRole("combobox")).toBeNull();
-    expect(screen.getAllByRole("link").map((l) => l.textContent)).toEqual(["Topic map", "Recent changes"]);
+    expect(screen.getAllByRole("link").map((l) => l.textContent)).toEqual(["Topic map", "Reading list", "Recent changes"]);
   });
 });

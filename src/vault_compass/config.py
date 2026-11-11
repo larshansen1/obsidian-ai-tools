@@ -50,6 +50,17 @@ class CompassSettings(BaseSettings):
     # kai serve, where "Ingest" sends sources (W3). Same default port as `kai serve`.
     compass_kai_url: str = Field(default="http://127.0.0.1:8765", description="kai serve URL")
 
+    # Daily briefings (#197). The remote is rsync syntax (user@host:/path/to/folder/); empty turns
+    # the feature off. Both come from the environment, so no host or key is ever in the repo.
+    compass_briefings_remote: str = Field(
+        default="", description="rsync source of the briefing files; empty = off"
+    )
+    # Outside the vault, so Obsidian sync never carries the pulled files.
+    compass_briefings_dir: Path = Field(
+        default_factory=lambda: Path.home() / ".compass" / "briefings",
+        description="Where pulled briefing files are kept",
+    )
+
     # AI (N2, N3). Same env keys as kai, so one .env serves both tools.
     openrouter_api_key: str | None = Field(default=None, description="OpenRouter API key")
     llm_model: str = Field(default="anthropic/claude-sonnet-4", description="OpenRouter model id")
@@ -78,6 +89,12 @@ class CompassSettings(BaseSettings):
     # Writing or revising an evergreen draft returns the whole note: more room than a chat reply.
     compass_ai_draft_max_output_tokens: int = Field(default=6000, gt=0)
     compass_ai_max_steps: int = Field(default=5, gt=0, description="Model calls per chat message")
+
+    @field_validator("compass_briefings_dir")
+    @classmethod
+    def expand_briefings_dir(cls, v: Path) -> Path:
+        """Accept ~/briefings in .env."""
+        return v.expanduser()
 
     @field_validator("obsidian_vault_path")
     @classmethod

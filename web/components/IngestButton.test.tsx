@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IngestButton } from "./IngestButton";
+import type { IngestJob } from "../lib/ingest";
 import { NOT_RUNNING_DETAIL, job } from "../lib/ingestFixture";
 
 const fetchMock = vi.fn();
@@ -10,8 +11,10 @@ function respond(body: unknown, ok = true, status = 200) {
   fetchMock.mockResolvedValueOnce({ ok, status, json: () => Promise.resolve(body) });
 }
 
-function renderButton() {
-  render(<IngestButton url="https://example.org/p" title="Paper" topic="big" vault="My Vault" pollMs={1000} />);
+function renderButton(onDone?: (job: IngestJob) => void) {
+  render(
+    <IngestButton url="https://example.org/p" title="Paper" topic="big" vault="My Vault" pollMs={1000} onDone={onDone} />,
+  );
 }
 
 beforeEach(() => {
@@ -114,5 +117,53 @@ describe("IngestButton", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
     expect(screen.getByRole("button", { name: "Ingest" })).toBeInTheDocument();
+  });
+
+  it("tells the parent once when the job is done, and not for queued or failed jobs", async () => {
+    vi.useFakeTimers();
+    const onDone = vi.fn();
+    respond(job({ status: "queued" }));
+    respond(job({ status: "done", message: "Added", note_path: "inbox/Paper.md", new_note: true }));
+    renderButton(onDone);
+
+    fireEvent.click(screen.getByRole("button", { name: "Ingest" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send to kai" }));
+    });
+    expect(onDone).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledWith(job({ status: "done", message: "Added", note_path: "inbox/Paper.md", new_note: true }));
+  });
+
+  it("tells the parent when the first answer is already done", async () => {
+    const onDone = vi.fn();
+    respond(job({ status: "done", message: "Already in the vault: Paper" }));
+    renderButton(onDone);
+
+    fireEvent.click(screen.getByRole("button", { name: "Ingest" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send to kai" }));
+
+    await screen.findByRole("status");
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not tell the parent about a failed job", async () => {
+    const onDone = vi.fn();
+    respond(job({ status: "failed", message: "kai could not ingest it" }));
+    renderButton(onDone);
+
+    fireEvent.click(screen.getByRole("button", { name: "Ingest" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send to kai" }));
+
+    await screen.findByRole("status");
+    expect(onDone).not.toHaveBeenCalled();
   });
 });

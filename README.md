@@ -196,6 +196,13 @@ kai usage --days 7
 kai usage --all
 ```
 
+## Vault Compass Reading List
+
+`compass briefings pull` copies your daily briefing files from your own server over SSH and
+`compass serve` shows the links you do not have yet at `/briefings` (Preview, Ingest, Dismiss).
+Turn it on with `COMPASS_BRIEFINGS_REMOTE=user@host:/path/to/briefings/` in `.env`; with it empty
+the feature is off. Details: `CLI_COMMANDS.md` and `DEVELOPMENT.md`.
+
 ## Local HTTP Service
 
 The repository includes a small FastAPI service and a Chrome extension for browser-based capture:

@@ -8,6 +8,7 @@ import { fetchTopics, topicFromPath, topicHref, topicOptionLabel, type TopicSumm
 
 const LINKS = [
   { href: "/", label: "Topic map" },
+  { href: "/briefings", label: "Reading list" },
   { href: "/changes", label: "Recent changes" },
 ];
 

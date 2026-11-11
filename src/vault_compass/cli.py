@@ -1,11 +1,20 @@
 """Command-line interface for Vault Compass (`compass`)."""
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 import typer
 from pydantic import ValidationError
 
-from .config import get_compass_settings
+from .briefings import (
+    OFF_MESSAGE,
+    BriefingsError,
+    RefreshReport,
+    pull_and_refresh,
+    record_run,
+    refresh_links,
+)
+from .config import CompassSettings, get_compass_settings
 from .notes import refresh_notes
 from .topics import TopicsError, load_topics, seed_topics_file
 
@@ -24,6 +33,60 @@ def main() -> None:
     """Vault Compass - visual analysis of your Obsidian vault."""
     # An explicit callback keeps `serve` a subcommand; with a single command
     # typer would otherwise collapse it into the root command.
+
+
+briefings_app = typer.Typer(
+    help="Reading list from your daily briefings (#197)", no_args_is_help=True
+)
+app.add_typer(briefings_app, name="briefings")
+
+
+def _settings_or_exit() -> CompassSettings:
+    try:
+        return get_compass_settings()
+    except ValidationError as e:
+        typer.echo(f"❌ Configuration error:\n{e}", err=True)
+        raise typer.Exit(1) from None
+
+
+def _echo_report(report: RefreshReport) -> None:
+    typer.echo(f"Briefing files: {report.files}")
+    typer.echo(f"Links: {report.links}")
+    typer.echo(f"Checked online: {report.checked} ({report.unreachable} did not open)")
+    if report.left:
+        typer.echo(f"{report.left} links still to check. Run the command again.")
+
+
+@briefings_app.command("pull")
+def briefings_pull() -> None:
+    """Copy new briefing files from the server over SSH, then update the reading list.
+
+    Needs COMPASS_BRIEFINGS_REMOTE (rsync syntax, e.g. user@host:/path/to/briefings/). With it
+    empty the feature is off and nothing happens. The server is only read from.
+    """
+    settings = _settings_or_exit()
+    if not settings.compass_briefings_remote.strip():
+        typer.echo(OFF_MESSAGE)
+        return
+    try:
+        report = pull_and_refresh(
+            settings.compass_briefings_remote,
+            settings.compass_briefings_dir,
+            settings.compass_db_path,
+        )
+    except BriefingsError as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(1) from None
+    _echo_report(report)
+
+
+@briefings_app.command("parse")
+def briefings_parse() -> None:
+    """Update the reading list from the files already in COMPASS_BRIEFINGS_DIR (no SSH)."""
+    settings = _settings_or_exit()
+    report = refresh_links(settings.compass_db_path, settings.compass_briefings_dir)
+    record_run(settings.compass_db_path, fetched=False, report=report, now=datetime.now(UTC))
+    _echo_report(report)
 
 
 @app.command()

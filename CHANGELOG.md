@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Vault Compass: a reading list from my daily briefings (#197). `compass briefings pull` copies
+  the briefing files from your own server over SSH, reads the links from the answer part with plain
+  text rules, drops Google News redirect links, loopback and private-network URLs, and links the
+  vault already has, and checks the rest exist online. `/briefings` lists them by topic (title
+  words matched to topic tags, plus a "No topic" group) with Preview, Ingest (the send-to-kai job)
+  and Dismiss. Off unless `COMPASS_BRIEFINGS_REMOTE` is set. Nothing from the vault is sent to the
+  server; titles show as plain text.
 - Vault Compass: take single notes out of a topic (#189). A broad tag such as `ai` lands on
   notes about anything, and no rule tells those apart from the notes that belong. The topic
   page now shows which of the topic's tags each recent note carries, and a "Check what belongs"

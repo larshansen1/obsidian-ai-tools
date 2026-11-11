@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { noteUrl } from "../lib/chat";
 import { fetchIngest, sendToKai, type IngestJob } from "../lib/ingest";
 
@@ -14,17 +14,31 @@ export function IngestButton({
   topic,
   vault,
   pollMs = 2000,
+  onDone,
 }: {
   url: string;
   title: string;
   topic: string | null;
   vault: string;
   pollMs?: number;
+  // Called once when kai has finished the job (the note is written or was already there).
+  onDone?: (job: IngestJob) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<IngestJob | null>(null);
+
+  // The poll below must not restart when the parent passes a new callback.
+  const onDoneRef = useRef(onDone);
+  useEffect(() => {
+    onDoneRef.current = onDone;
+  });
+
+  function update(next: IngestJob) {
+    setJob(next);
+    if (next.status === "done") onDoneRef.current?.(next);
+  }
 
   const queuedId = job?.status === "queued" ? job.id : null;
   useEffect(() => {
@@ -32,7 +46,9 @@ export function IngestButton({
     const timer = setInterval(() => {
       fetchIngest(queuedId)
         .then((next) => {
-          if (next.status !== "queued") setJob(next);
+          if (next.status === "queued") return;
+          setJob(next);
+          if (next.status === "done") onDoneRef.current?.(next);
         })
         .catch(() => undefined); // a missed poll is retried on the next tick
     }, pollMs);
@@ -43,7 +59,7 @@ export function IngestButton({
     setBusy(true);
     setError(null);
     try {
-      setJob(await sendToKai(url, title, topic));
+      update(await sendToKai(url, title, topic));
       setConfirming(false);
     } catch (e) {
       setError((e as Error).message);
