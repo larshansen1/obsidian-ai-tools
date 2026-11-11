@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Recent changes: each changed note and each note kai added now opens in Obsidian. Settings files
+  under `.kai/` and failed sends stay plain text.
 - Vault Compass: a reading list from my daily briefings (#197). `compass briefings pull` copies
   the briefing files from your own server over SSH, reads the links from the answer part with plain
   text rules, drops Google News redirect links, loopback and private-network URLs, and links the
