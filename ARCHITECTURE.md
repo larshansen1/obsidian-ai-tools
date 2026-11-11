@@ -71,6 +71,8 @@ src/vault_compass/
 ├── notes.py                  # scan + incremental refresh (by file mtime) into compass.duckdb
 ├── topic_map.py              # topic map numbers: summary tiles, momentum, evergreens, per-topic stats
 ├── watcher.py                # startup refresh + file watcher (watchfiles) while serve runs
+├── briefing_parse.py         # briefing files -> links (plain text rules; refuses private hosts)
+├── briefings.py              # pull over SSH, briefing_links table, online check, reading list
 ├── usage.py                  # usage_events table: screen views, actions, AI calls with cost
 ├── db.py                     # in-process lock so reads, refreshes and usage writes never clash
 └── config.py                 # CompassSettings: kai's OBSIDIAN_VAULT_PATH + compass_db_path

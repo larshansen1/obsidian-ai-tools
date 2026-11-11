@@ -1,0 +1,84 @@
+// The reading list built from daily briefings (#197).
+
+export type BriefingRow = {
+  id: string;
+  url: string;
+  // Plain text from an untrusted briefing: render it as text, never as Markdown or HTML.
+  title: string;
+  site: string;
+  date: string;
+  section: string | null;
+  times_seen: number;
+};
+
+export type BriefingGroup = {
+  // null is the "no topic" group.
+  topic_id: string | null;
+  topic_name: string | null;
+  links: BriefingRow[];
+};
+
+// A link kai added to the vault. The server keeps these, so a refresh still shows them.
+export type BriefingAdded = {
+  id: string;
+  title: string;
+  message: string;
+  note_path: string | null;
+  finished_at: string | null;
+};
+
+export type BriefingList = {
+  groups: BriefingGroup[];
+  added: BriefingAdded[];
+  pending_checks: number;
+  last_pull: string | null;
+};
+
+export async function fetchBriefings(): Promise<BriefingList> {
+  const response = await fetch("/api/briefings");
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(typeof detail.detail === "string" ? detail.detail : `Request failed (${response.status})`);
+  }
+  return (await response.json()) as BriefingList;
+}
+
+export async function dismissBriefing(id: string): Promise<void> {
+  const response = await fetch(`/api/briefings/${encodeURIComponent(id)}/dismiss`, { method: "POST" });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(typeof detail.detail === "string" ? detail.detail : `Request failed (${response.status})`);
+  }
+}
+
+// Takes every link off the list for good. Returns how many links were marked.
+export async function processAllBriefings(): Promise<number> {
+  const response = await fetch("/api/briefings/process-all", { method: "POST" });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(typeof detail.detail === "string" ? detail.detail : `Request failed (${response.status})`);
+  }
+  return ((await response.json()) as { count: number }).count;
+}
+
+export function mentions(count: number): string {
+  return count === 1 ? "1 briefing" : `${count} briefings`;
+}
+
+// The list without one link; groups left empty go with it.
+export function withoutLink(list: BriefingList, id: string): BriefingList {
+  const groups = list.groups
+    .map((g) => ({ ...g, links: g.links.filter((l) => l.id !== id) }))
+    .filter((g) => g.links.length > 0);
+  return { ...list, groups };
+}
+
+// Added this visit first (newest first), then the ones the server remembers; each link once.
+export function mergeAdded(server: BriefingAdded[], local: BriefingAdded[]): BriefingAdded[] {
+  const seen = new Set(local.map((a) => a.id));
+  return [...local, ...server.filter((a) => !seen.has(a.id))];
+}
+
+export function linkCount(list: BriefingList): number {
+  return list.groups.reduce((total, g) => total + g.links.length, 0);
+}

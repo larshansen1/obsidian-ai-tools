@@ -4,9 +4,10 @@ Local-only daemon (127.0.0.1), started with: compass serve
 """
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any, Literal
 
 import duckdb
@@ -16,6 +17,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .ai_client import ChatModel, OpenRouterModel
 from .ai_cost import month_spend
+from .briefings import (
+    BriefingList,
+    BriefingsError,
+    BriefingsProcessed,
+    build_list,
+    dismiss,
+    mark_all_processed,
+    pull_and_refresh,
+    pull_due,
+)
 from .chat import STREAM_HEADERS, chat_stream
 from .chat_history import GLOBAL_KEY, load_history, save_history
 from .claims import ClaimsView, build_claims_view, save_chosen_question
@@ -56,6 +67,8 @@ from .vault_writes import (
     undo_write,
 )
 from .watcher import refresh_once, watch_vault
+
+logger = logging.getLogger(__name__)
 
 NOT_SCANNED_DETAIL = "No topic data yet. Run `compass scan` first."
 NO_ANSWER_DETAIL = "This topic has no answer yet. Pick a question and run Sort and summarise."
@@ -242,11 +255,26 @@ def create_app(
     def current() -> CompassSettings:
         return settings if settings is not None else get_compass_settings()
 
+    def _pull_briefings(cfg: CompassSettings) -> None:
+        # Runs on a background thread at start: a failed pull must never stop the app.
+        try:
+            pull_and_refresh(
+                cfg.compass_briefings_remote, cfg.compass_briefings_dir, cfg.compass_db_path
+            )
+        except BriefingsError as e:
+            logger.warning("Briefing pull failed: %s", e)
+        except Exception:
+            logger.exception("Briefing pull crashed")
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         # Refresh before serving, then keep refreshing while the server runs (D7).
         cfg = current()
         await asyncio.to_thread(refresh_once, cfg)
+        if cfg.compass_briefings_remote.strip() and pull_due(
+            cfg.compass_db_path, datetime.now(UTC)
+        ):
+            spawn(lambda: _pull_briefings(cfg))
         stop = asyncio.Event()
         task = asyncio.create_task(watch_vault(cfg, stop))
         try:
@@ -541,6 +569,27 @@ def create_app(
             return _queue().job(job_id)
         except IngestError as e:
             raise HTTPException(status_code=404, detail=str(e)) from None
+
+    # --- Reading list from the daily briefings (#197) ---
+
+    @app.get("/briefings")
+    def briefings() -> BriefingList:
+        cfg = current()
+        try:
+            definitions = load_topics(cfg.compass_topics_path)
+        except TopicsError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from None
+        return build_list(cfg.compass_db_path, definitions)
+
+    @app.post("/briefings/{link_id}/dismiss", status_code=204)
+    def dismiss_briefing(link_id: str) -> Response:
+        if not dismiss(current().compass_db_path, link_id):
+            raise HTTPException(status_code=404, detail="No such link.")
+        return Response(status_code=204)
+
+    @app.post("/briefings/process-all")
+    def process_all_briefings() -> BriefingsProcessed:
+        return BriefingsProcessed(count=mark_all_processed(current().compass_db_path))
 
     @app.post("/topics/{topic_id}/evergreen-draft")
     def start_draft(topic_id: str, request: DraftRequest) -> Draft:

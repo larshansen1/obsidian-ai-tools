@@ -195,6 +195,62 @@ optional except the key, read from the same `.env`:
   real model answers: it has thought itself out of tokens and repeated one letter 2,700 times.
 - Chat history is one thread per topic (plus one shared thread) in the `chat_history` table.
 
+**Reading list from daily briefings (#197).** An agent on a server writes a briefing every morning.
+`compass briefings pull` copies the new files to this machine over SSH, reads the links out of them
+with plain text rules (no model call), drops what the vault has, checks the rest exist online (C7)
+and shows them at `/briefings`: Preview (new tab), Ingest (the W3 send-to-kai job) and Dismiss.
+One-way flow: this machine pulls, the server gets no access and nothing from the vault is sent to it.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `COMPASS_BRIEFINGS_REMOTE` | empty = off | rsync source, e.g. `user@host:/path/to/briefings/`. No host, address or key is ever in the repo |
+| `COMPASS_BRIEFINGS_DIR` | `~/.compass/briefings` | Where pulled files live. Outside the vault on purpose, so Obsidian sync never carries them |
+
+- Code: `briefing_parse.py` (plain text rules), `briefings.py` (pull, table, online check, list).
+  State is in `compass.duckdb`: `briefing_links` (one row per page; status `new`, `ingested`,
+  `dismissed`) and `briefing_runs`. Counts come from the files, so reading them again changes
+  nothing, and a dismissed link stays dismissed after the next pull.
+- Commands: `compass briefings pull` (rsync, then read and check) and `compass briefings parse`
+  (read and check the files already in the folder; another source can drop `.md` files there).
+  With the remote empty, `pull` says the feature is off and does nothing.
+- When it runs: `compass serve` pulls in the background at start when the last pull is older than
+  a day (and a remote is set). Run `compass briefings pull` yourself any time.
+- Format: a briefing holds the job's prompt, then `## Response`, then the answer. Only the answer
+  is read, so a file without that heading has no links. The date is in the file name
+  (`2026-11-10-...md`, else the file's modified date). A link's title is the bold headline that opens
+  its item (`- **Headline** (source) - text [InfoQ](url)`), also for link lines under it, because
+  the link text is only the source name. Without a headline the link text is used. A short bold
+  line on its own, a bold text ending in a colon, or a bold line above a list is a group label,
+  not a headline. Google News redirect links are dropped.
+- Real data (2026-11-11, 138 files, 2,004 links): the first version used the link text and put
+  84% of links in "No topic"; with headlines it is 39% (785 links).
+- Topics: a link joins the topic with the most tags found as whole words in its title; no match
+  puts it in "No topic". Rough on purpose. Measure how many land in "No topic" on real data before
+  asking for a model.
+- Added links: `GET /briefings` also returns `added`, the list's links that kai finished
+  ingesting (newest first, up to 100, from `ingest_jobs`), so the "Added to the vault" box with its
+  "Open note" links survives a page refresh. The page merges this visit's links with these.
+- Start from scratch: the page has "Mark all as processed" (with a confirm step). It calls
+  `POST /briefings/process-all`, which sets every link still `new` to `processed`, checked or not.
+  Dismissed links stay dismissed. Links in later briefings still show up.
+- Online check: a link is shown only after `url_exists` passes. Up to 500 links are checked per
+  run, newest first; the rest wait for the next run. A failed check is repeated after 7 days.
+- **What is untrusted and what leaves the machine.** Briefing text is untrusted: the agent reads
+  the open web, so it can carry planted instructions. Only URL, title, date and section leave the
+  parser; they are cleaned (control characters, emphasis marks, length) and shown as plain text,
+  never as Markdown or HTML. Nothing here calls a model, and the chat does not see the list (if a
+  title is ever sent to a model, that call has no tools). Loopback, private-network, local-name
+  and credentialed URLs are refused when the briefing is read, and a name that resolves to a
+  private address is refused again before the online check. Leaving the machine: ssh and rsync
+  to your own server (read only; symlinks and files over 1 MB are not copied, ssh never prompts),
+  and a HEAD or GET to each link's site, which reveals your IP to that site. No vault content.
+- Server login: use a key that can only read the briefing folder, not an admin login. In the
+  server's `~/.ssh/authorized_keys`:
+  `restrict,command="rrsync -ro /path/to/briefings" ssh-ed25519 AAAA... compass-pull`
+  and set `COMPASS_BRIEFINGS_REMOTE=user@host:/`. `rrsync` ships with rsync.
+- Before calling a briefings change done, run `compass briefings pull` on a copy of your
+  `compass.duckdb` with the real briefings: the format and the "No topic" share only show up there.
+
 **Import rule.** `vault_compass` may import `obsidian_ai_tools`; `obsidian_ai_tools` must never
 import `vault_compass`. `import-linter` enforces this from the `[tool.importlinter]` contract in
 `pyproject.toml`, as a pre-commit hook and a CI step. Run it by hand with `uv run lint-imports`.

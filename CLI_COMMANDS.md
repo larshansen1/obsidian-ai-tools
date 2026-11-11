@@ -11,6 +11,7 @@ Complete reference for all `kai` CLI commands.
   - [process-inbox](#process-inbox)
   - [preview](#preview)
   - [version](#version)
+  - [compass briefings](#compass-briefings)
 
 ---
 
@@ -222,6 +223,34 @@ kai version
 obsidian-ai-tools v1.0.0
 Knowledge AI Tools for Obsidian
 ```
+
+---
+
+### compass briefings
+
+Vault Compass reading list from your daily briefings (`compass`, not `kai`). The web app shows it
+at `/briefings`; nothing enters the vault without a click.
+
+**Setup:** set where the briefings live, in the same `.env` kai uses. Leave it empty to keep the
+feature off.
+
+```bash
+COMPASS_BRIEFINGS_REMOTE=user@host:/path/to/briefings/   # rsync syntax; empty = off
+COMPASS_BRIEFINGS_DIR=~/.compass/briefings               # optional; outside the vault
+```
+
+Use an SSH key that can only read the briefing folder (see DEVELOPMENT.md, "Reading list from
+daily briefings"). Compass pulls from the server; the server never gets access to this machine and
+nothing from the vault is sent to it.
+
+**Usage:**
+```bash
+compass briefings pull    # copy new briefing files over SSH, read the links, check them online
+compass briefings parse   # read the files already in COMPASS_BRIEFINGS_DIR (no SSH)
+```
+
+With `COMPASS_BRIEFINGS_REMOTE` empty, `pull` says the feature is off and does nothing.
+`compass serve` also pulls in the background at start when the last pull is over a day old.
 
 ---
 
